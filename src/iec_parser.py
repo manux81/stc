@@ -195,7 +195,7 @@ class IECParser(Parser):
 #  B.1.2.3.2 Time of day and date #
 ###################################
 
-    @_('PREFIX_TIME_OF_DAY "#" daytime', 'PREFIX_TOD "#" daytime')
+    @_('TIME_OF_DAY "#" daytime', 'TOD "#" daytime')
     def time_of_day(self, p):
         pass
 
@@ -215,7 +215,7 @@ class IECParser(Parser):
     def day_second(self, p):
         pass
  
-    @_('PREFIX_DATE "#" date_literal', 'PREFIX_D "#" date_literal')
+    @_('DATE "#" date_literal', '"D" "#" date_literal')
     def date(self, p):
         pass
  
@@ -235,8 +235,8 @@ class IECParser(Parser):
     def day(self, p):
         pass
  
-    @_('PREFIX_DATE_AND_TIME "#" date_literal "-" daytime',
-       'PREFIX_DT "#" date_literal "-" daytime')
+    @_('DATE_AND_TIME "#" date_literal "-" daytime',
+       'DT "#" date_literal "-" daytime')
     def date_and_time(self, p):
         pass
  
@@ -279,7 +279,7 @@ class IECParser(Parser):
     def real_type_name(self, p):
         pass
 
-    @_('DATE', 'TIME_OF_DATE', 'TOD', 'DATE_AND_TIME', 'DD')
+    @_('DATE', 'TIME_OF_DAY', 'TOD', 'DATE_AND_TIME', 'DT')
     def date_type_name(self, p):
         pass
 
