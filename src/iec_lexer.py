@@ -49,8 +49,11 @@ class IECLexer(Lexer):
         MS, TIME,
     
         SINT, INT, DINT, LINT, USINT,
-        UINT, UDINT, ULINT, REAL, LREAL, DATE, TIME_OF_DATE, TOD, DATE_AND_TIME,
-        DD, BOOL, BYTE, WORD, DWORD, LWORD,
+        UINT, UDINT, ULINT, REAL, LREAL, DATE, TIME_OF_DAY, TOD, DATE_AND_TIME,
+        DT, BOOL, BYTE, WORD, DWORD, LWORD,
+
+        ANY, ANY_DERIVED, ANY_ELEMENTARY, ANY_MAGNITUDE, ANY_NUM, ANY_REAL, ANY_INT, ANY_BIT, ANY_STRING, ANY_DATE,
+
         TYPE, END_TYPE, ASSIGN, DOTDOT, ARRAY, OF, STRUCT, END_STRUCT, STRING, WSTRING,
 
         VAR_INPUT, RETAIN, END_VAR, NON_RETAIN, R_EDGE, F_EDGE, VAR_OUTPUT, VAR_IN_OUT, VAR, CONSTANT, VAR_EXTERNAL, VAR_GLOBAL, AT,
@@ -90,7 +93,7 @@ class IECLexer(Lexer):
 #######################
     MS = r'ms'
     TIME = r'TIME'
-    
+
 ##################################
 #  B.1.3.1 Elementary data types #
 ##################################
@@ -105,16 +108,31 @@ class IECLexer(Lexer):
     REAL = r'REAL'
     LREAL = r'LREAL'
     DATE = r'DATE'
-    TIME_OF_DATE = r'TIME_OF_DATE'
+    TIME_OF_DAY = r'TIME_OF_DAY'
     TOD = r'TOD'
     DATE_AND_TIME = r'DATE_AND_TIME'
-    DD = r'DD'
+    DT = r'DT'
     BOOL = r'BOOL'
     BYTE = r'BYTE'
     WORD = r'WORD'
     DWORD = r'DWORD'
     LWORD = r'LWORD'
     
+
+###############################
+#  B.1.3.2 Generic data types #
+###############################
+    ANY = r'ANY'
+    ANY_DERIVED = r'ANY_DERIVED'
+    ANY_ELEMENTARY = r'ANY_ELEMENTARY'
+    ANY_MAGNITUDE = r'ANY_MAGNITUDE'
+    ANY_NUM = r'ANY_NUM'
+    ANY_REAL = r'ANY_REAL'
+    ANY_INT = r'ANY_INT'
+    ANY_BIT = r'ANY_BIT'
+    ANY_STRING = r'ANY_STRING'
+    ANY_DATE = r'ANY_DATE'
+
 
 ##############################
 # B.1.3.3 Derived data types #
