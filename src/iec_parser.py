@@ -481,7 +481,7 @@ class IECParser(Parser):
 
 
 ##########################################
-# B.1.(4.1 Directly represented variables #
+# B.1.4.1 Directly represented variables #
 ##########################################
     @_('"%" location_prefix size_prefix integer { "." integer }')
     def direct_variable(self, p):
