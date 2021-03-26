@@ -56,6 +56,8 @@ class IECLexer(Lexer):
 
         TYPE, END_TYPE, ASSIGN, DOTDOT, ARRAY, OF, STRUCT, END_STRUCT, STRING, WSTRING,
 
+        NIL,
+
         VAR_INPUT, RETAIN, END_VAR, NON_RETAIN, R_EDGE, F_EDGE, VAR_OUTPUT, VAR_IN_OUT, VAR, CONSTANT, VAR_EXTERNAL, VAR_GLOBAL, AT,
         STANDARD_FUNCTION_NAME, FUNCTION, END_FUNCTION,
 
@@ -64,7 +66,9 @@ class IECLexer(Lexer):
 
         INITIAL_STEP, END_STEP, STEP, SD, DS, SL, TRANSITION, PRIORITY, FROM, TO, END_TRANSITION, ACTION, END_ACTION,
     
-        CONFIGURATION, END_CONFIGURATION, RESOURCE, ON, END_RESOURCE, READ_WRITE, READ_ONLY, TASK, SINGLE, INTERVAL, WITH, SENDTO, VAR_CONFIG
+        CONFIGURATION, END_CONFIGURATION, RESOURCE, ON, END_RESOURCE, READ_WRITE, READ_ONLY, TASK, SINGLE, INTERVAL, WITH, SENDTO, VAR_CONFIG,
+
+        EOL
     }
     ignore = ' \t'
 
@@ -148,6 +152,10 @@ class IECLexer(Lexer):
     STRING = r'STRING'
     WSTRING = r'WSTRING'
 
+###########################################
+# B.1.(4.1 Directly represented variables #
+###########################################
+    NIL = r'\"\"'
     
 ##########################################
 # B.1.4.3 Declaration and initialization #
@@ -225,6 +233,15 @@ class IECLexer(Lexer):
     WITH = r'WITH'
     SENDTO = r'=>'
     VAR_CONFIG = r'VAR_CONFIG'
+
+######################################
+# B.2 Language IL (Instruction List) #
+######################################
+
+###################################
+# B.2.1 Instructions and operands #
+###################################
+    EOL = r'\n'
 
 
 
