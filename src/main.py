@@ -63,7 +63,7 @@ if __name__ == '__main__':
     # Adding optional argument 
     # standard: iec61131-3:ed2, iec61131-3:ed3
     parser.add_argument("-s", "--std", help = "Assume that the input sources are for <standard>.")
-    parser.add_argument("-v", "--version", help = "Display compiler version information.")
+    parser.add_argument("-v", "--version", help = "Display compiler version information.", action = 'store_true')
  
     # Read arguments from command line
     args = parser.parse_args()
@@ -72,7 +72,7 @@ if __name__ == '__main__':
         print("Diplaying Output as: % s" % args.std)
     if args.version:
         print("stc (structured text compiler) 0.1")
-        exit
+        quit()
 
     main()
 
