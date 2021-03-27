@@ -144,7 +144,7 @@ class IECLexer(Lexer):
     TYPE = r'TYPE'
     END_TYPE = r'END_TYPE'
     ASSIGN = r':='
-    DOTDOT = r'..'
+    DOTDOT = r'\.\.'
     ARRAY = r'ARRAY'
     OF = r'OF'
     STRUCT = r'STRUCT'
