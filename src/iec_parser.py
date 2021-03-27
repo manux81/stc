@@ -267,7 +267,7 @@ class IECParser(Parser):
 ##################################
 #  B.1.3.1 Elementary data types #
 ##################################
-    @_('numeric_type_name', 'data_type_name', 'bit_string_type_name', 'STRING', 
+    @_('numeric_type_name', 'date_type_name', 'bit_string_type_name', 'STRING', 
        'WSTRING', 'TIME')
     def elementary_type_name(self, p):
         pass
