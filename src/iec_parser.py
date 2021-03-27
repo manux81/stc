@@ -148,6 +148,19 @@ class IECParser(Parser):
     def double_byte_character_string(self, p):
         pass
 
+    @_('common_character_representation', 'DOLLAR_APC', '"\""', '"$" HEX_DIGIT HEX_DIGIT',)
+    def single_byte_character_representation(self, p):
+        pass
+
+    @_('common_character_representation', 'DOLLAR_QOT', '"\'"', '"$" HEX_DIGIT HEX_DIGIT HEX_DIGIT HEX_DIGIT')
+    def double_byte_character_representation(self, p):
+        pass
+
+    @_('PRINTABLE_CHAR', 'DOLLAR_DOLLAR', 'DOLLAR_L', 'DOLLAR_N', 'DOLLAR_P')
+    def common_character_representation(self, p):
+        pass
+#'$R' | '$T' | '$l' | '$n' | '$p' | '$r' | '$t'
+
 ##########################
 #  B.1.2.3 Time literals #
 ##########################
@@ -744,9 +757,9 @@ class IECParser(Parser):
     def derived_function_name(self, p):
         pass
 
-    @_('FUNCTION derived_function_name ":" elementary_type_name { io_var_declaration } function_body END_FUNCTION',
+    @_('FUNCTION derived_function_name ":" elementary_type_name { io_var_declarations } function_body END_FUNCTION',
        'FUNCTION derived_function_name ":" elementary_type_name { function_var_decls } function_body END_FUNCTION',
-       'FUNCTION derived_function_name ":" derived_type_name { io_var_declaration } function_body END_FUNCTION',
+       'FUNCTION derived_function_name ":" derived_type_name { io_var_declarations } function_body END_FUNCTION',
        'FUNCTION derived_function_name ":" derived_type_name { function_var_decls } function_body END_FUNCTION')
     def function_declaration(self, p):
         pass
@@ -790,8 +803,9 @@ class IECParser(Parser):
     def function_block_declaration(self, p):
         pass
 
+    #NOTE: replaced non_retentive_var_declaclarations to non_retentive_var_decls
     @_('external_var_declarations', 'var_declarations',
-       'retentive_var_declarations', 'non_retentive_var_declarations',
+       'retentive_var_declarations', 'non_retentive_var_decls',
        'temp_var_decls', 'incompl_located_var_declarations')
     def other_var_declarations(self, p):
         pass
@@ -892,7 +906,8 @@ class IECParser(Parser):
     def steps(self, p):
         pass
 
-    @_('":" simple_instruction_list', 'ASSIGN expression ";"')
+    #NOTE: replace simple_instruction_list to simple_instr_list
+    @_('":" simple_instr_list', 'ASSIGN expression ";"')
     def transition_condition(self, p):
         pass
 
@@ -1045,7 +1060,7 @@ class IECParser(Parser):
     def il_simple_operation(self, p):
         pass
 
-    @_('il_expression_operator "(" [ il_operand ] EOL { EOL } [ simple_instr_list ] ")"')
+    @_('il_expr_operator "(" [ il_operand ] EOL { EOL } [ simple_instr_list ] ")"')
     def il_expression(self, p):
         pass
 
@@ -1072,12 +1087,225 @@ class IECParser(Parser):
     def il_operand_list(self, p):
         pass
 
+    @_('il_simple_instruction { il_simple_instruction }')
+    def simple_instr_list(self, p):
+        pass
+
+    @_('il_simple_operation EOL { EOL }', 'il_expression EOL { EOL }', 'il_formal_funct_call EOL { EOL }')
+    def il_simple_instruction(self, p):
+        pass
+
+    @_('{ il_param_instruction } il_param_last_instruction')
+    def il_param_list(self, p):
+        pass
+
+    @_('il_param_assignment "," EOL { EOL }', 'il_param_out_assignment "," EOL { EOL }')
+    def il_param_instruction(self, p):
+        pass
+
+    @_('il_param_assignment EOL { EOL }', 'il_param_out_assignment  EOL { EOL }')
+    def il_param_last_instruction(self, p):
+        pass
+
+    @_('il_assign_operator il_operand', 'il_assign_operator "(" EOL { EOL } simple_instr_list ")"')
+    def il_param_assignment(self, p):
+        pass
+
+    @_('il_assign_out_operator variable')
+    def il_param_out_assignment(self, p):
+        pass
+
+###################
+# B.2.2 Operators #
+###################
+
+    @_('LD', 'LDN', 'ST', 'STN', 'NOT', 'S',
+       'R', 'S1', 'R1', 'CLK', 'CU', 'CD', 'PV',
+       'IN', 'PT', 'il_expr_operator')
+    def il_simple_operator(self, p):
+        pass
+
+    @_('AND', '"&"', 'OR', 'XOR', 'ANDN', 'AN', 'ORN',
+       'XORN', 'ADD', 'SUB', 'MUL', 'DIV', 'MOD', 'GT', 'GE', 'EQ',
+       'LT','LE','NE')
+    def il_expr_operator(self, p):
+        pass
+
+    @_('variable_name ASSIGN')
+    def il_assign_operator(self, p):
+        pass
+
+    @_('[ NOT ] variable_name SENDTO')
+    def il_assign_out_operator(self, p):
+        pass
+
+    @_('CAL', 'CALC', 'CALCN')
+    def il_call_operator(self, p):
+        pass
+
+    @_('RET', 'RETC', 'RETCN')
+    def il_return_operator(self, p):
+        pass
+
+    @_('JMP', 'JMPC', 'JMPCN')
+    def il_jump_operator(self, p):
+        pass
+
+#####################################
+# B.3 Language ST (Structured Text) #
+#####################################
+
+#####################
+# B.3.1 Expressions #
+#####################
+    @_('xor_expression { OR xor_expression }')
+    def expression(self, p):
+        pass
+
+    @_('and_expression  { XOR and_expression }')
+    def xor_expression(self, p):
+        pass
+
+    @_('comparison { "&" comparison } ', 'comparison { AND comparison }')
+    def and_expression(self, p):
+        pass
+
+    @_('equ_expression { "=" equ_expression }')
+    def comparison(self, p):
+        pass
+
+    @_('add_expression { comparison_operator add_expression }')
+    def equ_expression(self, p):
+        pass
+
+    @_('"<"', '">"', 'LE_EQ', 'GE_EQ')
+    def comparison_operator(self, p):
+        pass
+
+    @_('term { add_operator term } ')
+    def add_expression(self, p):
+        pass
+
+    @_('"+"', '"-"')
+    def add_operator(self, p):
+        pass
 
 
+    @_('power_expression { multiply_operator power_expression }')
+    def term(self, p):
+        pass
 
+    @_('"*"', '"/"', 'MOD')
+    def multiply_operator(self, p):
+        pass
 
+    @_('unary_expression { DOUBLESTAR unary_expression }')
+    def power_expression(self, p):
+        pass
+
+    @_('[ unary_operator ] primary_expression')
+    def unary_expression(self, p):
+        pass
+
+    @_('"-"', 'NOT')
+    def unary_operator(self, p):
+        pass
+
+    @_('constant', 'enumerated_value', 'variable', '"(" expression ")"',
+       'function_name "(" param_assignment { "," param_assignment } ")"')
+    def primary_expression(self, p):
+        pass
+
+####################
+# B.3.2 Statements #
+####################
+    @_('statement ";" { statement ";" }')
+    def statement_list(self, p):
+        pass
+
+    @_('NIL', 'assignment_statement', 'subprogram_control_statement',
+       'selection_statement', 'iteration_statement')
+    def statement(self, p):
+        pass
+
+#################################
+# B.3.2.1 Assignment statements #
+#################################
+    @_('variable ASSIGN expression')
+    def assignment_statement(self, p):
+        pass
+
+#########################################
+# B.3.2.2 Subprogram control statements #
+#########################################
+    @_('fb_invocation', 'RETURN')
+    def subprogram_control_statement(self, p):
+        pass
+
+    @_('fb_name "(" [ param_assignment { "," param_assignment } ]')
+    def fb_invocation(self, p):
+        pass
+
+    @_('[ variable_name ASSIGN ] expression',
+       '[ NOT ] variable_name SENDTO variable')
+    def param_assignment(self, p):
+        pass
+
+################################
+# B.3.2.3 Selection statements #
+################################
+    @_('if_statement', 'case_statement')
+    def selection_statement(self, p):
+        pass
+
+    @_('IF expression THEN statement_list { ELSIF expression THEN statement_list } [ ELSE statement_list ] END_IF')
+    def if_statement(self, p):
+        pass
+
+    @_('CASE expression OF case_element { case_element } [ ELSE statement_list ] END_CASE')
+    def case_statement(self, p):
+        pass
+
+    @_('case_list ":" statement_list')
+    def case_element(self, p):
+        pass
+
+    @_('case_list_element { "," case_list_element }')
+    def case_list(self, p):
+        pass
+
+    @_('subrange', 'signed_integer', 'enumerated_value')
+    def case_list_element(self, p):
+        pass
+
+################################
+# B.3.2.4 Iteration statements #
+################################
+
+    @_('for_statement', 'while_statement', 'repeat_statement', 'exit_statement')
+    def iteration_statement(self, p):
+        pass
+
+    @_('FOR control_variable ASSIGN for_list DO statement_list END_FOR')
+    def for_statement(self, p):
+        pass
+
+    @_('IDENTIFIER')
+    def control_variable(self, p):
+        pass
     
+    @_('expression TO expression [ BY expression ]')
+    def for_list(self, p):
+        pass
 
-    
+    @_('WHILE expression DO statement_list END_WHILE')
+    def while_statement(self, p):
+        pass
 
+    @_('REPEAT statement_list UNTIL expression END_REPEAT')
+    def repeat_statement(self, p):
+        pass
 
+    @_('EXIT')
+    def exit_statement(self, p):
+        pass
