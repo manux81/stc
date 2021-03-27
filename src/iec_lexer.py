@@ -24,6 +24,8 @@ __version__ = "0.0.1"
 import re
 from sly import Lexer
 
+
+
 class IECLexer(Lexer):
     def generate_standard_function_name():
         simple_type = {r'SINT', r'INT', r'DINT', r'LINT', r'USINT', r'UINT', r'UDINT', r'ULINT'}
@@ -42,10 +44,14 @@ class IECLexer(Lexer):
 
     reflags = re.IGNORECASE
     tokens = { 
-	LETTER, DIGIT, OCTAL_DIGIT, HEX_DIGIT,
-        IDENTIFIER, MINUS, PLUS, UNDERSCORE, 
+        LETTER, DIGIT,
+        IDENTIFIER, OCTAL_DIGIT, HEX_DIGIT,
+        MINUS, PLUS, UNDERSCORE,
         BIT, BINARY_INTEGER, OCTAL_INTEGER, HEX_INTEGER, INTEGER,
         TRUE,FALSE,
+
+        DOLLAR_APC, DOLLAR_QOT, PRINTABLE_CHAR, DOLLAR_DOLLAR, DOLLAR_L, DOLLAR_N, DOLLAR_P,
+
         MS, TIME,
     
         SINT, INT, DINT, LINT, USINT,
@@ -68,16 +74,25 @@ class IECLexer(Lexer):
     
         CONFIGURATION, END_CONFIGURATION, RESOURCE, ON, END_RESOURCE, READ_WRITE, READ_ONLY, TASK, SINGLE, INTERVAL, WITH, SENDTO, VAR_CONFIG,
 
-        EOL
+        EOL,
+
+        LD, LDN, ST, STN, NOT, S, R, S1, R1, CLK, CU, CD, PV, IN, PT, AND, OR, XOR, ANDN, AN, ORN, XORN, ADD, SUB, MUL, DIV, MOD, GT, GE, EQ, LT, LE, NE, CAL, CALC, CALCN, RET, RETC, RETCN, JMP, JMPC, JMPCN,
+
+        GE_EQ, LE_EQ, DOUBLESTAR,
+
+        RETURN,
+
+        IF, THEN, ELSIF, ELSE, END_IF, CASE, END_CASE,
+
+        FOR, DO, END_FOR, BY, WHILE, END_WHILE, REPEAT, UNTIL, END_REPEAT, EXIT
+
     }
     ignore = ' \t'
-
 
     LETTER = r'[A-Za-z]'
     DIGIT  = r'[0-9]'
     OCTAL_DIGIT = r'[0-7]'
     HEX_DIGIT = r'digit|[A-F]'.format(digit=DIGIT)
-
     IDENTIFIER = r'({letter}|([\_]({letter}|{digit})))(([\_]?({letter}|{digit}))*)'.format(letter=LETTER, digit=DIGIT)
     MINUS   = r'\-'
     PLUS    = r'\+'
@@ -92,6 +107,18 @@ class IECLexer(Lexer):
 ############################
     TRUE = r'TRUE'
     FALSE = r'FALSE'
+
+##############################
+#  B.1.2.2 Character strings #
+##############################
+    DOLLAR_APC = r'\$\''
+    DOLLAR_QOT = r'\$"'
+    PRINTABLE_CHAR = r'ppppppp'
+    DOLLAR_DOLLAR = r'\$\$'
+    DOLLAR_L = r'\$L'
+    DOLLAR_N = r'\$N'
+    DOLLAR_P = r'\$P'
+
 #######################
 #  B.1.2.3.1 Duration #
 #######################
@@ -243,6 +270,88 @@ class IECLexer(Lexer):
 ###################################
     EOL = r'\n'
 
+###################
+# B.2.2 Operators #
+###################
+
+    LD = r'LD'
+    LDN = r'LDN'
+    ST = r'ST'
+    STN = r'STN'
+    NOT = r'NOT'
+    S = r'S',
+    R = r'R'
+    S1 = r'S1'
+    R1 = r'R1'
+    CLK = r'CLK'
+    CU = r'CU'
+    CD = r'CD'
+    PV = r'PV'
+    IN = r'IN'
+    PT = r'PT'
+    AND = r'AND'
+    OR = r'OR'
+    XOR = r'XOR'
+    ANDN = r'ANDN'
+    AN = r'&N'
+    ORN = r'ORN'
+    XORN = r'XORN'
+    ADD = r'ADD'
+    SUB = r'SUB'
+    MUL = r'MUL'
+    DIV = r'DIV'
+    MOD = r'MOD'
+    GT = r'GT'
+    GE = r'GE'
+    EQ = r'EQ'
+    LT = r'LT'
+    LE = r'LE'
+    NE = r'NE'
+    CAL = r'CAL'
+    CALC = r'CALC'
+    CALCN = r'CALCN'
+    RET = r'RET'
+    RETC = r'RETC'
+    RETCN = r'RETCN'
+    JMP = r'JMP'
+    JMPC = r'JMPC'
+    JMPCN = r'JMPCN'
+
+#####################
+# B.3.1 Expressions #
+#####################
+    GE_EQ = r'>='
+    LE_EQ = r'<='
+    DOUBLESTAR = r'\*\*'
+
+#########################################
+# B.3.2.2 Subprogram control statements #
+#########################################
+    RETURN = r'RETURN'
+
+################################
+# B.3.2.3 Selection statements #
+################################
+    IF = r'IF'
+    THEN = r'THEN'
+    ELSIF = r'ELSIF'
+    ELSE = r'ELSE'
+    END_IF = r'END_IF'
+    CASE = r'CASE'
+    END_CASE = r'END_CASE'
+
+
+
+    FOR = r'FOR'
+    DO = r'DO'
+    END_FOR = r'END_FOR'
+    BY = r'BY'
+    WHILE = r'WHILE'
+    END_WHILE = r'END_WHILE'
+    REPEAT = r'REPEAT'
+    UNTIL = r'UNTIL'
+    END_REPEAT = r'END_REPEAT'
+    EXIT = r'EXIT'
 
 
     
