@@ -50,9 +50,11 @@ def main():
         #    print('type=%r, value=%r' % (tok.type, tok.value))
         parser = IECParser()
         result = parser.parse(tokens)
-        print (result)
-        generator = CodeGenerator()
-        generator.visit(result)
+        print(result)
+        if (result != None):
+            generator = CodeGenerator()
+            generator.visit(result)
+            print(generator.text)
 
 
 
