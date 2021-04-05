@@ -9,34 +9,53 @@ class NodeVisitor:
 
     def visit(self, node):
     	#"""Call visit method for current node"""
-        if isinstance(node, tuple):
-            method = 'visit_' + node[0]
-        elif isinstance(node, str):
-            method = 'visit_' + node
-        else:
-            raise Exception('Node is not a valid type.')
-        print("CALL:" + method)
+        method = 'visit_' + node["name"]
+
+        #print("CALL:" + method)
         visitor = getattr(self, method, self.generic_visit)
         visitor(node)
 
     def generic_visit(self, node):
         #"""Called if no explicit visitor function exists for a node."""
-        if isinstance(node[1], list):
-            for item in node[1]:
-                self.visit(item)
-        elif isinstance(node[1], tuple):
-            self.visit(node[1])
+        for child in node["children"]:
+            if child == None:
+                continue
+            self.visit(child)
+
+    def accept(self, node, callback = None):
+        for child in node["children"]:
+            if child == None:
+                continue
+            if callback != None and not callback(child["name"]):
+                continue
+            self.visit(child)
 
 class CodeGenerator(NodeVisitor):
-
+    text = ""
     def __init__(self):
         pass
 
-    def visit_table(self, node):
-        print(node[1])
+    def visit_input_declaration(self, node):
+        self.accept(node)
+        self.text += ";"
 
-    def visit_user(self, node):
-        print(node[1])
+    def visit_var1_init_decl(self, node):
+        self.accept(node, lambda name : name != 'var1_list')
+        self.text += " "
+        self.accept(node, lambda name : name == 'var1_list')
+
+    def visit_var1_list(self, node):
+        for child in node["children"]:
+            self.visit(child)
+            if child != node["children"][-1]:
+                self.text += ","
+
+    def visit_signed_integer_type_name(self, node):
+            self.text += node["value"]
+
+    def visit_variable_name(self, node):
+        self.text += node["value"]
+
 
 
 
