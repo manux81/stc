@@ -1063,12 +1063,13 @@ class IECParser(Parser):
     def instruction_list(self, p):
         pass
 
-    @_('[ label ":" ] [ il_simple_operation ] EOL { EOL }',
-       '[ label ":" ] [ il_expression ] EOL { EOL }',
-       '[ label ":" ] [ il_jump_operation ] EOL { EOL }',
-       '[ label ":" ] [ il_fb_call ] EOL { EOL }',
-       '[ label ":" ] [ il_formal_funct_call ] EOL { EOL }',
-       '[ label ":" ] [ il_return_operator ] EOL { EOL }')
+    @_('[ label ":" ] EOL { EOL }',
+       '[ label ":" ] il_simple_operation EOL { EOL }',
+       '[ label ":" ] il_expression EOL { EOL }',
+       '[ label ":" ] il_jump_operation EOL { EOL }',
+       '[ label ":" ] il_fb_call EOL { EOL }',
+       '[ label ":" ] il_formal_funct_call EOL { EOL }',
+       '[ label ":" ] il_return_operator EOL { EOL }')
     def il_instruction(self, p):
         pass
 
