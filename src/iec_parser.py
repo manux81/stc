@@ -773,7 +773,7 @@ class IECParser(Parser):
     def derived_function_name(self, p):
         pass
 
-    @_('FUNCTION derived_function_name ":" elementary_type_name io_OR_function_var_declarations_list END_FUNCTION',
+    @_('FUNCTION derived_function_name ":" elementary_type_name io_OR_function_var_declarations_list function_body END_FUNCTION',
        'FUNCTION derived_function_name ":" derived_type_name io_OR_function_var_declarations_list function_body END_FUNCTION')
     def function_declaration(self, p):
         return { "name": "function_declaration", "children": { p[1], p[3], p[4], p[5] } }
