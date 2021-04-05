@@ -46,17 +46,21 @@ class IECParser(Parser):
 #########################
 # B.0 Programming model #
 #########################
-    @_('data_type_name', 'function_name',
-       'function_block_type_name', 'program_type_name',
-       'resource_type_name', 'configuration_name')
-    def library_element_name(self, p):
-        pass
+    @_('', 'library library_element_declaration')
+    def library(self, p):
+            return { "name": "library", "children": p }
+
+#    @_('data_type_name', 'function_name',
+#       'function_block_type_name', 'program_type_name',
+#       'resource_type_name', 'configuration_name')
+#    def library_element_name(self, p):
+#        pass
 
     @_('data_type_declaration',
        'function_declaration', 'function_block_declaration',
        'program_declaration', 'configuration_declaration')
     def library_element_declaration(self, p):
-        pass
+        return { "name": "library_element_declaration", "children": p[0] }
 
 ##################
 # B.1.2 Constant #
@@ -256,9 +260,9 @@ class IECParser(Parser):
 #####################
 #  B.1.3 Data types #
 #####################
-    @_('non_generic_type_name', 'generic_type_name')
-    def data_type_name(self, p):
-        pass
+#   @_('non_generic_type_name', 'generic_type_name')
+#   def data_type_name(self, p):
+#       pass
 
     @_('elementary_type_name', 'derived_type_name')
     def non_generic_type_name(self, p):
@@ -270,27 +274,27 @@ class IECParser(Parser):
     @_('numeric_type_name', 'date_type_name', 'bit_string_type_name', 'STRING', 
        'WSTRING', 'TIME')
     def elementary_type_name(self, p):
-        pass
+        return {"name": "elementary_type_name", "children": [ p[0] ]}
 
     @_('integer_type_name', 'real_type_name')
     def numeric_type_name(self, p):
-        pass
+        return {"name": "numeric_type_name", "children": [ p[0] ]}
 
     @_('signed_integer_type_name', 'unsigned_integer_type_name')
     def integer_type_name(self, p):
-        pass
+        return {"name": "integer_type_name", "children": [ p[0] ]}
 
     @_('SINT', 'INT', 'DINT', 'LINT')
     def signed_integer_type_name(self, p):
-        pass
+        return {"name": "signed_integer_type_name", "value": p[0], "children": [ None ]}
 
     @_('USINT', 'UINT', 'UDINT', 'ULINT')
     def unsigned_integer_type_name(self, p):
-        pass
+        return {"name": "unsigned_integer_type_name", "value": p[0], "children": [ None ]}
 
     @_('REAL', 'LREAL')
     def real_type_name(self, p):
-        pass
+        return {"name": "real_type_name", "value": p[0], "children": [ None ]}
 
     @_('DATE', 'TIME_OF_DAY', 'TOD', 'DATE_AND_TIME', 'DT')
     def date_type_name(self, p):
@@ -304,11 +308,11 @@ class IECParser(Parser):
 ###############################
 #  B.1.3.2 Generic data types #
 ###############################
-    @_('ANY', 'ANY_DERIVED', 'ANY_ELEMENTARY',
-       'ANY_MAGNITUDE', 'ANY_NUM', 'ANY_REAL', 'ANY_INT', 'ANY_BIT',
-       'ANY_STRING', 'ANY_DATE')
-    def generic_type_name(self, p):
-        pass
+#    @_('ANY', 'ANY_DERIVED', 'ANY_ELEMENTARY',
+#       'ANY_MAGNITUDE', 'ANY_NUM', 'ANY_REAL', 'ANY_INT', 'ANY_BIT',
+#       'ANY_STRING', 'ANY_DATE')
+#    def generic_type_name(self, p):
+#        pass
 
 ##############################
 # B.1.3.3 Derived data types #
@@ -363,11 +367,14 @@ class IECParser(Parser):
 
     @_('simple_specification [ ASSIGN constant ]')
     def simple_spec_init(self, p):
-        pass
+        if p[1][0] == None:
+            return {"name": "simple_spec_init", "children": [ p[0] ]}
+        return {"name": "simple_spec_init", "children": [ p[0], p[1][1] ]}
+
 
     @_('elementary_type_name', 'simple_type_name')
     def simple_specification(self, p):
-        pass
+        return {"name": "simple_specification", "children": [ p[0] ]}
 
     @_('subrange_type_name ":" subrange_spec_init')
     def subrange_type_declaration(self, p):
@@ -490,7 +497,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def variable_name(self, p):
-        pass
+        return {"name": "variable_name", "value": p[0], "children": [ None ]}
 
 
 ##########################################
@@ -551,11 +558,13 @@ class IECParser(Parser):
     @_('VAR_INPUT [ RETAIN ] input_declaration ";" { input_declaration ";" } END_VAR',
        'VAR_INPUT [ NON_RETAIN ] input_declaration ";" { input_declaration ";" } END_VAR')
     def input_declarations(self, p):
-        pass
+        if p[3] == ';':
+            return { "name": "input_declarations", "value": p[1], "children": [ p[2] ] }
+        return { "name": "input_declarations", "value": p[1], "children": [ p[2], p[3] ] }
 
     @_('var_init_decl', 'edge_declaration')
     def input_declaration(self, p):
-        pass
+        return { "name": "input_declaration", "children": [ p[0] ] }
 
     @_('var1_list ":" BOOL R_EDGE',
        'var1_list ":" BOOL F_EDGE')
@@ -565,17 +574,24 @@ class IECParser(Parser):
     @_('var1_init_decl', 'array_var_init_decl',
         'structured_var_init_decl', 'fb_name_decl', 'string_var_declaration')
     def var_init_decl(self, p):
-        pass
+        return { "name": "var_init_decl", "children": [ p[0] ] }
 
     @_('var1_list ":" simple_spec_init',
        'var1_list ":" subrange_spec_init',
        'var1_list ":" enumerated_spec_init')
     def var1_init_decl(self, p):
-        pass
+        return { "name": "var1_init_decl", "children": [ p[0], p[2] ] }
 
     @_('variable_name { "," variable_name }')
     def var1_list(self, p):
-        pass
+        if (len(p) == 1):
+            return { "name": "var1_list", "children": [ p[0] ] }
+
+        items = [p[0]]
+        for obj in p[1]:
+            items.append(obj[1])
+
+        return { "name": "var1_list", "children": items }
 
     @_('var1_list ":" array_spec_init')
     def array_var_init_decl(self, p):
@@ -757,17 +773,22 @@ class IECParser(Parser):
     def derived_function_name(self, p):
         pass
 
-    @_('FUNCTION derived_function_name ":" elementary_type_name { io_var_declarations } function_body END_FUNCTION',
-       'FUNCTION derived_function_name ":" elementary_type_name { function_var_decls } function_body END_FUNCTION',
-       'FUNCTION derived_function_name ":" derived_type_name { io_var_declarations } function_body END_FUNCTION',
-       'FUNCTION derived_function_name ":" derived_type_name { function_var_decls } function_body END_FUNCTION')
+    @_('FUNCTION derived_function_name ":" elementary_type_name io_OR_function_var_declarations_list END_FUNCTION',
+       'FUNCTION derived_function_name ":" derived_type_name io_OR_function_var_declarations_list function_body END_FUNCTION')
     def function_declaration(self, p):
-        pass
+        return { "name": "function_declaration", "children": { p[1], p[3], p[4], p[5] } }
+
+    @_('io_var_declarations', 'function_var_decls', 'io_OR_function_var_declarations_list io_var_declarations', 'io_OR_function_var_declarations_list function_var_decls')
+    def io_OR_function_var_declarations_list(self, p):
+        items = []
+        for obj in p:
+            items.append(obj)
+        return { "name": "io_OR_function_var_declarations_list", "children": items }
 
     @_('input_declarations', 'output_declarations', 
        'input_output_declarations')
     def io_var_declarations(self, p):
-        pass
+        return { "name": "io_var_declarations", "children": [ p[0] ] }
 
     @_('VAR [ CONSTANT ] var2_init_decl ";" { var2_init_decl ";" } END_VAR')
     def function_var_decls(self, p):

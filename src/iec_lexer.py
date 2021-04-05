@@ -24,7 +24,9 @@ __version__ = "0.0.1"
 import re
 from sly import Lexer
 
-
+LETTER = r'[a-zA-Z]'
+DIGIT  = r'[0-9]'
+OCTAL_DIGIT = r'[0-7]'
 
 class IECLexer(Lexer):
     def generate_standard_function_name():
@@ -43,9 +45,12 @@ class IECLexer(Lexer):
         return ret
 
     reflags = re.IGNORECASE
+    literals = { ':', ',', ';' }
+    ignore = ' \t\n'
     tokens = { 
-        LETTER, DIGIT,
-        IDENTIFIER, OCTAL_DIGIT, HEX_DIGIT,
+        IDENTIFIER,
+        #LETTER, DIGIT, 
+        OCTAL_DIGIT, HEX_DIGIT,
         MINUS, PLUS, UNDERSCORE,
         BIT, BINARY_INTEGER, OCTAL_INTEGER, HEX_INTEGER, INTEGER,
         TRUE,FALSE,
@@ -87,21 +92,8 @@ class IECLexer(Lexer):
         FOR, DO, END_FOR, BY, WHILE, END_WHILE, REPEAT, UNTIL, END_REPEAT, EXIT
 
     }
-    ignore = ' \t'
 
-    LETTER = r'[A-Za-z]'
-    DIGIT  = r'[0-9]'
-    OCTAL_DIGIT = r'[0-7]'
-    HEX_DIGIT = r'digit|[A-F]'.format(digit=DIGIT)
-    IDENTIFIER = r'({letter}|([\_]({letter}|{digit})))(([\_]?({letter}|{digit}))*)'.format(letter=LETTER, digit=DIGIT)
-    MINUS   = r'\-'
-    PLUS    = r'\+'
-    UNDERSCORE = r'\_'
-    INTEGER = r'DIGIT([\_]DIGIT)?'
-    BIT = r'(1|0)'
-    BINARY_INTEGER = r'2#{bit}([\_])?({bit})*'.format(bit=BIT)
-    OCTAL_INTEGER = r'8#{octal_digit}([\_])?({octal_digit})*'.format(octal_digit=OCTAL_DIGIT)
-    HEX_INTEGER = r'16#{hex_digit}([_])?({hex_digit})*'.format(hex_digit=HEX_DIGIT)
+
 ############################
 # B.1.2.1 Numeric literals #
 ############################
@@ -268,7 +260,7 @@ class IECLexer(Lexer):
 ###################################
 # B.2.1 Instructions and operands #
 ###################################
-    EOL = r'\n'
+    EOL = r'\u2029'
 
 ###################
 # B.2.2 Operators #
@@ -352,6 +344,19 @@ class IECLexer(Lexer):
     UNTIL = r'UNTIL'
     END_REPEAT = r'END_REPEAT'
     EXIT = r'EXIT'
+
+    IDENTIFIER = r'([a-zA-Z]|([\_]([a-zA-Z]|[0-9])))(([\_]?([a-zA-Z]|[0-9]))+)'
+    
+    HEX_DIGIT = r'[0-9]|[A-F]'
+    MINUS   = r'\-'
+    PLUS    = r'\+'
+    UNDERSCORE = r'\_'
+    INTEGER = r'[0-9]([\_][0-9])?'
+    BIT = r'(1|0)'
+    BINARY_INTEGER = r'2#(1|0)([\_])?((1|0))*'
+    OCTAL_INTEGER = r'8#[0-7]([\_])?([0-7])*'
+    HEX_INTEGER = r'16#[0-9]|[A-F]([_])?([0-9]|[A-F])*'
+
 
 
     
