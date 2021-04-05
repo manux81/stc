@@ -776,7 +776,7 @@ class IECParser(Parser):
     @_('FUNCTION derived_function_name ":" elementary_type_name io_OR_function_var_declarations_list function_body END_FUNCTION',
        'FUNCTION derived_function_name ":" derived_type_name io_OR_function_var_declarations_list function_body END_FUNCTION')
     def function_declaration(self, p):
-        return { "name": "function_declaration", "children": { p[1], p[3], p[4], p[5] } }
+        return { "name": "function_declaration", "children": [ p[1], p[3], p[4], p[5] ] }
 
     @_('io_var_declarations', 'function_var_decls', 'io_OR_function_var_declarations_list io_var_declarations', 'io_OR_function_var_declarations_list function_var_decls')
     def io_OR_function_var_declarations_list(self, p):
