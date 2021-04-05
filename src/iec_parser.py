@@ -613,8 +613,9 @@ class IECParser(Parser):
     def fb_name(self, p):
         pass
 
-    @_('VAR_OUTPUT [ RETAIN ] var_init_decl ";"  { var_init_decl ";" } END_VAR',
-       'VAR_OUTPUT [ NON_RETAIN ] var_init_decl ";"  { var_init_decl ";" } END_VAR')
+    @_('VAR_OUTPUT var_init_decl ";"  { var_init_decl ";" } END_VAR',
+       'VAR_OUTPUT RETAIN var_init_decl ";"  { var_init_decl ";" } END_VAR',
+       'VAR_OUTPUT NON_RETAIN var_init_decl ";"  { var_init_decl ";" } END_VAR')
     def output_declarations(self, p):
         pass
 
