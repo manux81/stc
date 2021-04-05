@@ -45,7 +45,7 @@ class IECLexer(Lexer):
         return ret
 
     reflags = re.IGNORECASE
-    literals = { ':', ',', ';' }
+    literals = { ':', ',', ';', '+', '-' }
     ignore = ' \t\n'
     tokens = { 
         IDENTIFIER,
@@ -348,8 +348,8 @@ class IECLexer(Lexer):
     IDENTIFIER = r'([a-zA-Z]|([\_]([a-zA-Z]|[0-9])))(([\_]?([a-zA-Z]|[0-9]))+)'
     
     HEX_DIGIT = r'[0-9]|[A-F]'
-    MINUS   = r'\-'
-    PLUS    = r'\+'
+    #MINUS   = r'\-'
+    #PLUS    = r'\+'
     UNDERSCORE = r'\_'
     INTEGER = r'[0-9]([\_][0-9])?'
     BIT = r'(1|0)'
