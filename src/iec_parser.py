@@ -619,8 +619,7 @@ class IECParser(Parser):
     def output_declarations(self, p):
         pass
 
-    @_('VAR_IN_OUT [ RETAIN ] var_declaration ";"  { var_declaration ";" } END_VAR',
-        'VAR_IN_OUT [ NON_RETAIN ] var_declaration ";"  { var_declaration ";" } END_VAR')
+    @_('VAR_IN_OUT var_declaration ";"  { var_declaration ";" } END_VAR')
     def input_output_declarations(self, p):
         pass
 
