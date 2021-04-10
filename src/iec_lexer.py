@@ -22,31 +22,45 @@ __status__ = "Production"
 __version__ = "0.0.1"
 
 import re
-from sly import Lexer
+from typing import SupportsInt
+from lex import Lexer
+
+def generate_standard_function_name():
+    simple_type = {r'SINT', r'INT', r'DINT', r'LINT', r'USINT', r'UINT', r'UDINT', r'ULINT'}
+    ret = r'('
+    for from_type in simple_type:
+        for to_type in simple_type:
+            if from_type != to_type:
+                ret += from_type + r'_TO_' + to_type + r'|'
+    ret = ret[0: -2]
+    ret += r')'
+    return ret
+
+def generate_standard_function_block_name():
+    ret = r'(R_TRIG|F_TRIG)'
+    return ret
+
+STD_FUN = generate_standard_function_name()
+STD_FUN_BLK = generate_standard_function_block_name()
 
 LETTER = r'[a-zA-Z]'
 DIGIT  = r'[0-9]'
 OCTAL_DIGIT = r'[0-7]'
 
+
+
 class IECLexer(Lexer):
-    def generate_standard_function_name():
-        simple_type = {r'SINT', r'INT', r'DINT', r'LINT', r'USINT', r'UINT', r'UDINT', r'ULINT'}
-        ret = r'( '
-        for from_type in simple_type:
-            for to_type in simple_type:
-                if from_type != to_type:
-                    ret += from_type + r'_TO_' + to_type + r' | '
-        ret = ret[0: -2]
-        ret += r')'
-        return ret
-
-    def generate_standard_function_block_name():
-        ret = r'( R_TRIG | F_TRIG )'
-        return ret
-
     reflags = re.IGNORECASE
-    literals = { ':', ',', ';', '+', '-' }
-    ignore = ' \t\n'
+    literals = { ':', ',', ';', '+', '-', '(', ')' }
+    ignore = ' \t'
+
+    # Ignored pattern
+    ignore_newline = r'\n+'
+
+    # Extra action for newlines
+    def ignore_newline(self, t):
+        self.lineno += t.value.count('\n')
+
     tokens = { 
         IDENTIFIER,
         #LETTER, DIGIT, 
@@ -93,12 +107,16 @@ class IECLexer(Lexer):
 
     }
 
+    STANDARD_FUNCTION_NAME = generate_standard_function_name()
+    STANDARD_FUNCTION_BLOCK_NAME = generate_standard_function_block_name()
+    IDENTIFIER = r'([a-zA-Z]|([\_]([a-zA-Z]|[0-9])))(([\_]?([a-zA-Z]|[0-9]))+)'
 
+ 
 ############################
 # B.1.2.1 Numeric literals #
 ############################
-    TRUE = r'TRUE'
-    FALSE = r'FALSE'
+    IDENTIFIER['TRUE'] = TRUE
+    IDENTIFIER['FALSE'] = FALSE
 
 ##############################
 #  B.1.2.2 Character strings #
@@ -114,62 +132,62 @@ class IECLexer(Lexer):
 #######################
 #  B.1.2.3.1 Duration #
 #######################
-    MS = r'ms'
-    TIME = r'TIME'
+    IDENTIFIER['MS'] = MS
+    IDENTIFIER['TIME'] = TIME
 
 ##################################
 #  B.1.3.1 Elementary data types #
 ##################################
-    SINT = r'SINT' 
-    INT = r'INT'
-    DINT = r'DINT'
-    LINT = r'LINT'
-    USINT = r'USINT' 
-    UINT = r'UINT'
-    UDINT = r'UDINT'
-    ULINT = r'ULINT'
-    REAL = r'REAL'
-    LREAL = r'LREAL'
-    DATE = r'DATE'
-    TIME_OF_DAY = r'TIME_OF_DAY'
-    TOD = r'TOD'
-    DATE_AND_TIME = r'DATE_AND_TIME'
-    DT = r'DT'
-    BOOL = r'BOOL'
-    BYTE = r'BYTE'
-    WORD = r'WORD'
-    DWORD = r'DWORD'
-    LWORD = r'LWORD'
+    IDENTIFIER['SINT'] = SINT
+    IDENTIFIER['INT'] = INT
+    IDENTIFIER['DINT'] = DINT
+    IDENTIFIER['LINT'] = LINT
+    IDENTIFIER['USINT'] = USINT
+    IDENTIFIER['UINT'] = UINT
+    IDENTIFIER['UDINT'] = UDINT
+    IDENTIFIER['ULINT'] = ULINT
+    IDENTIFIER['REAL'] = REAL
+    IDENTIFIER['LREAL'] = LREAL
+    IDENTIFIER['DATE'] = DATE
+    IDENTIFIER['TIME_OF_DAY'] = TIME_OF_DAY
+    IDENTIFIER['TOD'] = TOD
+    IDENTIFIER['DATE_AND_TIME'] = DATE_AND_TIME
+    IDENTIFIER['DT'] = DT
+    IDENTIFIER['BOOL'] = BOOL
+    IDENTIFIER['BYTE'] = BYTE
+    IDENTIFIER['WORD'] = WORD
+    IDENTIFIER['DWORD'] = DWORD
+    IDENTIFIER['LWORD'] = LWORD
     
 
 ###############################
 #  B.1.3.2 Generic data types #
 ###############################
-    ANY = r'ANY'
-    ANY_DERIVED = r'ANY_DERIVED'
-    ANY_ELEMENTARY = r'ANY_ELEMENTARY'
-    ANY_MAGNITUDE = r'ANY_MAGNITUDE'
-    ANY_NUM = r'ANY_NUM'
-    ANY_REAL = r'ANY_REAL'
-    ANY_INT = r'ANY_INT'
-    ANY_BIT = r'ANY_BIT'
-    ANY_STRING = r'ANY_STRING'
-    ANY_DATE = r'ANY_DATE'
+    IDENTIFIER['ANY'] = ANY
+    IDENTIFIER['ANY_DERIVED'] = ANY_DERIVED
+    IDENTIFIER['ANY_ELEMENTARY'] = ANY_ELEMENTARY
+    IDENTIFIER['ANY_MAGNITUDE'] = ANY_MAGNITUDE
+    IDENTIFIER['ANY_NUM'] = ANY_NUM
+    IDENTIFIER['ANY_REAL'] = ANY_REAL
+    IDENTIFIER['ANY_INT'] = ANY_INT
+    IDENTIFIER['ANY_BIT'] = ANY_BIT
+    IDENTIFIER['ANY_STRING'] = ANY_STRING
+    IDENTIFIER['ANY_DATE'] = ANY_DATE
 
 
 ##############################
 # B.1.3.3 Derived data types #
 ##############################
-    TYPE = r'TYPE'
-    END_TYPE = r'END_TYPE'
+    IDENTIFIER['TYPE'] = TYPE
+    IDENTIFIER['END_TYPE'] = END_TYPE
     ASSIGN = r':='
     DOTDOT = r'\.\.'
-    ARRAY = r'ARRAY'
-    OF = r'OF'
-    STRUCT = r'STRUCT'
-    END_STRUCT = r'END_STRUCT'
-    STRING = r'STRING'
-    WSTRING = r'WSTRING'
+    IDENTIFIER['ARRAY'] = ARRAY
+    IDENTIFIER['OF'] = OF
+    IDENTIFIER['STRUCT'] = STRUCT
+    IDENTIFIER['END_STRUCT'] = END_STRUCT
+    IDENTIFIER['STRING'] = STRING
+    IDENTIFIER['WSTRING'] = WSTRING
 
 ###########################################
 # B.1.(4.1 Directly represented variables #
@@ -179,19 +197,19 @@ class IECLexer(Lexer):
 ##########################################
 # B.1.4.3 Declaration and initialization #
 ##########################################
-    VAR_INPUT = r'VAR_INPUT'
-    RETAIN = r'RETAIN'
-    END_VAR = r'END_VAR'
-    NON_RETAIN = r'NON_RETAIN'
-    R_EDGE = r'R_EDGE'
-    F_EDGE = r'F_EDGE'
-    VAR_OUTPUT = r'VAR_OUTPUT'
-    VAR_IN_OUT = r'VAR_IN_OUT'
-    VAR = r'VAR'
-    CONSTANT = r'CONSTANT'
-    VAR_EXTERNAL = r'VAR_EXTERNAL'
-    VAR_GLOBAL = r'VAR_GLOBAL'
-    AT = r'AT'
+    IDENTIFIER['VAR_INPUT'] = VAR_INPUT
+    IDENTIFIER['RETAIN'] = RETAIN
+    IDENTIFIER['END_VAR'] = END_VAR
+    IDENTIFIER['NON_RETAIN'] = NON_RETAIN
+    IDENTIFIER['R_EDGE'] = R_EDGE
+    IDENTIFIER['F_EDGE'] = F_EDGE
+    IDENTIFIER['VAR_OUTPUT'] = VAR_OUTPUT
+    IDENTIFIER['VAR_IN_OUT'] = VAR_IN_OUT
+    IDENTIFIER['VAR'] = VAR
+    IDENTIFIER['CONSTANT'] = CONSTANT
+    IDENTIFIER['VAR_EXTERNAL'] = VAR_EXTERNAL
+    IDENTIFIER['VAR_GLOBAL'] = VAR_GLOBAL
+    IDENTIFIER['AT'] = AT
 
 ####################################
 # B.1.5 Program organization units #
@@ -200,58 +218,56 @@ class IECLexer(Lexer):
 #####################
 # B.1.5.1 Functions #
 #####################
-    STANDARD_FUNCTION_NAME = generate_standard_function_name()
-    FUNCTION = r'FUNCTION'
-    END_FUNCTION = r'END_FUNCTION'
+    IDENTIFIER['FUNCTION'] = FUNCTION
+    IDENTIFIER['END_FUNCTION'] = END_FUNCTION
 
 ###########################
 # B.1.5.2 Function blocks #
 ###########################
-    STANDARD_FUNCTION_BLOCK_NAME = generate_standard_function_block_name()
-    FUNCTION_BLOCK = r'FUNCTION_BLOCK'
-    END_FUNCTION_BLOCK = r'END_FUNCTION_BLOCK'
-    VAR_TEMP = r'VAR_TEMP'
+    IDENTIFIER['FUNCTION_BLOCK'] = FUNCTION_BLOCK
+    IDENTIFIER['END_FUNCTION_BLOCK'] = END_FUNCTION_BLOCK
+    IDENTIFIER['VAR_TEMP'] = VAR_TEMP
 
 ####################
 # B.1.5.3 Programs #
 ####################
-    PROGRAM = r'PROGRAM'
-    END_PROGRAM = r'END_PROGRAM'
-    VAR_ACCESS = r'VAR_ACCESS'
+    IDENTIFIER['PROGRAM'] = PROGRAM
+    IDENTIFIER['END_PROGRAM'] = END_PROGRAM
+    IDENTIFIER['VAR_ACCESS'] = VAR_ACCESS
 
 ############################################
 # B.1.6 Sequential function chart elements #
 ############################################
-    INITIAL_STEP = r'INITIAL_STEP'
-    END_STEP = r'END_STEP'
-    STEP = r'STEP'
-    SD = r'SD'
-    DS = r'DS'
-    SL = r'SL'
-    TRANSITION = r'TRANSITION'
-    PRIORITY = r'PRIORITY'
-    FROM = r'FROM'
-    TO = r'TO'
-    END_TRANSITION = r'END_TRANSITION'
-    ACTION = r'ACTION'
-    END_ACTION = r'ACTION'
+    IDENTIFIER['INITIAL_STEP'] = INITIAL_STEP
+    IDENTIFIER['END_STEP'] = END_STEP
+    IDENTIFIER['STEP'] = STEP
+    IDENTIFIER['SD'] = SD
+    IDENTIFIER['DS'] = DS
+    IDENTIFIER['SL'] = SL
+    IDENTIFIER['TRANSITION'] = TRANSITION
+    IDENTIFIER['PRIORITY'] = PRIORITY
+    IDENTIFIER['FROM'] = FROM
+    IDENTIFIER['TO'] = TO
+    IDENTIFIER['END_TRANSITION'] = END_TRANSITION
+    IDENTIFIER['ACTION'] = ACTION
+    IDENTIFIER['END_ACTION'] = END_ACTION
 
 ################################
 # B.1.7 Configuration elements #
 ################################
-    CONFIGURATION = r'CONFIGURATION'
-    END_CONFIGURATION = r'END_CONFIGURATION'
-    RESOURCE = r'RESOURCE'
-    ON = r'ON'
-    END_RESOURCE = r'END_RESOURCE'
-    READ_WRITE = r'READ_WRITE'
-    READ_ONLY = r'READ_ONLY'
-    TASK = r'TASK'
-    SINGLE = r'SINGLE'
-    INTERVAL = r'INTERVAL'
-    WITH = r'WITH'
+    IDENTIFIER['CONFIGURATION'] = CONFIGURATION
+    IDENTIFIER['END_CONFIGURATION'] = END_CONFIGURATION
+    IDENTIFIER['RESOURCE'] = RESOURCE
+    IDENTIFIER['ON'] = ON
+    IDENTIFIER['END_RESOURCE'] = END_RESOURCE
+    IDENTIFIER['READ_WRITE'] = READ_WRITE
+    IDENTIFIER['READ_ONLY'] = READ_ONLY
+    IDENTIFIER['TASK'] = TASK
+    IDENTIFIER['SINGLE'] = SINGLE
+    IDENTIFIER['INTERVAL'] = INTERVAL
+    IDENTIFIER['WITH'] = WITH
     SENDTO = r'=>'
-    VAR_CONFIG = r'VAR_CONFIG'
+    IDENTIFIER['VAR_CONFIG'] = VAR_CONFIG
 
 ######################################
 # B.2 Language IL (Instruction List) #
@@ -266,48 +282,48 @@ class IECLexer(Lexer):
 # B.2.2 Operators #
 ###################
 
-    LD = r'LD'
-    LDN = r'LDN'
-    ST = r'ST'
-    STN = r'STN'
-    NOT = r'NOT'
-    S = r'S',
-    R = r'R'
-    S1 = r'S1'
-    R1 = r'R1'
-    CLK = r'CLK'
-    CU = r'CU'
-    CD = r'CD'
-    PV = r'PV'
-    IN = r'IN'
-    PT = r'PT'
-    AND = r'AND'
-    OR = r'OR'
-    XOR = r'XOR'
-    ANDN = r'ANDN'
-    AN = r'&N'
-    ORN = r'ORN'
-    XORN = r'XORN'
-    ADD = r'ADD'
-    SUB = r'SUB'
-    MUL = r'MUL'
-    DIV = r'DIV'
-    MOD = r'MOD'
-    GT = r'GT'
-    GE = r'GE'
-    EQ = r'EQ'
-    LT = r'LT'
-    LE = r'LE'
-    NE = r'NE'
-    CAL = r'CAL'
-    CALC = r'CALC'
-    CALCN = r'CALCN'
-    RET = r'RET'
-    RETC = r'RETC'
-    RETCN = r'RETCN'
-    JMP = r'JMP'
-    JMPC = r'JMPC'
-    JMPCN = r'JMPCN'
+    IDENTIFIER['LD'] = LD
+    IDENTIFIER['LDN'] = LDN
+    IDENTIFIER['ST'] = ST
+    IDENTIFIER['STN'] = STN
+    IDENTIFIER['NOT'] = NOT
+    IDENTIFIER['S'] = S
+    IDENTIFIER['R'] = R
+    IDENTIFIER['S1'] = S1
+    IDENTIFIER['R1'] = R1
+    IDENTIFIER['CLK'] = CLK
+    IDENTIFIER['CU'] = CU
+    IDENTIFIER['CD'] = CD
+    IDENTIFIER['PV'] = PV
+    IDENTIFIER['IN'] = IN
+    IDENTIFIER['PT'] = PT
+    IDENTIFIER['AND'] = AND
+    IDENTIFIER['OR'] = OR
+    IDENTIFIER['XOR'] = XOR
+    IDENTIFIER['ANDN'] = ANDN
+    IDENTIFIER['&N'] = AN
+    IDENTIFIER['ORN'] = ORN
+    IDENTIFIER['XORN'] = XORN
+    IDENTIFIER['ADD'] = ADD
+    IDENTIFIER['SUB'] = SUB
+    IDENTIFIER['MUL'] = MUL
+    IDENTIFIER['DIV'] = DIV
+    IDENTIFIER['MOD'] = MOD
+    IDENTIFIER['GT'] = GT
+    IDENTIFIER['GE'] = GE
+    IDENTIFIER['EQ'] = EQ
+    IDENTIFIER['LT'] = LT
+    IDENTIFIER['LE'] = LE
+    IDENTIFIER['NE'] = NE
+    IDENTIFIER['CAL'] = CAL
+    IDENTIFIER['CALC'] = CALC
+    IDENTIFIER['CALCN'] = CALCN
+    IDENTIFIER['RET'] = RET
+    IDENTIFIER['RETC'] = RETC
+    IDENTIFIER['RETCN'] = RETCN
+    IDENTIFIER['JMP'] = JMP
+    IDENTIFIER['JMPC'] = JMPC
+    IDENTIFIER['JMPCN'] = JMPCN
 
 #####################
 # B.3.1 Expressions #
@@ -319,34 +335,32 @@ class IECLexer(Lexer):
 #########################################
 # B.3.2.2 Subprogram control statements #
 #########################################
-    RETURN = r'RETURN'
+    IDENTIFIER['RETURN'] = RETURN
 
 ################################
 # B.3.2.3 Selection statements #
 ################################
-    IF = r'IF'
-    THEN = r'THEN'
-    ELSIF = r'ELSIF'
-    ELSE = r'ELSE'
-    END_IF = r'END_IF'
-    CASE = r'CASE'
-    END_CASE = r'END_CASE'
+    IDENTIFIER['IF'] = IF
+    IDENTIFIER['THEN'] = THEN
+    IDENTIFIER['ELSIF'] = ELSIF
+    IDENTIFIER['ELSE'] = ELSE
+    IDENTIFIER['END_IF'] = END_IF
+    IDENTIFIER['CASE'] = CASE
+    IDENTIFIER['END_CASE'] = END_CASE
 
 
 
-    FOR = r'FOR'
-    DO = r'DO'
-    END_FOR = r'END_FOR'
-    BY = r'BY'
-    WHILE = r'WHILE'
-    END_WHILE = r'END_WHILE'
-    REPEAT = r'REPEAT'
-    UNTIL = r'UNTIL'
-    END_REPEAT = r'END_REPEAT'
-    EXIT = r'EXIT'
+    IDENTIFIER['FOR'] = FOR
+    IDENTIFIER['DO'] = DO
+    IDENTIFIER['END_FOR'] = END_FOR
+    IDENTIFIER['BY'] = BY
+    IDENTIFIER['WHILE'] = WHILE
+    IDENTIFIER['END_WHILE'] = END_WHILE
+    IDENTIFIER['REPEAT'] = REPEAT
+    IDENTIFIER['UNTIL'] = UNTIL
+    IDENTIFIER['END_REPEAT'] = END_REPEAT
+    IDENTIFIER['EXIT'] = EXIT
 
-    IDENTIFIER = r'([a-zA-Z]|([\_]([a-zA-Z]|[0-9])))(([\_]?([a-zA-Z]|[0-9]))+)'
-    
     HEX_DIGIT = r'[0-9]|[A-F]'
     #MINUS   = r'\-'
     #PLUS    = r'\+'
@@ -356,6 +370,7 @@ class IECLexer(Lexer):
     BINARY_INTEGER = r'2#(1|0)([\_])?((1|0))*'
     OCTAL_INTEGER = r'8#[0-7]([\_])?([0-7])*'
     HEX_INTEGER = r'16#[0-9]|[A-F]([_])?([0-9]|[A-F])*'
+
 
 
 
