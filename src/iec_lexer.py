@@ -51,7 +51,7 @@ OCTAL_DIGIT = r'[0-7]'
 
 class IECLexer(Lexer):
     reflags = re.IGNORECASE
-    literals = { ':', ',', ';', '+', '-', '(', ')' }
+    literals = { ':', ',', ';', '+', '-', '(', ')', '=' }
     ignore = ' \t'
 
     # Ignored pattern
