@@ -31,9 +31,11 @@ from iec_lexer import IECLexer
 
 
 class IECParser(Parser):
-    start = ''
+    start = 'function_declaration'
     debugfile = 'parser.out'
     tokens = IECLexer.tokens
+
+
 
     def __init__(self, variables: dict = None):
         self.variables = variables or {}
@@ -489,15 +491,16 @@ class IECParser(Parser):
 ###################
     @_('direct_variable', 'symbolic_variable')
     def variable(self, p):
-         pass
+        return {"name": "variable", "children": [ p[0] ]}
 
     @_('variable_name', 'multi_element_variable')
     def symbolic_variable(self, p):
-        pass
+        return {"name": "symbolic_variable", "children": [ p[0] ]}
 
     @_('IDENTIFIER')
     def variable_name(self, p):
         return {"name": "variable_name", "value": p[0], "children": [ None ]}
+
 
 
 ##########################################
@@ -559,8 +562,8 @@ class IECParser(Parser):
        'VAR_INPUT [ NON_RETAIN ] input_declaration ";" { input_declaration ";" } END_VAR')
     def input_declarations(self, p):
         if p[3] == ';':
-            return { "name": "input_declarations", "value": p[1], "children": [ p[2] ] }
-        return { "name": "input_declarations", "value": p[1], "children": [ p[2], p[3] ] }
+            return { "name": "input_declarations", "value": p[1][0], "children": [ p[2] ] }
+        return { "name": "input_declarations", "value": p[1][0], "children": [ p[2], p[3] ] }
 
     @_('var_init_decl', 'edge_declaration')
     def input_declaration(self, p):
@@ -584,9 +587,6 @@ class IECParser(Parser):
 
     @_('variable_name { "," variable_name }')
     def var1_list(self, p):
-        if (len(p) == 1):
-            return { "name": "var1_list", "children": [ p[0] ] }
-
         items = [p[0]]
         for obj in p[1]:
             items.append(obj[1])
@@ -763,15 +763,15 @@ class IECParser(Parser):
 
     @_('standard_function_name', 'derived_function_name')
     def function_name(self, p):
-        pass
+        return { "name": "function_name", "children": [ p[0] ] }
 
     @_('STANDARD_FUNCTION_NAME')
     def standard_function_name(self, p):
-        pass
+        return { "name": "standard_function_name", "value": p[0], "children": [ None ] }
 
     @_('IDENTIFIER')
     def derived_function_name(self, p):
-        pass
+        return { "name": "derived_function_name", "value": p[0], "children": [ None ] }
 
     @_('FUNCTION derived_function_name ":" elementary_type_name io_OR_function_var_declarations_list function_body END_FUNCTION',
        'FUNCTION derived_function_name ":" derived_type_name io_OR_function_var_declarations_list function_body END_FUNCTION')
@@ -796,7 +796,7 @@ class IECParser(Parser):
 
     @_('instruction_list', 'statement_list')
     def function_body(self, p):
-        pass
+        return { "name": "function_body", "children": [ p[0] ] }
 
     @_('var1_init_decl', 'array_var_init_decl',
        'structured_var_init_decl', 'string_var_declaration')
@@ -1182,80 +1182,120 @@ class IECParser(Parser):
 #####################
     @_('xor_expression { OR xor_expression }')
     def expression(self, p):
-        pass
+        items = [p[0]]
+        for obj in p[1]:
+            items.append(obj[1])
+        return { "name": "expression", "children": items }
+
 
     @_('and_expression  { XOR and_expression }')
     def xor_expression(self, p):
-        pass
+        items = [p[0]]
+        for obj in p[1]:
+            items.append(obj[1])
+        return { "name": "xor_expression", "children": items }
 
     @_('comparison { "&" comparison } ', 'comparison { AND comparison }')
     def and_expression(self, p):
-        pass
+        items = [p[0]]
+        for obj in p[1]:
+            items.append(obj[1])
+        return { "name": "and_expression", "children": items }
 
     @_('equ_expression { "=" equ_expression }')
     def comparison(self, p):
-        pass
+        items = [p[0]]
+        for obj in p[1]:
+            items.append(obj[1])
+        return { "name": "comparison", "children": items }
 
     @_('add_expression { comparison_operator add_expression }')
     def equ_expression(self, p):
-        pass
+        items = [p[0]]
+        for obj in p[1]:
+            items.append(obj[1])
+        return { "name": "equ_expression", "children": items }
 
     @_('"<"', '">"', 'LE_EQ', 'GE_EQ')
     def comparison_operator(self, p):
-        pass
+        return { "name": "comparison_operator", "children": [ p[0] ] }
 
     @_('term { add_operator term } ')
     def add_expression(self, p):
-        pass
+        items = [p[0]]
+        for obj in p[1]:
+            tmp = obj[1]
+            tmp["value"] = obj[0]["value"]
+            items.append(tmp)
+        return { "name": "add_expression", "children": items }
 
     @_('"+"', '"-"')
     def add_operator(self, p):
-        pass
+        return { "name": "add_operator", "value": p[0], "children": [ None ] }
 
 
     @_('power_expression { multiply_operator power_expression }')
     def term(self, p):
-        pass
+        items = [p[0]]
+        for obj in p[1]:
+            tmp = obj[1]
+            tmp["value"] = obj[0]["value"]
+            items.append(tmp)
+        return { "name": "term", "children": items }
 
     @_('"*"', '"/"', 'MOD')
     def multiply_operator(self, p):
-        pass
+        return { "name": "multiply_operator", "value": p[0], "children": [ None ] }
 
     @_('unary_expression { DOUBLESTAR unary_expression }')
     def power_expression(self, p):
-        pass
+        items = [p[0]]
+        for obj in p[1]:
+            tmp = obj[1]
+            tmp["value"] = p.DOUBLESTAR
+            items.append(tmp)
+        return { "name": "power_expression", "children": items }
 
     @_('[ unary_operator ] primary_expression')
     def unary_expression(self, p):
-        pass
+        if p[0][0] == None:
+            return { "name": "unary_expression", "value": None, "children": [ p[1] ] }
+        return { "name": "unary_expression", "value": p[0]["value"], "children": [ p[1] ] }
 
     @_('"-"', 'NOT')
     def unary_operator(self, p):
-        pass
+        return { "name": "multiply_operator", "value": p[0], "children": [ None ] }
 
     @_('constant', 'enumerated_value', 'variable', '"(" expression ")"',
        'function_name "(" param_assignment { "," param_assignment } ")"')
     def primary_expression(self, p):
-        pass
+        if len(p) == 1:
+            return { "name": "primary_expression", "children": [ p[0] ] }
+        elif p[0] == '(':
+            return { "name": "primary_expression", "children": [ p[1] ] }
+        return { "name": "primary_expression", "children": [ p[0], p[1], p[3] ] }
 
 ####################
 # B.3.2 Statements #
 ####################
     @_('statement ";" { statement ";" }')
     def statement_list(self, p):
-        pass
+        items = [p[0]]
+        for obj in p[2]:
+            items.append(obj[1])
+        return { "name": "statement_list", "children": items }
 
     @_('NIL', 'assignment_statement', 'subprogram_control_statement',
        'selection_statement', 'iteration_statement')
     def statement(self, p):
-        pass
+        return { "name": "statement", "children": [ p[0] ] }
 
 #################################
 # B.3.2.1 Assignment statements #
 #################################
     @_('variable ASSIGN expression')
     def assignment_statement(self, p):
-        pass
+        return { "name": "assignment_statement", "children": [ p[0] , p[2] ] }
 
 #########################################
 # B.3.2.2 Subprogram control statements #
@@ -1278,11 +1318,12 @@ class IECParser(Parser):
 ################################
     @_('if_statement', 'case_statement')
     def selection_statement(self, p):
-        pass
+        return { "name": "selection_statement", "children": [p[0]] }
 
     @_('IF expression THEN statement_list { ELSIF expression THEN statement_list } [ ELSE statement_list ] END_IF')
     def if_statement(self, p):
-        pass
+        #TODO: complete return
+        return { "name": "if_statement", "children": [p[1], p[3]] }
 
     @_('CASE expression OF case_element { case_element } [ ELSE statement_list ] END_CASE')
     def case_statement(self, p):
@@ -1331,3 +1372,7 @@ class IECParser(Parser):
     @_('EXIT')
     def exit_statement(self, p):
         pass
+
+    def error(self, p):
+        print("Parsing error at token %s" % str(p))
+        exit()
