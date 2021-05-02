@@ -1282,7 +1282,7 @@ class IECParser(Parser):
     def statement_list(self, p):
         items = [p[0]]
         for obj in p[2]:
-            items.append(obj[1])
+            items.append(obj[0])
         return { "name": "statement_list", "children": items }
 
     @_('NIL', 'assignment_statement', 'subprogram_control_statement',
