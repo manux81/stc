@@ -1228,9 +1228,9 @@ class IECParser(Parser):
     def add_expression(self, p):
         items = [p[0]]
         for obj in p[1]:
-            tmp = obj[1]
-            tmp["value"] = obj[0]["value"]
-            items.append(tmp)
+            items.append(obj[0])
+            items.append(obj[1])
+
         return { "name": self.production.name, "children": items }
 
     @_('"+"', '"-"')
