@@ -28,6 +28,7 @@ __version__ = "0.0.1"
 
 from yacc import Parser
 from iec_lexer import IECLexer
+import sys
 
 
 class IECParser(Parser):
@@ -45,12 +46,15 @@ class IECParser(Parser):
     def last_item_on_stack(self):
         return self.stack[-1] if len (self.stack) > 0 else None
 
+    def method_name():
+        return sys._getframe.f_code.co_name
+
 #########################
 # B.0 Programming model #
 #########################
     @_('', 'library library_element_declaration')
     def library(self, p):
-            return { "name": "library", "children": p }
+            return { "name": self.production.name, "children": p }
 
 #    @_('data_type_name', 'function_name',
 #       'function_block_type_name', 'program_type_name',
@@ -62,7 +66,7 @@ class IECParser(Parser):
        'function_declaration', 'function_block_declaration',
        'program_declaration', 'configuration_declaration')
     def library_element_declaration(self, p):
-        return { "name": "library_element_declaration", "children": p[0] }
+        return { "name": self.production.name, "children": p[0] }
 
 ##################
 # B.1.2 Constant #
@@ -70,21 +74,21 @@ class IECParser(Parser):
     @_('numeric_literal', 'character_string', 'time_literal',
        'bit_string_literal', 'boolean_literal')
     def constant(self, p):
-        pass
+        return { "name": self.production.name, "children": [ p[0] ] }
 
 ############################
 # B.1.2.1 Numeric literals #
 ############################
     @_('integer_literal', 'real_literal')
     def numeric_literal(self, p):
-        pass
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('[ integer_type_name "#" ] signed_integer',
        '[ integer_type_name "#" ] binary_integer',
        '[ integer_type_name "#" ] octal_integer',
        '[ integer_type_name "#" ] hex_integer') 
     def integer_literal(self, p):
-        pass
+        return { "name": self.production.name, "value": p[0][1], "children": [ p[1] ] }
 
     @_('"+" integer', '"-" integer')
     def signed_integer(self, p):
@@ -92,7 +96,7 @@ class IECParser(Parser):
 
     @_('INTEGER')
     def integer(self, p):
-        pass
+        return { "name": self.production.name, "value": p[0], "children": [ None ] }
 
     @_('BINARY_INTEGER')
     def binary_integer(self, p):
@@ -125,7 +129,7 @@ class IECParser(Parser):
        '[ LWORD "#" ] integer', '[ LWORD "#" ] binary_integer',
        '[ LWORD "#" ] octal_integer', '[ LWORD "#" ] hex_integer')
     def bit_string_literal(self, p):
-        pass
+        return  { "name": self.production.name, "value": p[0][0], "children": [ p[1] ] }
     # NOTE: see note under the B 1.2.1 section of token
     # and grouping type definition for reason why the use of
     # bit_string_type_name, although seemingly incorrect, is
@@ -276,27 +280,27 @@ class IECParser(Parser):
     @_('numeric_type_name', 'date_type_name', 'bit_string_type_name', 'STRING', 
        'WSTRING', 'TIME')
     def elementary_type_name(self, p):
-        return {"name": "elementary_type_name", "children": [ p[0] ]}
+        return {"name": self.production.name, "children": [ p[0] ]}
 
     @_('integer_type_name', 'real_type_name')
     def numeric_type_name(self, p):
-        return {"name": "numeric_type_name", "children": [ p[0] ]}
+        return {"name": self.production.name, "children": [ p[0] ]}
 
     @_('signed_integer_type_name', 'unsigned_integer_type_name')
     def integer_type_name(self, p):
-        return {"name": "integer_type_name", "children": [ p[0] ]}
+        return {"name": self.production.name, "children": [ p[0] ]}
 
     @_('SINT', 'INT', 'DINT', 'LINT')
     def signed_integer_type_name(self, p):
-        return {"name": "signed_integer_type_name", "value": p[0], "children": [ None ]}
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('USINT', 'UINT', 'UDINT', 'ULINT')
     def unsigned_integer_type_name(self, p):
-        return {"name": "unsigned_integer_type_name", "value": p[0], "children": [ None ]}
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('REAL', 'LREAL')
     def real_type_name(self, p):
-        return {"name": "real_type_name", "value": p[0], "children": [ None ]}
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('DATE', 'TIME_OF_DAY', 'TOD', 'DATE_AND_TIME', 'DT')
     def date_type_name(self, p):
@@ -371,12 +375,12 @@ class IECParser(Parser):
     def simple_spec_init(self, p):
         if p[1][0] == None:
             return {"name": "simple_spec_init", "children": [ p[0] ]}
-        return {"name": "simple_spec_init", "children": [ p[0], p[1][1] ]}
+        return {"name": self.production.name, "children": [ p[0], p[1][1] ]}
 
 
     @_('elementary_type_name', 'simple_type_name')
     def simple_specification(self, p):
-        return {"name": "simple_specification", "children": [ p[0] ]}
+        return {"name": self.production.name, "children": [ p[0] ]}
 
     @_('subrange_type_name ":" subrange_spec_init')
     def subrange_type_declaration(self, p):
@@ -491,15 +495,15 @@ class IECParser(Parser):
 ###################
     @_('direct_variable', 'symbolic_variable')
     def variable(self, p):
-        return {"name": "variable", "children": [ p[0] ]}
+        return {"name": self.production.name, "children": [ p[0] ]}
 
     @_('variable_name', 'multi_element_variable')
     def symbolic_variable(self, p):
-        return {"name": "symbolic_variable", "children": [ p[0] ]}
+        return {"name": self.production.name, "children": [ p[0] ]}
 
     @_('IDENTIFIER')
     def variable_name(self, p):
-        return {"name": "variable_name", "value": p[0], "children": [ None ]}
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
 
 
@@ -562,12 +566,12 @@ class IECParser(Parser):
        'VAR_INPUT [ NON_RETAIN ] input_declaration ";" { input_declaration ";" } END_VAR')
     def input_declarations(self, p):
         if p[3] == ';':
-            return { "name": "input_declarations", "value": p[1][0], "children": [ p[2] ] }
-        return { "name": "input_declarations", "value": p[1][0], "children": [ p[2], p[3] ] }
+            return { "name": self.production.name, "value": p[1][0], "children": [ p[2] ] }
+        return { "name": self.production.name, "value": p[1][0], "children": [ p[2], p[3] ] }
 
     @_('var_init_decl', 'edge_declaration')
     def input_declaration(self, p):
-        return { "name": "input_declaration", "children": [ p[0] ] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('var1_list ":" BOOL R_EDGE',
        'var1_list ":" BOOL F_EDGE')
@@ -577,13 +581,13 @@ class IECParser(Parser):
     @_('var1_init_decl', 'array_var_init_decl',
         'structured_var_init_decl', 'fb_name_decl', 'string_var_declaration')
     def var_init_decl(self, p):
-        return { "name": "var_init_decl", "children": [ p[0] ] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('var1_list ":" simple_spec_init',
        'var1_list ":" subrange_spec_init',
        'var1_list ":" enumerated_spec_init')
     def var1_init_decl(self, p):
-        return { "name": "var1_init_decl", "children": [ p[0], p[2] ] }
+        return { "name": self.production.name, "children": [ p[0], p[2] ] }
 
     @_('variable_name { "," variable_name }')
     def var1_list(self, p):
@@ -591,7 +595,7 @@ class IECParser(Parser):
         for obj in p[1]:
             items.append(obj[1])
 
-        return { "name": "var1_list", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('var1_list ":" array_spec_init')
     def array_var_init_decl(self, p):
@@ -763,32 +767,32 @@ class IECParser(Parser):
 
     @_('standard_function_name', 'derived_function_name')
     def function_name(self, p):
-        return { "name": "function_name", "children": [ p[0] ] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('STANDARD_FUNCTION_NAME')
     def standard_function_name(self, p):
-        return { "name": "standard_function_name", "value": p[0], "children": [ None ] }
+        return { "name": self.production.name, "value": p[0], "children": [ None ] }
 
     @_('IDENTIFIER')
     def derived_function_name(self, p):
-        return { "name": "derived_function_name", "value": p[0], "children": [ None ] }
+        return { "name": self.production.name, "value": p[0], "children": [ None ] }
 
     @_('FUNCTION derived_function_name ":" elementary_type_name io_OR_function_var_declarations_list function_body END_FUNCTION',
        'FUNCTION derived_function_name ":" derived_type_name io_OR_function_var_declarations_list function_body END_FUNCTION')
     def function_declaration(self, p):
-        return { "name": "function_declaration", "children": [ p[1], p[3], p[4], p[5] ] }
+        return { "name": self.production.name, "children": [ p[1], p[3], p[4], p[5] ] }
 
     @_('io_var_declarations', 'function_var_decls', 'io_OR_function_var_declarations_list io_var_declarations', 'io_OR_function_var_declarations_list function_var_decls')
     def io_OR_function_var_declarations_list(self, p):
         items = []
         for obj in p:
             items.append(obj)
-        return { "name": "io_OR_function_var_declarations_list", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('input_declarations', 'output_declarations', 
        'input_output_declarations')
     def io_var_declarations(self, p):
-        return { "name": "io_var_declarations", "children": [ p[0] ] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('VAR [ CONSTANT ] var2_init_decl ";" { var2_init_decl ";" } END_VAR')
     def function_var_decls(self, p):
@@ -796,7 +800,7 @@ class IECParser(Parser):
 
     @_('instruction_list', 'statement_list')
     def function_body(self, p):
-        return { "name": "function_body", "children": [ p[0] ] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('var1_init_decl', 'array_var_init_decl',
        'structured_var_init_decl', 'string_var_declaration')
@@ -1185,7 +1189,7 @@ class IECParser(Parser):
         items = [p[0]]
         for obj in p[1]:
             items.append(obj[1])
-        return { "name": "expression", "children": items }
+        return { "name": self.production.name, "children": items }
 
 
     @_('and_expression  { XOR and_expression }')
@@ -1193,32 +1197,32 @@ class IECParser(Parser):
         items = [p[0]]
         for obj in p[1]:
             items.append(obj[1])
-        return { "name": "xor_expression", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('comparison { "&" comparison } ', 'comparison { AND comparison }')
     def and_expression(self, p):
         items = [p[0]]
         for obj in p[1]:
             items.append(obj[1])
-        return { "name": "and_expression", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('equ_expression { "=" equ_expression }')
     def comparison(self, p):
         items = [p[0]]
         for obj in p[1]:
             items.append(obj[1])
-        return { "name": "comparison", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('add_expression { comparison_operator add_expression }')
     def equ_expression(self, p):
         items = [p[0]]
         for obj in p[1]:
             items.append(obj[1])
-        return { "name": "equ_expression", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('"<"', '">"', 'LE_EQ', 'GE_EQ')
     def comparison_operator(self, p):
-        return { "name": "comparison_operator", "children": [ p[0] ] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('term { add_operator term } ')
     def add_expression(self, p):
@@ -1227,11 +1231,11 @@ class IECParser(Parser):
             tmp = obj[1]
             tmp["value"] = obj[0]["value"]
             items.append(tmp)
-        return { "name": "add_expression", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('"+"', '"-"')
     def add_operator(self, p):
-        return { "name": "add_operator", "value": p[0], "children": [ None ] }
+        return { "name": self.production.name, "value": p[0], "children": [ None ] }
 
 
     @_('power_expression { multiply_operator power_expression }')
@@ -1241,11 +1245,11 @@ class IECParser(Parser):
             tmp = obj[1]
             tmp["value"] = obj[0]["value"]
             items.append(tmp)
-        return { "name": "term", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('"*"', '"/"', 'MOD')
     def multiply_operator(self, p):
-        return { "name": "multiply_operator", "value": p[0], "children": [ None ] }
+        return { "name": self.production.name, "value": p[0], "children": [ None ] }
 
     @_('unary_expression { DOUBLESTAR unary_expression }')
     def power_expression(self, p):
@@ -1254,26 +1258,26 @@ class IECParser(Parser):
             tmp = obj[1]
             tmp["value"] = p.DOUBLESTAR
             items.append(tmp)
-        return { "name": "power_expression", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('[ unary_operator ] primary_expression')
     def unary_expression(self, p):
         if p[0][0] == None:
-            return { "name": "unary_expression", "value": None, "children": [ p[1] ] }
-        return { "name": "unary_expression", "value": p[0]["value"], "children": [ p[1] ] }
+            return { "name": self.production.name, "value": None, "children": [ p[1] ] }
+        return { "name": self.production.name, "value": p[0]["value"], "children": [ p[1] ] }
 
     @_('"-"', 'NOT')
     def unary_operator(self, p):
-        return { "name": "multiply_operator", "value": p[0], "children": [ None ] }
+        return { "name": self.production.name, "value": p[0], "children": [ None ] }
 
     @_('constant', 'enumerated_value', 'variable', '"(" expression ")"',
        'function_name "(" param_assignment { "," param_assignment } ")"')
     def primary_expression(self, p):
         if len(p) == 1:
-            return { "name": "primary_expression", "children": [ p[0] ] }
+            return { "name": self.production.name, "children": [ p[0] ] }
         elif p[0] == '(':
-            return { "name": "primary_expression", "children": [ p[1] ] }
-        return { "name": "primary_expression", "children": [ p[0], p[1], p[3] ] }
+            return { "name": self.production.name, "children": [ p[1] ] }
+        return { "name": self.production.name, "children": [ p[0], p[1], p[3] ] }
 
 ####################
 # B.3.2 Statements #
@@ -1283,19 +1287,19 @@ class IECParser(Parser):
         items = [p[0]]
         for obj in p[2]:
             items.append(obj[0])
-        return { "name": "statement_list", "children": items }
+        return { "name": self.production.name, "children": items }
 
     @_('NIL', 'assignment_statement', 'subprogram_control_statement',
        'selection_statement', 'iteration_statement')
     def statement(self, p):
-        return { "name": "statement", "children": [ p[0] ] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
 #################################
 # B.3.2.1 Assignment statements #
 #################################
     @_('variable ASSIGN expression')
     def assignment_statement(self, p):
-        return { "name": "assignment_statement", "children": [ p[0] , p[2] ] }
+        return { "name": self.production.name, "children": [ p[0] , p[2] ] }
 
 #########################################
 # B.3.2.2 Subprogram control statements #
@@ -1318,12 +1322,18 @@ class IECParser(Parser):
 ################################
     @_('if_statement', 'case_statement')
     def selection_statement(self, p):
-        return { "name": "selection_statement", "children": [p[0]] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('IF expression THEN statement_list { ELSIF expression THEN statement_list } [ ELSE statement_list ] END_IF')
     def if_statement(self, p):
-        #TODO: complete return
-        return { "name": "if_statement", "children": [p[1], p[3]] }
+        items = [p[1], p[3]]
+        # Append elseif
+        for obj in p[4]:
+            items.append(obj[1])
+            items.append(obj[3])
+        if p[5] != 'END_IF':
+            items.append(p[5][1])
+        return { "name": self.production.name, "children": items }
 
     @_('CASE expression OF case_element { case_element } [ ELSE statement_list ] END_CASE')
     def case_statement(self, p):
@@ -1347,11 +1357,11 @@ class IECParser(Parser):
 
     @_('for_statement', 'while_statement', 'repeat_statement', 'exit_statement')
     def iteration_statement(self, p):
-        pass
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('FOR control_variable ASSIGN for_list DO statement_list END_FOR')
     def for_statement(self, p):
-        pass
+        return { "name": self.production.name, "children": [ p[1], p[3], p[5] ] }
 
     @_('IDENTIFIER')
     def control_variable(self, p):
@@ -1363,11 +1373,11 @@ class IECParser(Parser):
 
     @_('WHILE expression DO statement_list END_WHILE')
     def while_statement(self, p):
-        pass
+        return { "name": self.production.name, "children": [ p[1], p[3] ] }
 
     @_('REPEAT statement_list UNTIL expression END_REPEAT')
     def repeat_statement(self, p):
-        pass
+        return { "name": self.production.name, "children": [ p[1], p[3] ] }
 
     @_('EXIT')
     def exit_statement(self, p):

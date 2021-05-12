@@ -43,9 +43,10 @@ def generate_standard_function_block_name():
 STD_FUN = generate_standard_function_name()
 STD_FUN_BLK = generate_standard_function_block_name()
 
-LETTER = r'[a-zA-Z]'
+
 DIGIT  = r'[0-9]'
 OCTAL_DIGIT = r'[0-7]'
+
 
 
 
@@ -63,8 +64,10 @@ class IECLexer(Lexer):
 
     tokens = { 
         IDENTIFIER,
-        #LETTER, DIGIT, 
-        OCTAL_DIGIT, HEX_DIGIT,
+        LETTER, 
+        # DIGIT, 
+        #OCTAL_DIGIt, 
+        HEX_DIGIT,
         MINUS, PLUS, UNDERSCORE,
         BIT, BINARY_INTEGER, OCTAL_INTEGER, HEX_INTEGER, INTEGER,
         TRUE,FALSE,
@@ -110,7 +113,7 @@ class IECLexer(Lexer):
     STANDARD_FUNCTION_NAME = generate_standard_function_name()
     STANDARD_FUNCTION_BLOCK_NAME = generate_standard_function_block_name()
     IDENTIFIER = r'([a-zA-Z]|([\_]([a-zA-Z]|[0-9])))(([\_]?([a-zA-Z]|[0-9]))+)'
-
+    LETTER = r'[a-zA-Z]'
  
 ############################
 # B.1.2.1 Numeric literals #
@@ -361,15 +364,16 @@ class IECLexer(Lexer):
     IDENTIFIER['END_REPEAT'] = END_REPEAT
     IDENTIFIER['EXIT'] = EXIT
 
-    HEX_DIGIT = r'[0-9]|[A-F]'
     #MINUS   = r'\-'
     #PLUS    = r'\+'
     UNDERSCORE = r'\_'
-    INTEGER = r'[0-9]([\_][0-9])?'
+    INTEGER = r'[0-9](([_]?[0-9])*)'
     BIT = r'(1|0)'
-    BINARY_INTEGER = r'2#(1|0)([\_])?((1|0))*'
-    OCTAL_INTEGER = r'8#[0-7]([\_])?([0-7])*'
-    HEX_INTEGER = r'16#[0-9]|[A-F]([_])?([0-9]|[A-F])*'
+    BINARY_INTEGER = r'^2[#](([_]?[0-1])*)'
+    OCTAL_INTEGER = r'^8[#](([_]?[0-7])*)'
+    HEX_INTEGER = r'^16[#](([_]?[A-F]|[0-9])*)'
+    HEX_DIGIT = r'[0-9]|[A-F]'
+
 
 
 
