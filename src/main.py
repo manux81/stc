@@ -39,6 +39,20 @@ class CodeGenerator(NodeVisitor):
         self.accept(node)
         self.text += ";"
 
+    def visit_function_declaration(self, node):
+        self.text += "fn "
+        self.accept(node, lambda name : name == 'derived_function_name')
+        self.text +="("
+        self.accept(node, lambda name : name == 'io_OR_function_var_declarations_list')
+        self.text +=") -> "
+        self.accept(node, lambda name : name == 'elementary_type_name')
+        self.text += "\n{\n"
+        self.accept(node, lambda name : name == 'function_body')
+        self.text += "\n}"
+
+    def visit_derived_function_name(self, node):
+        self.text += node["value"]
+
     def visit_var1_init_decl(self, node):
         self.accept(node, lambda name : name != 'var1_list')
         self.text += " "
