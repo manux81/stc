@@ -22,7 +22,6 @@ __status__ = "Production"
 __version__ = "0.0.1"
 
 
-
 class NodeVisitor:
     def __init__(self):
         pass
