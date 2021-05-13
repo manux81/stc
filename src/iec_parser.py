@@ -32,7 +32,7 @@ import sys
 
 
 class IECParser(Parser):
-    start = 'function_declaration'
+    start = 'library'
     debugfile = 'parser.out'
     tokens = IECLexer.tokens
 
