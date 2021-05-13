@@ -54,7 +54,8 @@ class IECParser(Parser):
 #########################
     @_('', 'library library_element_declaration')
     def library(self, p):
-            return { "name": self.production.name, "children": p }
+        if len(p) > 0:
+            return { "name": self.production.name, "children": [ p[1] ] }
 
 #    @_('data_type_name', 'function_name',
 #       'function_block_type_name', 'program_type_name',
@@ -66,7 +67,7 @@ class IECParser(Parser):
        'function_declaration', 'function_block_declaration',
        'program_declaration', 'configuration_declaration')
     def library_element_declaration(self, p):
-        return { "name": self.production.name, "children": p[0] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
 ##################
 # B.1.2 Constant #
