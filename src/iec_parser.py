@@ -139,7 +139,9 @@ class IECParser(Parser):
 
     @_('[ BOOL "#" ] "1"', '[ BOOL "#" ] "0"', 'TRUE', 'FALSE')
     def boolean_literal(self, p):
-        pass
+        if len(p) == 1:
+            return  { "name": self.production.name, "value": p[0], "children": [ None ] }
+        return  { "name": self.production.name, "value": p[1], "children": [ None ] }
 
 ##############################
 #  B.1.2.2 Character strings #
@@ -305,11 +307,11 @@ class IECParser(Parser):
 
     @_('DATE', 'TIME_OF_DAY', 'TOD', 'DATE_AND_TIME', 'DT')
     def date_type_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('BOOL', 'BYTE', 'WORD', 'DWORD', 'LWORD')
     def bit_string_type_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
 
 ###############################
@@ -335,23 +337,23 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def simple_type_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('IDENTIFIER')
     def subrange_type_name(self, p):
-       pass
+       return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('IDENTIFIER')
     def enumerated_type_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('IDENTIFIER')
     def array_type_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('IDENTIFIER') 
     def structure_type_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('TYPE type_declaration ";" { type_declaration ";" } END_TYPE')
     def data_type_declaration(self, p):
@@ -469,7 +471,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def structure_element_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('"(" structure_element_initialization "," { "," structure_element_initialization } ")"')
     def structure_initialization(self, p):
@@ -484,7 +486,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def string_type_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('string_type_name ":" STRING [ "[" integer "]" ] [ ASSIGN character_string ]',
        'string_type_name ":" WSTRING [ "[" integer "]" ] [ ASSIGN character_string ]')
@@ -556,7 +558,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def field_selector(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
 
 ##########################################
@@ -616,7 +618,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def fb_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('VAR_OUTPUT var_init_decl ";"  { var_init_decl ";" } END_VAR',
        'VAR_OUTPUT RETAIN var_init_decl ";"  { var_init_decl ";" } END_VAR',
@@ -685,7 +687,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def global_var_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('VAR_GLOBAL [ CONSTANT ] global_var_decl ";" { global_var_decl ";" } END_VAR',
        'VAR_GLOBAL [ RETAIN ] global_var_decl ";" { global_var_decl ";" } END_VAR')
@@ -822,7 +824,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def derived_function_block_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('FUNCTION_BLOCK derived_function_block_name { io_var_declarations } function_block_body END_FUNCTION_BLOCK',
        'FUNCTION_BLOCK derived_function_block_name { other_var_declarations } function_block_body END_FUNCTION_BLOCK')
@@ -854,7 +856,7 @@ class IECParser(Parser):
 ####################
     @_('IDENTIFIER')
     def program_type_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('PROGRAM program_type_name { io_var_declarations } function_block_body END_PROGRAM',
        'PROGRAM program_type_name { other_var_declarations } function_block_body END_PROGRAM',
@@ -894,7 +896,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def step_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('action_name "(" [ action_qualifier ] { "," indicator_name } ")"')
     def action_association(self, p):
@@ -902,7 +904,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def action_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('"N"', '"R"', '"S"', '"P"', 'timed_qualifier "," action_time')
     def action_qualifier(self, p):
@@ -926,7 +928,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def transition_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('step_name', '"(" step_name "," step_name { "," step_name } ")"')
     def steps(self, p):
@@ -946,11 +948,11 @@ class IECParser(Parser):
 ################################
     @_('IDENTIFIER')
     def configuration_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('IDENTIFIER')
     def resource_type_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('CONFIGURATION configuration_name [ global_var_declarations ] single_resource_declaration [ access_declarations ] [ instance_specific_initializations ] END_CONFIGURATION',
        'CONFIGURATION configuration_name [ global_var_declarations ] resource_declaration { resource_declaration } [ access_declarations ] [ instance_specific_initializations ] END_CONFIGURATION')
@@ -967,7 +969,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def resource_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('VAR_ACCESS access_declaration ";" { access_declaration ";" } END_VAR')
     def access_declarations(self, p):
@@ -988,7 +990,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def access_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('program_name "." symbolic_variable')
     def program_output_reference(self, p):
@@ -996,7 +998,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def program_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('READ_WRITE', 'READ_ONLY')
     def direction(self, p):
@@ -1008,7 +1010,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def task_name(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('"(" [ SINGLE ASSIGN data_source "," ] [ INTERVAL ASSIGN data_source "," ] PRIORITY ASSIGN integer ")"')
     def task_initialization(self, p):
@@ -1080,7 +1082,7 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def label(self, p):
-        pass
+        return {"name": self.production.name, "value": p[0], "children": [ None ]}
 
     @_('il_simple_operator [ il_operand ]',
        'function_name [ il_operand_list ]')
