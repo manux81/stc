@@ -1327,7 +1327,7 @@ class IECParser(Parser):
     def selection_statement(self, p):
         return { "name": self.production.name, "children": [ p[0] ] }
 
-    @_('IF expression THEN statement_list elseif_statement_list [ else_statement_list ] END_IF')
+    @_('IF expression THEN statement_list elseif_statement_list [ else_statement ] END_IF')
     def if_statement(self, p):
         items = [p[1], p[3], p[4]]
         if p[5] != 'END_IF':
@@ -1346,7 +1346,7 @@ class IECParser(Parser):
         return { "name": self.production.name, "children": [ p[1], p[3] ] }
 
     @_('ELSE statement_list')
-    def else_statement_list(self, p):
+    def else_statement(self, p):
         return { "name": self.production.name, "children": [ p[1] ] }
 
     @_('CASE expression OF case_element { case_element } [ ELSE statement_list ] END_CASE')
