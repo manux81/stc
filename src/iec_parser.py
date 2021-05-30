@@ -1327,16 +1327,27 @@ class IECParser(Parser):
     def selection_statement(self, p):
         return { "name": self.production.name, "children": [ p[0] ] }
 
-    @_('IF expression THEN statement_list { ELSIF expression THEN statement_list } [ ELSE statement_list ] END_IF')
+    @_('IF expression THEN statement_list elseif_statement_list [ else_statement_list ] END_IF')
     def if_statement(self, p):
-        items = [p[1], p[3]]
-        # Append elseif
-        for obj in p[4]:
-            items.append(obj[1])
-            items.append(obj[3])
+        items = [p[1], p[3], p[4]]
         if p[5] != 'END_IF':
-            items.append(p[5][1])
+            items.append(p[5][0])
         return { "name": self.production.name, "children": items }
+
+    @_('{ elseif_statement }')
+    def elseif_statement_list(self, p):
+        items = [ ]
+        for obj in p[0]:
+            items.append(obj[0])
+        return { "name": self.production.name, "children": items }
+
+    @_('ELSIF expression THEN statement_list')
+    def elseif_statement(self, p):
+        return { "name": self.production.name, "children": [ p[1], p[3] ] }
+
+    @_('ELSE statement_list')
+    def else_statement_list(self, p):
+        return { "name": self.production.name, "children": [ p[1] ] }
 
     @_('CASE expression OF case_element { case_element } [ ELSE statement_list ] END_CASE')
     def case_statement(self, p):
