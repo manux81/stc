@@ -24,21 +24,28 @@ __version__ = "0.0.1"
 from nodevisitor import NodeVisitor
 
 
-class RustCodeGenerator(NodeVisitor):
-    text = ""
+class CCodeGenerator(NodeVisitor):
+    text = "#include <stdint.h>\n"
+    indent = ""
 
     def __init__(self):
         pass
 
-    def iecType2Rust(self, typein):
-        conv = {"SINT": "i8" , "INT": "i16", "DINT": "i32", "LINT": "i64",
-                "USINT": "u8", "UINT": "u16", "UDINT": "u32", "ULINT": "u64",
-                "REAL" : "f32", "LREAL": "f64",
-                "BOOL": "bool", "BYTE": "u8", "WORD": "u16", "DWORD": "u32", "LWORD": "u64",
+    def iecType2C(self, typein):
+        conv = {"SINT": "int8_t" , "INT": "int16_t", "DINT": "int32_t", "LINT": "int64_t",
+                "USINT": "uint8_t", "UINT": "uint16_t", "UDINT": "uint32_t", "ULINT": "uint64_t",
+                "REAL" : "float", "LREAL": "double",
+                "BOOL": "bool", "BYTE": "uint8_t", "WORD": "uint16_t", "DWORD": "uint32_t", "LWORD": "uint64_t",
         }
         if conv.__contains__(typein.upper()):
             return conv[typein.upper()]
-        
+
+
+    def indent_inc(self):
+        self.indent += " "
+
+    def indent_dec(self):
+        self.indent = self.indent[:-1]
 
 #########################
 # B.0 Programming model #
@@ -51,6 +58,9 @@ class RustCodeGenerator(NodeVisitor):
 ############################
 # B.1.2.1 Numeric literals #
 ############################
+    def visit_integer(self, node):
+        self.text += " " + node["value"] + " "
+
     def visit_boolean_literal(self, node):
         self.text += " " + node["value"] + " "
 
@@ -73,16 +83,16 @@ class RustCodeGenerator(NodeVisitor):
 #  B.1.3.1 Elementary data types #
 ##################################
     def visit_signed_integer_type_name(self, node):
-        self.text += self.iecType2Rust(node["value"])
+        self.text += self.iecType2C(node["value"])
 
     def visit_unsigned_integer_type_name(self, node):
-        self.text += self.iecType2Rust(node["value"])
+        self.text += self.iecType2C(node["value"])
 
     def visit_real_type_name(self, node):
-        self.text += self.iecType2Rust(node["value"])
+        self.text += self.iecType2C(node["value"])
 
     def visit_bit_string_type_name(self, node):
-        self.text += self.iecType2Rust(node["value"])
+        self.text += self.iecType2C(node["value"])
 
 ###############################
 #  B.1.3.2 Generic data types #
@@ -128,15 +138,17 @@ class RustCodeGenerator(NodeVisitor):
         self.text += node["value"]
 
     def visit_function_declaration(self, node):
-        self.text += "fn "
+        self.accept(node, lambda name: name == 'elementary_type_name')
+        self.text += " "
         self.accept(node, lambda name: name == 'derived_function_name')
         self.text += "("
         self.accept(node, lambda name: name ==
                     'io_OR_function_var_declarations_list')
-        self.text += ") -> "
-        self.accept(node, lambda name: name == 'elementary_type_name')
+        self.text += ")"
         self.text += "\n{\n"
+        self.indent_inc()
         self.accept(node, lambda name: name == 'function_body')
+        self.indent_dec()
         self.text += "\n}"
 
 ###########################
@@ -207,6 +219,7 @@ class RustCodeGenerator(NodeVisitor):
 # B.3.2.1 Assignment statements #
 #################################
     def visit_assignment_statement(self, node):
+        self.text += self.indent
         self.accept(node, lambda name: name == 'variable')
         self.text += " = "
         self.accept(node, lambda name: name == 'expression')
@@ -221,17 +234,48 @@ class RustCodeGenerator(NodeVisitor):
 ################################
 # B.3.2.3 Selection statements #
 ################################
+    def visit_if_statement(self, node):
+        self.text += self.indent + "if ("
+        self.accept(node, lambda name: name == 'expression')
+        self.text += ") { \n"
+        self.indent_inc()
+        self.accept(node, lambda name: name == 'statement_list')
+        self.indent_dec()
+        self.text += "\n } \n"
+        self.accept(node, lambda name: name == 'elseif_statement_list')
+        self.accept(node, lambda name: name == 'else_statement_list')
+
+    def visit_elseif_statement(self, node):
+        self.text += self.indent +"else if ("
+        self.accept(node, lambda name: name == 'expression')
+        self.text += ") { \n"
+        self.indent_inc()
+        self.accept(node, lambda name: name == 'statement_list')
+        self.indent_dec()
+        self.text += "\n" + self.indent + "} \n"
+
+    def visit_else_statement(self, node):
+        self.text += "else "
+        self.text += " { \n"
+        self.accept(node, lambda name: name == 'statement_list')
+        self.text += " } \n"
+
+
+
+
 
 ################################
 # B.3.2.4 Iteration statements #
 ################################
     def visit_while_statement(self, node):
-        self.text += "while "
+        self.text += self.indent + "while ("
         self.visit(node["children"][0])
         #TODO: Replace while true with loop
-        self.text += " {\n"
+        self.text += ") {\n"
+        self.indent_inc()
         self.visit(node["children"][1])
-        self.text += "}"
+        self.indent_dec()
+        self.text += self.indent + "}"
 
 
 
