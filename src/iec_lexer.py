@@ -69,7 +69,7 @@ class IECLexer(Lexer):
         #OCTAL_DIGIt, 
         HEX_DIGIT,
         MINUS, PLUS, UNDERSCORE,
-        BIT, BINARY_INTEGER, OCTAL_INTEGER, HEX_INTEGER, INTEGER,
+        BIT, BINARY_INTEGER, OCTAL_INTEGER, HEX_INTEGER, REAL_VALUE, INTEGER,
         TRUE,FALSE,
 
         DOLLAR_APC, DOLLAR_QOT, PRINTABLE_CHAR, DOLLAR_DOLLAR, DOLLAR_L, DOLLAR_N, DOLLAR_P,
@@ -82,7 +82,7 @@ class IECLexer(Lexer):
 
         ANY, ANY_DERIVED, ANY_ELEMENTARY, ANY_MAGNITUDE, ANY_NUM, ANY_REAL, ANY_INT, ANY_BIT, ANY_STRING, ANY_DATE,
 
-        TYPE, END_TYPE, ASSIGN, DOTDOT, ARRAY, OF, STRUCT, END_STRUCT, STRING, WSTRING,
+        TYPE, END_TYPE, ASSIGN, DOTDOT, SHARP, ARRAY, OF, STRUCT, END_STRUCT, STRING, WSTRING,
 
         NIL,
 
@@ -185,6 +185,7 @@ class IECLexer(Lexer):
     IDENTIFIER['END_TYPE'] = END_TYPE
     ASSIGN = r':='
     DOTDOT = r'\.\.'
+    SHARP = r'\#'
     IDENTIFIER['ARRAY'] = ARRAY
     IDENTIFIER['OF'] = OF
     IDENTIFIER['STRUCT'] = STRUCT
@@ -366,7 +367,9 @@ class IECLexer(Lexer):
 
     #MINUS   = r'\-'
     #PLUS    = r'\+'
+
     UNDERSCORE = r'\_'
+    REAL_VALUE = r'[+-]?\d(_?\d)*\.\d(_?\d)*(E[+-]?\d(_?\d)*)?'
     INTEGER = r'[0-9](([_]?[0-9])*)'
     BIT = r'(1|0)'
     BINARY_INTEGER = r'^2[#](([_]?[0-1])*)'

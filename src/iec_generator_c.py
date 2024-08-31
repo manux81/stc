@@ -151,6 +151,9 @@ class CCodeGenerator(NodeVisitor):
         self.indent_dec()
         self.text += "\n}"
 
+    def visit_var2_init_decl(self, node):
+        pass
+
 ###########################
 # B.1.5.2 Function blocks #
 ###########################

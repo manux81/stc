@@ -73,9 +73,9 @@ class Token(object):
     '''
     Representation of a single token.
     '''
-    __slots__ = ('type', 'value', 'lineno', 'index')
+    __slots__ = ('type', 'value', 'lineno', 'index', 'column')
     def __repr__(self):
-        return f'Token(type={self.type!r}, value={self.value!r}, lineno={self.lineno}, index={self.index})'
+        return f'Token(type={self.type!r}, value={self.value!r}, lineno={self.lineno}, index={self.index}, column={self.column})'
 
 class TokenStr(str):
     @staticmethod
@@ -407,6 +407,8 @@ class Lexer(metaclass=LexerMeta):
                 tok = Token()
                 tok.lineno = lineno
                 tok.index = index
+                tok.column = index - text.rfind('\n', 0, index)
+
                 m = _master_re.match(text, index)
                 if m:
                     index = m.end()
@@ -459,6 +461,7 @@ class Lexer(metaclass=LexerMeta):
             self.text = text
             self.index = index
             self.lineno = lineno
+            self.column = index - text.rfind('\n', 0, index)
 
     # Default implementations of the error handler. May be changed in subclasses
     def error(self, t):
