@@ -581,9 +581,10 @@ class IECParser(Parser):
     @_('VAR_INPUT [ RETAIN ] input_declaration ";" { input_declaration ";" } END_VAR',
        'VAR_INPUT [ NON_RETAIN ] input_declaration ";" { input_declaration ";" } END_VAR')
     def input_declarations(self, p):
-        if p[3] == ';':
-            return { "name": self.production.name, "value": p[1][0], "children": [ p[2] ] }
-        return { "name": self.production.name, "value": p[1][0], "children": [ p[2], p[3] ] }
+        declarations = [p[2]]
+        if p[4]:
+            declarations += [item[0] for item in p[4]]
+        return { "name": self.production.name, "value": p[1][0], "children": declarations }
 
     @_('var_init_decl', 'edge_declaration')
     def input_declaration(self, p):
@@ -1252,7 +1253,7 @@ class IECParser(Parser):
 
     @_('"<"', '">"', 'LE_EQ', 'GE_EQ')
     def comparison_operator(self, p):
-        return { "name": self.production.name, "children": [ p[0] ] }
+        return { "name": self.production.name, "value": p[0], "children": [ ] }
 
     @_('term { add_operator term } ')
     def add_expression(self, p):
@@ -1426,6 +1427,8 @@ class IECParser(Parser):
         pass
 
     def error(self, p):
+        if p is None:
+            raise SyntaxError("unexpected end of input")
         p.value = "error"
 
         #if p:

@@ -1,34 +1,23 @@
 import argparse
+import json
+import sys
+
+from iec_generator_c import CCodeGenerator
+from iec_generator_rust import RustCodeGenerator
 from iec_lexer import IECLexer
 from iec_parser import IECParser
-from iec_generator_rust import RustCodeGenerator
-from iec_generator_c import CCodeGenerator
-import json
+
+
+VERSION = "0.2.0"
+
 
 def print_tree(node, indent=""):
-    """
-    Stampa un albero di nodi con 'name' in grassetto rosso, 'value' in grassetto blu, e 'children' in grassetto verde.
-
-    Args:
-        node (dict, list, or other): Il nodo da stampare, che può essere un dizionario, una lista, o un altro tipo di dato.
-        indent (str): Stringa di indentazione per la visualizzazione gerarchica.
-    """
-    # Codici ANSI per i colori e il testo in grassetto
-    RED_BOLD = "\033[1;31m"
-    BLUE_BOLD = "\033[1;34m"
-    GREEN_BOLD = "\033[1;32m"
-    RESET = "\033[0m"
-
     if isinstance(node, dict):
-        name = node.get('name', 'Unnamed')
-        value = node.get('value', 'None')
-        children = node.get('children', [])
-
-        # Stampa con colori e formattazione
-        print(f"{indent}{RED_BOLD}Name:{RESET} {name} "
-              f"- {BLUE_BOLD}Value:{RESET} {value} "
-              f"- {GREEN_BOLD}Children:{RESET} {len(children)}")
-
+        name = node.get("name", "Unnamed")
+        value = node.get("value")
+        children = node.get("children", [])
+        suffix = f" = {value}" if value is not None else ""
+        print(f"{indent}{name}{suffix}")
         for child in children:
             print_tree(child, indent + "  ")
     elif isinstance(node, list):
@@ -38,85 +27,102 @@ def print_tree(node, indent=""):
         print(f"{indent}{node}")
 
 
-
-
-
-def main():
+def parse_source(source):
     lexer = IECLexer()
-
-    while True:
-        #text = input(">>> ")
-        text = '''
-        function inter : INT 
-        var_input 
-            a_1, b_1: int; 
-            test: BOOL;
-        end_var
-        var
-            ff: int;
-        end_var
-            test := TRUE;
-            if a_1 = b_1 then
-              a_1 := 70_9;
-            elsif b_1 = 1 then
-              b_1 := INT#10;
-            end_if;
-            inter := a_1 + b_1;
-            while true do
-               b1 := b1 + REAL#+10.0e-1;
-            end_while;
-        end_function
-        '''
-        tokens = lexer.tokenize(text)
-        # for tok in tokens:
-        #    print('%r:%r %r\t{%r}' % (tok.lineno, tok.index, tok.type, tok.value))
-        parser = IECParser()
-        try:
-            result = parser.parse(tokens)
-        except SyntaxError as e:
-            print(str(e))
-            exit()
-        # Pretty print the result
-        if result:
-            print_tree(result)
-        else:
-            print(parser.error)
-
-        if result is not None:
-
-            if args.gnd is not None and args.gnd.strip() == "Rust":
-                generator = RustCodeGenerator()
-            else:
-                generator = CCodeGenerator()
-
-            generator.visit(result)
-            print(generator.text)
-        else:
-            print(parser.error)
-        exit()
+    parser = IECParser()
+    tokens = lexer.tokenize(source)
+    return parser.parse(tokens)
 
 
-if __name__ == '__main__':
-    # Initialize parser
-    parser = argparse.ArgumentParser()
-    # Adding optional argumegeneratorTypent
-    # standard: iec61131-3:ed2, iec61131-3:ed3
+def generate(source, target):
+    ast = parse_source(source)
+    if ast is None:
+        raise SyntaxError("Unable to parse source.")
+
+    if target == "ast":
+        return json.dumps(ast, indent=2)
+    if target == "tree":
+        return ast
+
+    generator = RustCodeGenerator() if target == "rust" else CCodeGenerator()
+    generator.visit(ast)
+    return generator.text.rstrip() + "\n"
+
+
+def read_source(path):
+    if path == "-":
+        return sys.stdin.read()
+    with open(path, "r", encoding="utf-8") as source_file:
+        return source_file.read()
+
+
+def build_arg_parser():
+    parser = argparse.ArgumentParser(
+        prog="stc",
+        description="IEC 61131-3 Structured Text compiler front-end.",
+    )
     parser.add_argument(
-        "-s", "--std", help="Assume that the input sources are for <standard>.")
-
+        "source",
+        nargs="?",
+        default="-",
+        help="Structured Text source file. Use '-' or omit to read stdin.",
+    )
     parser.add_argument(
-        "-g", "--gnd", nargs='?', help="Assume that the output format is for <generator>.")
-
+        "-g",
+        "--generator",
+        choices=("c", "rust", "ast", "tree"),
+        default="c",
+        help="Output generator.",
+    )
     parser.add_argument(
-        "-v", "--version", help="Display compiler version information.", action='store_true')
+        "-o",
+        "--output",
+        help="Write generated output to this file instead of stdout.",
+    )
+    parser.add_argument(
+        "-s",
+        "--std",
+        default="iec61131-3:ed3",
+        help="IEC standard dialect marker accepted for compatibility.",
+    )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="store_true",
+        help="Display compiler version information.",
+    )
+    return parser
 
-    # Read arguments from command line
-    args = parser.parse_args()
 
-    if args.std:
-        print("Diplaying Output as: % s" % args.std)
+def main(argv=None):
+    arg_parser = build_arg_parser()
+    args = arg_parser.parse_args(argv)
+
     if args.version:
-        print("stc (structured text compiler) 0.1")
-        quit()
+        print(f"stc {VERSION}")
+        return 0
 
-    main()
+    try:
+        source = read_source(args.source)
+        result = generate(source, args.generator)
+    except OSError as exc:
+        print(f"stc: {exc}", file=sys.stderr)
+        return 2
+    except SyntaxError as exc:
+        print(f"stc: syntax error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.generator == "tree":
+        print_tree(result)
+        return 0
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as output_file:
+            output_file.write(result)
+    else:
+        print(result, end="")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

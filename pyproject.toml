@@ -1,0 +1,9 @@
+[project]
+name = "stc"
+version = "0.2.0"
+description = "IEC 61131-3 Structured Text compiler front-end"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
