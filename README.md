@@ -33,6 +33,15 @@ python3 src/main.py examples/inter.st -g c --no-semantic-check
 
 Use `-` or omit the source path to read from stdin.
 
+Syntax errors include the unexpected token, line/column, source line, and a
+caret:
+
+```text
+stc: syntax error: unexpected token at line 6, column 9 near IDENTIFIER('broken')
+        broken := value_in;
+        ^
+```
+
 ## Tests
 
 ```sh

@@ -30,7 +30,7 @@ def print_tree(node, indent=""):
 
 def parse_source(source):
     lexer = IECLexer()
-    parser = IECParser()
+    parser = IECParser().set_source(source)
     tokens = lexer.tokenize(source)
     return parser.parse(tokens)
 

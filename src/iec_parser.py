@@ -30,13 +30,34 @@ from yacc import Parser
 from iec_lexer import IECLexer
 import sys
 
-class ParsingError(Exception):
-    def __init__(self, message, line):
+class ParsingError(SyntaxError):
+    def __init__(self, message, line=None, column=None, source_line=None, token_type=None, token_value=None):
         super().__init__(message)
         self.line = line
+        self.column = column
+        self.source_line = source_line
+        self.token_type = token_type
+        self.token_value = token_value
 
     def __str__(self):
-        return f"{self.args[0]} at line {self.line}"
+        parts = [self.args[0]]
+        if self.line is not None:
+            location = f"line {self.line}"
+            if self.column is not None:
+                location += f", column {self.column}"
+            parts.append(f"at {location}")
+        if self.token_type:
+            token = self.token_type
+            if self.token_value is not None:
+                token += f"({self.token_value!r})"
+            parts.append(f"near {token}")
+
+        message = " ".join(parts)
+        if self.source_line:
+            message += f"\n{self.source_line}"
+            if self.column is not None and self.column > 0:
+                message += f"\n{' ' * (self.column - 1)}^"
+        return message
 
 class IECParser(Parser):
     start = 'library'
@@ -48,6 +69,11 @@ class IECParser(Parser):
     def __init__(self, variables: dict = None):
         self.variables = variables or {}
         self.stack = []
+        self.source_text = ""
+
+    def set_source(self, source_text):
+        self.source_text = source_text or ""
+        return self
 
     @property
     def last_item_on_stack(self):
@@ -79,6 +105,22 @@ class IECParser(Parser):
             "value": value,
             "children": [],
         }]
+
+    def _source_line(self, lineno):
+        if not self.source_text or lineno is None or lineno < 1:
+            return None
+        lines = self.source_text.splitlines()
+        if lineno > len(lines):
+            return None
+        return lines[lineno - 1]
+
+    def _eof_location(self):
+        if not self.source_text:
+            return 1, 1, None
+        lines = self.source_text.splitlines()
+        if not lines:
+            return 1, 1, ""
+        return len(lines), len(lines[-1]) + 1, lines[-1]
 
 
 #########################
@@ -1458,11 +1500,24 @@ class IECParser(Parser):
 
     def error(self, p):
         if p is None:
-            raise SyntaxError("unexpected end of input")
-        p.value = "error"
+            line, column, source_line = self._eof_location()
+            raise ParsingError(
+                "unexpected end of input",
+                line=line,
+                column=column,
+                source_line=source_line,
+            )
 
-        #if p:
-        #    print(f"Syntax error token '{p.value}' at line {p.lineno}.")
-        #else:
-        #    print("Syntax error at the end of file.")
-        #exit()
+        line = getattr(p, "lineno", None)
+        column = getattr(p, "column", None)
+        token_type = getattr(p, "type", None)
+        token_value = getattr(p, "value", None)
+        source_line = self._source_line(line)
+        raise ParsingError(
+            "unexpected token",
+            line=line,
+            column=column,
+            source_line=source_line,
+            token_type=token_type,
+            token_value=token_value,
+        )

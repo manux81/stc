@@ -114,6 +114,37 @@ END_FUNCTION
         self.assertIn("semantic error", result.stderr)
         self.assertIn("missing_var", result.stderr)
 
+    def test_syntax_error_reports_line_column_and_caret(self):
+        source = """\
+FUNCTION broken : INT
+VAR_INPUT
+    value_in: INT;
+END_VAR
+    IF value_in = 1
+        broken := value_in;
+    END_IF;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "ast", check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("syntax error", result.stderr)
+        self.assertIn("line 6, column", result.stderr)
+        self.assertIn("broken := value_in;", result.stderr)
+        self.assertIn("^", result.stderr)
+
+    def test_syntax_error_reports_unexpected_eof(self):
+        source = """\
+FUNCTION broken : INT
+VAR_INPUT
+    value_in: INT;
+END_VAR
+    broken := value_in;
+"""
+        result = run_stc_input(source, "-g", "ast", check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unexpected end of input", result.stderr)
+        self.assertIn("line 5, column", result.stderr)
+
     def test_ast_output_does_not_require_semantic_validity(self):
         source = """\
 FUNCTION bad : INT
