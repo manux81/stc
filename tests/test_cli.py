@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "src" / "main.py"
 SAMPLE = ROOT / "examples" / "inter.st"
+AST_COVERAGE = ROOT / "tools" / "ast_coverage.py"
 
 
 def run_stc(*args):
@@ -80,6 +81,19 @@ END_FUNCTION
         result = run_stc_input(source, "-g", "ast")
         ast = json.loads(result.stdout)
         self.assertEqual(ast["name"], "library")
+
+    def test_ast_coverage_reports_placeholders(self):
+        result = subprocess.run(
+            [sys.executable, str(AST_COVERAGE)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("parser_methods=", result.stdout)
+        self.assertIn("placeholders=", result.stdout)
 
 
 if __name__ == "__main__":

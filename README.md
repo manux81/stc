@@ -59,6 +59,13 @@ grammar productions are present as placeholders and still need typed nodes,
 source spans, semantic symbols, and deterministic diagnostics before the tree
 can be treated as a compiler-grade IR.
 
+Use the parser coverage audit to track that work:
+
+```sh
+python3 tools/ast_coverage.py
+python3 tools/ast_coverage.py --list
+```
+
 ## Roadmap
 
 1. Replace dict-based AST nodes with typed nodes carrying source spans.
