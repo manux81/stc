@@ -21,6 +21,18 @@ def run_stc(*args):
     )
 
 
+def run_stc_input(source, *args, check=True):
+    return subprocess.run(
+        [sys.executable, str(MAIN), "-", *args],
+        cwd=ROOT,
+        input=source,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=check,
+    )
+
+
 class CLITests(unittest.TestCase):
     def test_ast_output_is_json(self):
         result = run_stc(str(SAMPLE), "-g", "ast")
@@ -41,6 +53,33 @@ class CLITests(unittest.TestCase):
         )
         self.assertTrue(result.stdout.rstrip().endswith("}"))
         self.assertNotIn("INT#10", result.stdout)
+
+    def test_code_generation_reports_undeclared_variables(self):
+        source = """\
+FUNCTION bad : INT
+VAR_INPUT
+    a: INT;
+END_VAR
+    bad := a + missing_var;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "c", check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("semantic error", result.stderr)
+        self.assertIn("missing_var", result.stderr)
+
+    def test_ast_output_does_not_require_semantic_validity(self):
+        source = """\
+FUNCTION bad : INT
+VAR_INPUT
+    a: INT;
+END_VAR
+    bad := a + missing_var;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "ast")
+        ast = json.loads(result.stdout)
+        self.assertEqual(ast["name"], "library")
 
 
 if __name__ == "__main__":

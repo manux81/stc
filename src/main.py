@@ -6,6 +6,7 @@ from iec_generator_c import CCodeGenerator
 from iec_generator_rust import RustCodeGenerator
 from iec_lexer import IECLexer
 from iec_parser import IECParser
+from semantic import SemanticAnalyzer, SemanticError
 
 
 VERSION = "0.2.0"
@@ -34,7 +35,7 @@ def parse_source(source):
     return parser.parse(tokens)
 
 
-def generate(source, target):
+def generate(source, target, check_semantics=True):
     ast = parse_source(source)
     if ast is None:
         raise SyntaxError("Unable to parse source.")
@@ -43,6 +44,9 @@ def generate(source, target):
         return json.dumps(ast, indent=2)
     if target == "tree":
         return ast
+
+    if check_semantics:
+        SemanticAnalyzer().analyze(ast)
 
     generator = RustCodeGenerator() if target == "rust" else CCodeGenerator()
     generator.visit(ast)
@@ -91,6 +95,11 @@ def build_arg_parser():
         action="store_true",
         help="Display compiler version information.",
     )
+    parser.add_argument(
+        "--no-semantic-check",
+        action="store_true",
+        help="Skip semantic checks before code generation.",
+    )
     return parser
 
 
@@ -104,12 +113,16 @@ def main(argv=None):
 
     try:
         source = read_source(args.source)
-        result = generate(source, args.generator)
+        result = generate(source, args.generator, not args.no_semantic_check)
     except OSError as exc:
         print(f"stc: {exc}", file=sys.stderr)
         return 2
     except SyntaxError as exc:
         print(f"stc: syntax error: {exc}", file=sys.stderr)
+        return 1
+    except SemanticError as exc:
+        for diagnostic in exc.diagnostics:
+            print(f"stc: semantic error: {diagnostic}", file=sys.stderr)
         return 1
 
     if args.generator == "tree":

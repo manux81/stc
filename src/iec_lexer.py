@@ -112,7 +112,7 @@ class IECLexer(Lexer):
 
     STANDARD_FUNCTION_NAME = generate_standard_function_name()
     STANDARD_FUNCTION_BLOCK_NAME = generate_standard_function_block_name()
-    IDENTIFIER = r'([a-zA-Z]|([\_]([a-zA-Z]|[0-9])))(([\_]?([a-zA-Z]|[0-9]))+)'
+    IDENTIFIER = r'[a-zA-Z_][a-zA-Z0-9_]*'
     LETTER = r'[a-zA-Z]'
  
 ############################
@@ -382,7 +382,6 @@ class IECLexer(Lexer):
 
 
     
-
 
 
 

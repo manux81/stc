@@ -17,6 +17,7 @@ the supported subset.
 - Assignments, `IF` / `ELSIF` / `ELSE`, `WHILE`, and `REPEAT`.
 - C and Rust code generation for the supported function subset.
 - JSON AST output for downstream tooling and regression tests.
+- Minimal semantic checks for undeclared variables before code generation.
 
 ## Usage
 
@@ -25,6 +26,7 @@ python3 src/main.py examples/inter.st -g ast
 python3 src/main.py examples/inter.st -g c
 python3 src/main.py examples/inter.st -g rust
 python3 src/main.py examples/inter.st -g c -o build/inter.c
+python3 src/main.py examples/inter.st -g c --no-semantic-check
 ```
 
 Use `-` or omit the source path to read from stdin.
@@ -48,6 +50,14 @@ STruC++ and matiec:
 This repository is not at that level yet. The next steps are deliberately
 foundation-first so compatibility can be expanded without repeatedly rewriting
 the frontend.
+
+## AST status
+
+The current AST is intentionally limited. It is a dictionary-based parse tree
+for the implemented function subset, not yet a complete IEC 61131-3 AST. Many
+grammar productions are present as placeholders and still need typed nodes,
+source spans, semantic symbols, and deterministic diagnostics before the tree
+can be treated as a compiler-grade IR.
 
 ## Roadmap
 
