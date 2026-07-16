@@ -68,6 +68,13 @@ python3 tools/ast_coverage.py
 python3 tools/ast_coverage.py --list
 ```
 
+When an Annex B text extraction is available at `tmp/pdfs/annex_b.txt`, the
+parser can also be checked against the IEC 61131-3:2003 production names:
+
+```sh
+python3 tools/parser_doc_audit.py
+```
+
 ## Roadmap
 
 1. Replace dict-based AST nodes with typed nodes carrying source spans.

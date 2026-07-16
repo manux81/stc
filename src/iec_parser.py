@@ -89,11 +89,11 @@ class IECParser(Parser):
         if len(p) > 0:
             return { "name": self.production.name, "children": [ p[1] ] }
 
-#    @_('data_type_name', 'function_name',
-#       'function_block_type_name', 'program_type_name',
-#       'resource_type_name', 'configuration_name')
-#    def library_element_name(self, p):
-#        pass
+    @_('data_type_name', 'function_name',
+       'function_block_type_name', 'program_type_name',
+       'resource_type_name', 'configuration_name')
+    def library_element_name(self, p):
+        return self._node_from_production(p)
 
     @_('data_type_declaration',
        'function_declaration', 'function_block_declaration',
@@ -306,9 +306,9 @@ class IECParser(Parser):
 #####################
 #  B.1.3 Data types #
 #####################
-#   @_('non_generic_type_name', 'generic_type_name')
-#   def data_type_name(self, p):
-#       pass
+    @_('non_generic_type_name', 'generic_type_name')
+    def data_type_name(self, p):
+        return self._node_from_production(p)
 
     @_('elementary_type_name', 'derived_type_name')
     def non_generic_type_name(self, p):
@@ -354,11 +354,11 @@ class IECParser(Parser):
 ###############################
 #  B.1.3.2 Generic data types #
 ###############################
-#    @_('ANY', 'ANY_DERIVED', 'ANY_ELEMENTARY',
-#       'ANY_MAGNITUDE', 'ANY_NUM', 'ANY_REAL', 'ANY_INT', 'ANY_BIT',
-#       'ANY_STRING', 'ANY_DATE')
-#    def generic_type_name(self, p):
-#        pass
+    @_('ANY', 'ANY_DERIVED', 'ANY_ELEMENTARY',
+       'ANY_MAGNITUDE', 'ANY_NUM', 'ANY_REAL', 'ANY_INT', 'ANY_BIT',
+       'ANY_STRING', 'ANY_DATE')
+    def generic_type_name(self, p):
+        return {"name": self.production.name, "value": p[0], "children": [ ]}
 
 ##############################
 # B.1.3.3 Derived data types #
@@ -550,7 +550,8 @@ class IECParser(Parser):
 ##########################################
 # B.1.4.1 Directly represented variables #
 ##########################################
-    @_('"%" location_prefix size_prefix integer { "." integer }')
+    @_('DIRECT_VARIABLE',
+       '"%" location_prefix size_prefix integer { "." integer }')
     def direct_variable(self, p):
         return self._node_from_production(p)
 
@@ -1261,12 +1262,17 @@ class IECParser(Parser):
             items.append(obj[1])
         return { "name": self.production.name, "children": items }
 
-    @_('equ_expression { "=" equ_expression }')
+    @_('equ_expression { comparison_equality_operator equ_expression }')
     def comparison(self, p):
         items = [p[0]]
         for obj in p[1]:
+            items.append(obj[0])
             items.append(obj[1])
         return { "name": self.production.name, "children": items }
+
+    @_('"="', 'NEQ')
+    def comparison_equality_operator(self, p):
+        return { "name": self.production.name, "value": p[0], "children": [ ] }
 
     @_('add_expression { comparison_operator add_expression }')
     def equ_expression(self, p):

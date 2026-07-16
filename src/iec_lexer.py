@@ -52,7 +52,10 @@ OCTAL_DIGIT = r'[0-7]'
 
 class IECLexer(Lexer):
     reflags = re.IGNORECASE
-    literals = { ':', ',', ';', '+', '-', '(', ')', '=' }
+    literals = {
+        ':', ',', ';', '+', '-', '(', ')', '=', '[', ']', '%', '.',
+        '*', '/', '<', '>', '&',
+    }
     ignore = ' \t'
 
     # Ignored pattern
@@ -67,7 +70,7 @@ class IECLexer(Lexer):
         LETTER, 
         # DIGIT, 
         #OCTAL_DIGIt, 
-        HEX_DIGIT,
+        HEX_DIGIT, DIRECT_VARIABLE,
         MINUS, PLUS, UNDERSCORE,
         BIT, BINARY_INTEGER, OCTAL_INTEGER, HEX_INTEGER, REAL_VALUE, INTEGER,
         TRUE,FALSE,
@@ -100,7 +103,7 @@ class IECLexer(Lexer):
 
         LD, LDN, ST, STN, NOT, S, R, S1, R1, CLK, CU, CD, PV, IN, PT, AND, OR, XOR, ANDN, AN, ORN, XORN, ADD, SUB, MUL, DIV, MOD, GT, GE, EQ, LT, LE, NE, CAL, CALC, CALCN, RET, RETC, RETCN, JMP, JMPC, JMPCN,
 
-        GE_EQ, LE_EQ, DOUBLESTAR,
+        GE_EQ, LE_EQ, NEQ, DOUBLESTAR,
 
         RETURN,
 
@@ -197,6 +200,7 @@ class IECLexer(Lexer):
 # B.1.(4.1 Directly represented variables #
 ###########################################
     NIL = r'\"\"'
+    DIRECT_VARIABLE = before("IDENTIFIER", r'%[IQM]([XBWDL])?[0-9]([.][0-9]+)*')
     
 ##########################################
 # B.1.4.3 Declaration and initialization #
@@ -334,6 +338,7 @@ class IECLexer(Lexer):
 #####################
     GE_EQ = r'>='
     LE_EQ = r'<='
+    NEQ = r'<>'
     DOUBLESTAR = r'\*\*'
 
 #########################################
@@ -372,9 +377,9 @@ class IECLexer(Lexer):
     REAL_VALUE = r'[+-]?\d(_?\d)*\.\d(_?\d)*(E[+-]?\d(_?\d)*)?'
     INTEGER = r'[0-9](([_]?[0-9])*)'
     BIT = r'(1|0)'
-    BINARY_INTEGER = r'^2[#](([_]?[0-1])*)'
-    OCTAL_INTEGER = r'^8[#](([_]?[0-7])*)'
-    HEX_INTEGER = r'^16[#](([_]?[A-F]|[0-9])*)'
+    BINARY_INTEGER = before("INTEGER", r'2[#][0-1](([_]?[0-1])*)')
+    OCTAL_INTEGER = before("INTEGER", r'8[#][0-7](([_]?[0-7])*)')
+    HEX_INTEGER = before("INTEGER", r'16[#]([A-F]|[0-9])(([_]?([A-F]|[0-9]))*)')
     HEX_DIGIT = r'[0-9]|[A-F]'
 
 
@@ -382,10 +387,6 @@ class IECLexer(Lexer):
 
 
     
-
-
-
-
 
 
 

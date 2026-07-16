@@ -129,7 +129,11 @@ class RustCodeGenerator(NodeVisitor):
         self._join_children(node, " && ")
 
     def visit_comparison(self, node):
-        self._join_children(node, " == ")
+        self._visit_infix(node)
+
+    def visit_comparison_equality_operator(self, node):
+        op = {"=": "==", "NEQ": "!=", "<>": "!="}.get(node["value"], node["value"])
+        self.text += f" {op} "
 
     def visit_equ_expression(self, node):
         self._visit_infix(node)

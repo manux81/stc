@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "src" / "main.py"
 SAMPLE = ROOT / "examples" / "inter.st"
 AST_COVERAGE = ROOT / "tools" / "ast_coverage.py"
+PARSER_DOC_AUDIT = ROOT / "tools" / "parser_doc_audit.py"
+ANNEX_B = ROOT / "tmp" / "pdfs" / "annex_b.txt"
 
 
 def run_stc(*args):
@@ -54,6 +56,48 @@ class CLITests(unittest.TestCase):
         )
         self.assertTrue(result.stdout.rstrip().endswith("}"))
         self.assertNotIn("INT#10", result.stdout)
+
+    def test_generators_emit_not_equal_operator(self):
+        source = """\
+FUNCTION differs : BOOL
+VAR_INPUT
+    left_value, right_value: INT;
+END_VAR
+    differs := left_value <> right_value;
+END_FUNCTION
+"""
+        c_result = run_stc_input(source, "-g", "c")
+        rust_result = run_stc_input(source, "-g", "rust")
+        self.assertIn("left_value != right_value", c_result.stdout)
+        self.assertIn("left_value != right_value", rust_result.stdout)
+
+    def test_ast_accepts_based_integer_literals(self):
+        source = """\
+FUNCTION based_literals : INT
+VAR_INPUT
+    value_in: INT;
+END_VAR
+    based_literals := 2#1010 + 16#0A;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "ast")
+        ast = json.loads(result.stdout)
+        text = json.dumps(ast)
+        self.assertIn("binary_integer", text)
+        self.assertIn("hex_integer", text)
+
+    def test_ast_accepts_direct_variables(self):
+        source = """\
+FUNCTION direct_read : INT
+VAR_INPUT
+    fallback_value: INT;
+END_VAR
+    direct_read := %IW0;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "ast")
+        ast = json.loads(result.stdout)
+        self.assertIn("direct_variable", json.dumps(ast))
 
     def test_code_generation_reports_undeclared_variables(self):
         source = """\
@@ -116,6 +160,20 @@ END_FUNCTION_BLOCK
         self.assertEqual(result.returncode, 0)
         self.assertIn("parser_methods=", result.stdout)
         self.assertIn("placeholders=0", result.stdout)
+
+    def test_parser_doc_audit_reports_no_missing_parser_productions(self):
+        if not ANNEX_B.exists():
+            self.skipTest("Annex B text extraction is not available")
+        result = subprocess.run(
+            [sys.executable, str(PARSER_DOC_AUDIT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("missing_from_parser=0", result.stdout)
 
 
 if __name__ == "__main__":
