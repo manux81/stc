@@ -13,8 +13,16 @@ def parser_methods(source_path):
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == "IECParser":
             for item in node.body:
-                if isinstance(item, ast.FunctionDef) and item.name != "__init__":
+                if isinstance(item, ast.FunctionDef) and is_production(item):
                     yield item
+
+
+def is_production(method):
+    for decorator in method.decorator_list:
+        if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Name):
+            if decorator.func.id == "_":
+                return True
+    return False
 
 
 def is_placeholder(method):

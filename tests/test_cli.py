@@ -82,7 +82,29 @@ END_FUNCTION
         ast = json.loads(result.stdout)
         self.assertEqual(ast["name"], "library")
 
-    def test_ast_coverage_reports_placeholders(self):
+    def test_ast_output_covers_type_declarations(self):
+        result = run_stc_input("TYPE MyInt : INT; END_TYPE\n", "-g", "ast")
+        ast = json.loads(result.stdout)
+        text = json.dumps(ast)
+        self.assertIn("data_type_declaration", text)
+        self.assertIn("simple_type_declaration", text)
+
+    def test_ast_output_covers_function_blocks(self):
+        source = """\
+FUNCTION_BLOCK Counter
+VAR_INPUT
+    x : INT;
+END_VAR
+    x := x + 1;
+END_FUNCTION_BLOCK
+"""
+        result = run_stc_input(source, "-g", "ast")
+        ast = json.loads(result.stdout)
+        text = json.dumps(ast)
+        self.assertIn("function_block_declaration", text)
+        self.assertIn("function_block_body", text)
+
+    def test_ast_coverage_reports_complete_placeholder_elimination(self):
         result = subprocess.run(
             [sys.executable, str(AST_COVERAGE)],
             cwd=ROOT,
@@ -91,9 +113,9 @@ END_FUNCTION
             stderr=subprocess.PIPE,
             check=False,
         )
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 0)
         self.assertIn("parser_methods=", result.stdout)
-        self.assertIn("placeholders=", result.stdout)
+        self.assertIn("placeholders=0", result.stdout)
 
 
 if __name__ == "__main__":

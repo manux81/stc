@@ -56,6 +56,30 @@ class IECParser(Parser):
     def method_name():
         return sys._getframe.f_code.co_name
 
+    def _node_from_production(self, p):
+        return {
+            "name": self.production.name,
+            "children": self._ast_children_from_value(list(p)),
+        }
+
+    def _ast_children_from_value(self, value):
+        children = []
+        if value is None:
+            return children
+        if isinstance(value, dict):
+            return [value]
+        if isinstance(value, tuple):
+            value = list(value)
+        if isinstance(value, list):
+            for item in value:
+                children.extend(self._ast_children_from_value(item))
+            return children
+        return [{
+            "name": "token",
+            "value": value,
+            "children": [],
+        }]
+
 
 #########################
 # B.0 Programming model #
@@ -109,15 +133,15 @@ class IECParser(Parser):
 
     @_('BINARY_INTEGER')
     def binary_integer(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('OCTAL_INTEGER')
     def octal_integer(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('HEX_INTEGER')
     def hex_integer(self, p):
-        pass
+        return self._node_from_production(p)
 
     # Original definition: '[ real_type_name "#" ] signed_integer "." integer [ exponent ]'
     # Note: Neither Lexer nor Yacc can correctly handle the standard definition of 
@@ -162,29 +186,29 @@ class IECParser(Parser):
     @_('single_byte_character_string',
        'double_byte_character_string')
     def character_string(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_( '"\'" "\'"',
         '"\'" single_byte_character_representation "\'"')
     def single_byte_character_string(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_( '"\"" "\""',
         '"\"" double_byte_character_representation "\""')
     def double_byte_character_string(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('common_character_representation', 'DOLLAR_APC', '"\""', '"$" HEX_DIGIT HEX_DIGIT',)
     def single_byte_character_representation(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('common_character_representation', 'DOLLAR_QOT', '"\'"', '"$" HEX_DIGIT HEX_DIGIT HEX_DIGIT HEX_DIGIT')
     def double_byte_character_representation(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('PRINTABLE_CHAR', 'DOLLAR_DOLLAR', 'DOLLAR_L', 'DOLLAR_N', 'DOLLAR_P')
     def common_character_representation(self, p):
-        pass
+        return self._node_from_production(p)
 #'$R' | '$T' | '$l' | '$n' | '$p' | '$r' | '$t'
 
 ##########################
@@ -192,7 +216,7 @@ class IECParser(Parser):
 ##########################
     @_('duration', 'time_of_day', 'date', 'date_and_time')
     def time_literal(self, p):
-        pass
+        return self._node_from_production(p)
 
 #######################
 #  B.1.2.3.1 Duration #
@@ -200,35 +224,35 @@ class IECParser(Parser):
     @_('"T" "#" [ "-" ] interval',
        'TIME "#" [ "-" ] interval')
     def duration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('days',  'hours', 'minutes', 'seconds', 'milliseconds')
     def interval(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('fixed_point "d"', 'integer "d" [ "_" ]  hours')
     def days(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('integer [ "." integer ] ')
     def fixed_point(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('fixed_point "h"', 'integer "h" [ "_" ] minutes')
     def hours(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('fixed_point "m"', 'integer "m" [ "_" ] seconds')
     def minutes(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('fixed_point "s"', 'integer "s" [ "_" ] milliseconds')
     def seconds(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('fixed_point MS')
     def milliseconds(self, p):
-        pass
+        return self._node_from_production(p)
 
 ###################################
 #  B.1.2.3.2 Time of day and date #
@@ -236,48 +260,48 @@ class IECParser(Parser):
 
     @_('TIME_OF_DAY "#" daytime', 'TOD "#" daytime')
     def time_of_day(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('day_hour ":" day_minute ":" day_second')
     def daytime(self, p):
-       pass
+        return self._node_from_production(p)
 
     @_('integer')
     def day_hour(self,p):
-        pass
+        return self._node_from_production(p)
  
     @_('integer')
     def day_minute(self, p):
-        pass
+        return self._node_from_production(p)
  
     @_('fixed_point')
     def day_second(self, p):
-        pass
+        return self._node_from_production(p)
  
     @_('DATE "#" date_literal', '"D" "#" date_literal')
     def date(self, p):
-        pass
+        return self._node_from_production(p)
  
     @_('year "-" month "-" day') 
     def date_literal(self, p):
-        pass
+        return self._node_from_production(p)
  
     @_('integer')
     def year(self, p):
-        pass
+        return self._node_from_production(p)
  
     @_('integer')
     def month(self, p):
-        pass
+        return self._node_from_production(p)
  
     @_('integer')
     def day(self, p):
-        pass
+        return self._node_from_production(p)
  
     @_('DATE_AND_TIME "#" date_literal "-" daytime',
        'DT "#" date_literal "-" daytime')
     def date_and_time(self, p):
-        pass
+        return self._node_from_production(p)
  
 #####################
 #  B.1.3 Data types #
@@ -288,7 +312,7 @@ class IECParser(Parser):
 
     @_('elementary_type_name', 'derived_type_name')
     def non_generic_type_name(self, p):
-        pass
+        return self._node_from_production(p)
 
 ##################################
 #  B.1.3.1 Elementary data types #
@@ -342,11 +366,11 @@ class IECParser(Parser):
     @_('single_element_type_name', 'array_type_name',
        'structure_type_name', 'string_type_name')
     def derived_type_name(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('simple_type_name', 'subrange_type_name', 'enumerated_type_name')
     def single_element_type_name(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def simple_type_name(self, p):
@@ -370,22 +394,22 @@ class IECParser(Parser):
 
     @_('TYPE type_declaration ";" { type_declaration ";" } END_TYPE')
     def data_type_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('single_element_type_declaration',
        'array_type_declaration',
        'structure_type_declaration', 'string_type_declaration')
     def type_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('simple_type_declaration',
       'subrange_type_declaration', 'enumerated_type_declaration')
     def single_element_type_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('simple_type_name ":" simple_spec_init')
     def simple_type_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('simple_specification [ ASSIGN constant ]')
     def simple_spec_init(self, p):
@@ -400,79 +424,79 @@ class IECParser(Parser):
 
     @_('subrange_type_name ":" subrange_spec_init')
     def subrange_type_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('subrange_specification [ ASSIGN signed_integer ]')
     def subrange_spec_init(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('integer_type_name "(" subrange ")"',
         'subrange_type_name')
     def subrange_specification(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('signed_integer DOTDOT signed_integer')
     def subrange(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('enumerated_type_name ":" enumerated_spec_init')
     def enumerated_type_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('enumerated_specification [ ASSIGN enumerated_value ]')
     def enumerated_spec_init(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('"(" enumerated_value { "," enumerated_value } ")"',
        'enumerated_type_name')
     def enumerated_specification(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('[ enumerated_type_name "#" ] IDENTIFIER')
     def enumerated_value(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('array_type_name ":" array_spec_init')
     def array_type_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('array_specification [ ASSIGN array_initialization ]')
     def array_spec_init(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('array_type_name',
        'ARRAY "[" subrange { "," subrange } "]" OF non_generic_type_name')
     def array_specification(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('"[" array_initial_elements { "," array_initial_elements } "]"')
     def array_initialization(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('array_initial_element', 'integer "(" [ array_initial_element ] ")"')
     def array_initial_elements(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('constant', 'enumerated_value', 'structure_initialization', 'array_initialization')
     def array_initial_element(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('structure_type_name ":" structure_specification')
     def structure_type_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('structure_declaration', 'initialized_structure')
     def structure_specification(self, p):
-        pass
+        return self._node_from_production(p)
 
 
     @_('structure_type_name [ ASSIGN structure_initialization ]')
     def initialized_structure(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('STRUCT structure_element_declaration ";" { structure_element_declaration ";" } END_STRUCT')
     def structure_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('structure_element_name ":" simple_spec_init', 
        'structure_element_name ":" subrange_spec_init',
@@ -480,7 +504,7 @@ class IECParser(Parser):
        'structure_element_name ":" array_spec_init',
        'structure_element_name ":" initialized_structure')
     def structure_element_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def structure_element_name(self, p):
@@ -488,14 +512,14 @@ class IECParser(Parser):
 
     @_('"(" structure_element_initialization "," { "," structure_element_initialization } ")"')
     def structure_initialization(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('structure_element_name ASSIGN constant',
        'structure_element_name ASSIGN enumerated_value',
        'structure_element_name ASSIGN array_initialization',
        'structure_element_name ASSIGN structure_initialization')
     def structure_element_initialization(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def string_type_name(self, p):
@@ -504,7 +528,7 @@ class IECParser(Parser):
     @_('string_type_name ":" STRING [ "[" integer "]" ] [ ASSIGN character_string ]',
        'string_type_name ":" WSTRING [ "[" integer "]" ] [ ASSIGN character_string ]')
     def string_type_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
 ###################
 # B.1.4 Variables #
@@ -528,46 +552,46 @@ class IECParser(Parser):
 ##########################################
     @_('"%" location_prefix size_prefix integer { "." integer }')
     def direct_variable(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('"I"','"Q"','"M"')
     def location_prefix(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('NIL', '"X"', '"B"', '"W"', '"D"', '"L"')
     def size_prefix(self, p):
-        pass
+        return self._node_from_production(p)
 
 ###################################
 # B.1.4.2 Multi-element variables #
 ###################################
     @_('array_variable', 'structured_variable')
     def multi_element_variable(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('subscripted_variable subscript_list')
     def array_variable(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('symbolic_variable')
     def subscripted_variable(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('"[" subscript { "," subscript } "]"')
     def subscript_list(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('expression')
     def subscript(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('record_variable "." field_selector')
     def structured_variable(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('symbolic_variable')
     def record_variable(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def field_selector(self, p):
@@ -593,7 +617,7 @@ class IECParser(Parser):
     @_('var1_list ":" BOOL R_EDGE',
        'var1_list ":" BOOL F_EDGE')
     def edge_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('var1_init_decl', 'array_var_init_decl',
         'structured_var_init_decl', 'fb_name_decl', 'string_var_declaration')
@@ -616,19 +640,19 @@ class IECParser(Parser):
 
     @_('var1_list ":" array_spec_init')
     def array_var_init_decl(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('var1_list ":" initialized_structure')
     def structured_var_init_decl(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('fb_name_list ":" function_block_type_name [ ASSIGN structure_initialization ]')
-    def fb_name_decl(selp, p):
-        pass
+    def fb_name_decl(self, p):
+        return self._node_from_production(p)
 
     @_('fb_name { "," fb_name }')
     def fb_name_list(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def fb_name(self, p):
@@ -638,56 +662,56 @@ class IECParser(Parser):
        'VAR_OUTPUT RETAIN var_init_decl ";"  { var_init_decl ";" } END_VAR',
        'VAR_OUTPUT NON_RETAIN var_init_decl ";"  { var_init_decl ";" } END_VAR')
     def output_declarations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('VAR_IN_OUT var_declaration ";"  { var_declaration ";" } END_VAR')
     def input_output_declarations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('temp_var_decl', 'fb_name_decl')
     def var_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('var1_declaration', 'array_var_declaration',
        'structured_var_declaration', 'string_var_declaration')
     def temp_var_decl(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('var1_list ":" simple_specification',
        'var1_list ":" subrange_specification',
        'var1_list ":" enumerated_specification')
     def var1_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('var1_list ":" array_specification')
     def array_var_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('var1_list ":" structure_type_name')
     def structured_var_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('VAR [ CONSTANT ] var_init_decl ";" { var_init_decl ";" } END_VAR')
     def var_declarations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('VAR RETAIN var_init_decl ";" { var_init_decl ";" } END_VAR')
     def retentive_var_declarations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('VAR [ CONSTANT ] located_var_decl ";" { located_var_decl ";" } END_VAR',
        'VAR [ RETAIN ] located_var_decl ";" { located_var_decl ";" } END_VAR',
        'VAR [ NON_RETAIN ] located_var_decl ";" { located_var_decl ";" } END_VAR')
     def located_var_declarations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('[ variable_name ] location ":" located_var_spec_init')
     def located_var_decl(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('VAR_EXTERNAL [ CONSTANT ] external_declaration ";" { external_declaration ";" } END_VAR')
     def external_var_declarations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('global_var_name ":" simple_specification',
        'global_var_name ":" subrange_specification',
@@ -697,7 +721,7 @@ class IECParser(Parser):
        'global_var_name ":" function_block_type_name'
         )
     def external_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def global_var_name(self, p):
@@ -706,73 +730,73 @@ class IECParser(Parser):
     @_('VAR_GLOBAL [ CONSTANT ] global_var_decl ";" { global_var_decl ";" } END_VAR',
        'VAR_GLOBAL [ RETAIN ] global_var_decl ";" { global_var_decl ";" } END_VAR')
     def global_var_declarations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('global_var_spec ":" located_var_spec_init',
        'global_var_spec ":" function_block_type_name')
     def global_var_decl(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('global_var_list', '[ global_var_name ] location')
     def global_var_spec(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('simple_spec_init', 'subrange_spec_init',
        'enumerated_spec_init', 'array_spec_init', 'initialized_structure',
        'single_byte_string_spec','double_byte_string_spec')
     def located_var_spec_init(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('AT direct_variable')
     def location(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('global_var_name { "," global_var_name }')
     def global_var_list(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('single_byte_string_var_declaration',
        'double_byte_string_var_declaration')
     def string_var_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('var1_list ":" single_byte_string_spec')
     def single_byte_string_var_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('STRING [ "[" integer "]" ] [ ASSIGN single_byte_character_string ]')
     def single_byte_string_spec(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('var1_list ":" double_byte_string_spec')
     def double_byte_string_var_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('WSTRING [ "[" integer "]" ] [ ASSIGN double_byte_character_string ]')
     def double_byte_string_spec(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('VAR [ RETAIN ] incompl_located_var_decl ";" { incompl_located_var_decl ";" } END_VAR',
        'VAR [ NON_RETAIN ] incompl_located_var_decl ";" { incompl_located_var_decl ";" } END_VAR')
     def incompl_located_var_declarations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('variable_name incompl_location ":" var_spec')
     def incompl_located_var_decl(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('AT "%" "I" "*"',
        'AT "%" "Q" "*"',
        'AT "%" "M" "*"')
     def incompl_location(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('simple_specification',
        'subrange_specification', 'enumerated_specification',
        'array_specification', 'structure_type_name',
        'STRING [ "[" integer "]" ]', 'WSTRING [ "[" integer "]" ]')
     def var_spec(self, p):
-        pass
+        return self._node_from_production(p)
 
 ####################################
 # B.1.5 Program organization units #
@@ -857,7 +881,7 @@ class IECParser(Parser):
     @_('FUNCTION_BLOCK derived_function_block_name { io_var_declarations } function_block_body END_FUNCTION_BLOCK',
        'FUNCTION_BLOCK derived_function_block_name { other_var_declarations } function_block_body END_FUNCTION_BLOCK')
     def function_block_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     #NOTE: replaced non_retentive_var_declaclarations to non_retentive_var_decls
     @_('external_var_declarations', 'var_declarations',
@@ -868,16 +892,16 @@ class IECParser(Parser):
 
     @_('VAR_TEMP temp_var_decl ";" { temp_var_decl ";" } END_VAR')
     def temp_var_decls(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('VAR NON_RETAIN var_init_decl ";" { var_init_decl ";" } END_VAR')
     def non_retentive_var_decls(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('sequential_function_chart',
        'instruction_list', 'statement_list')
     def function_block_body(self, p):
-        pass
+        return self._node_from_production(p)
 
 ####################
 # B.1.5.3 Programs #
@@ -891,36 +915,36 @@ class IECParser(Parser):
        'PROGRAM program_type_name { located_var_declarations } function_block_body END_PROGRAM',
        'PROGRAM program_type_name { program_access_decls } function_block_body END_PROGRAM')
     def program_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('VAR_ACCESS program_access_decl ";" { program_access_decl ";" } END_VAR')
     def program_access_decls(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('access_name ":" symbolic_variable ":" non_generic_type_name [ direction ]')
     def program_access_decl(self, p):
-        pass
+        return self._node_from_production(p)
 
 ############################################
 # B.1.6 Sequential function chart elements #
 ############################################
     @_('sfc_network { sfc_network }')
     def sequential_function_chart(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('initial_step { step }',
        'initial_step { transition }',
        'initial_step { action }')
     def sfc_network(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('INITIAL_STEP step_name ":" { action_association ";" } END_STEP')
     def initial_step(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('STEP step_name ":" { action_association ";" } END_STEP')
     def step(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def step_name(self, p):
@@ -928,7 +952,7 @@ class IECParser(Parser):
 
     @_('action_name "(" [ action_qualifier ] { "," indicator_name } ")"')
     def action_association(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def action_name(self, p):
@@ -936,23 +960,23 @@ class IECParser(Parser):
 
     @_('"N"', '"R"', '"S"', '"P"', 'timed_qualifier "," action_time')
     def action_qualifier(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('"L"', '"D"', 'SD', 'DS', 'SL')
     def timed_qualifier(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('duration', 'variable_name')
     def action_time(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('variable_name')
     def indicator_name(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('TRANSITION [ transition_name ] [ "(" PRIORITY ASSIGN integer ")" ] FROM steps TO steps transition_condition END_TRANSITION')
     def transition(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def transition_name(self, p):
@@ -960,16 +984,16 @@ class IECParser(Parser):
 
     @_('step_name', '"(" step_name "," step_name { "," step_name } ")"')
     def steps(self, p):
-        pass
+        return self._node_from_production(p)
 
     #NOTE: replace simple_instruction_list to simple_instr_list
     @_('":" simple_instr_list', 'ASSIGN expression ";"')
     def transition_condition(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('ACTION action_name ":" function_block_body END_ACTION')
     def action(self, p):
-        pass
+        return self._node_from_production(p)
 
 ################################
 # B.1.7 Configuration elements #
@@ -985,15 +1009,15 @@ class IECParser(Parser):
     @_('CONFIGURATION configuration_name [ global_var_declarations ] single_resource_declaration [ access_declarations ] [ instance_specific_initializations ] END_CONFIGURATION',
        'CONFIGURATION configuration_name [ global_var_declarations ] resource_declaration { resource_declaration } [ access_declarations ] [ instance_specific_initializations ] END_CONFIGURATION')
     def configuration_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('RESOURCE resource_name ON resource_type_name [ global_var_declarations ] single_resource_declaration END_RESOURCE')
     def resource_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('{ task_configuration ";" } program_configuration ";" { program_configuration ";" }')
     def single_resource_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def resource_name(self, p):
@@ -1001,20 +1025,20 @@ class IECParser(Parser):
 
     @_('VAR_ACCESS access_declaration ";" { access_declaration ";" } END_VAR')
     def access_declarations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('access_name ":" access_path ":" non_generic_type_name [ direction ]')
     def access_declaration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('[ resource_name "." ] direct_variable',
        '[ resource_name "." ] [ program_name "." ] { fb_name "." } symbolic_variable')
     def access_path(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('[ resource_name "." ] global_var_name [ "." structure_element_name ]')
     def global_var_reference(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def access_name(self, p):
@@ -1022,7 +1046,7 @@ class IECParser(Parser):
 
     @_('program_name "." symbolic_variable')
     def program_output_reference(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def program_name(self, p):
@@ -1030,11 +1054,11 @@ class IECParser(Parser):
 
     @_('READ_WRITE', 'READ_ONLY')
     def direction(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('TASK task_name task_initialization')
     def task_configuration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def task_name(self, p):
@@ -1042,50 +1066,50 @@ class IECParser(Parser):
 
     @_('"(" [ SINGLE ASSIGN data_source "," ] [ INTERVAL ASSIGN data_source "," ] PRIORITY ASSIGN integer ")"')
     def task_initialization(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('constant', 'global_var_reference', 'program_output_reference', 'direct_variable')
     def data_source(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('PROGRAM [ RETAIN ] program_name [ WITH task_name ] ":" program_type_name [ "(" prog_conf_elements ")" ]',
        'PROGRAM [ NON_RETAIN ] program_name [ WITH task_name ] ":" program_type_name [ "(" prog_conf_elements ")" ]')
     def program_configuration(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('prog_conf_element { "," prog_conf_element }')
     def prog_conf_elements(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('fb_task', 'prog_cnxn')
     def prog_conf_element(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('fb_name WITH task_name')
     def fb_task(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('symbolic_variable ASSIGN prog_data_source',
        'symbolic_variable SENDTO data_sink')
     def prog_cnxn(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('constant', 'enumerated_value', 'global_var_reference', 'direct_variable')
     def prog_data_source(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('global_var_reference', 'direct_variable')
     def data_sink(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('VAR_CONFIG instance_specific_init ";" { instance_specific_init ";" } END_VAR')
     def instance_specific_initializations(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('resource_name "." program_name "." { fb_name "." } variable_name [ location ] ":" located_var_spec_init',
        'resource_name "." program_name "." { fb_name "." } fb_name ":" function_block_type_name ASSIGN structure_initialization')
     def instance_specific_init(self, p):
-        pass
+        return self._node_from_production(p)
 
 ######################################
 # B.2 Language IL (Instruction List) #
@@ -1096,7 +1120,7 @@ class IECParser(Parser):
 ###################################
     @_('il_instruction { il_instruction }')
     def instruction_list(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('[ label ":" ] EOL { EOL }',
        '[ label ":" ] il_simple_operation EOL { EOL }',
@@ -1106,7 +1130,7 @@ class IECParser(Parser):
        '[ label ":" ] il_formal_funct_call EOL { EOL }',
        '[ label ":" ] il_return_operator EOL { EOL }')
     def il_instruction(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('IDENTIFIER')
     def label(self, p):
@@ -1115,62 +1139,62 @@ class IECParser(Parser):
     @_('il_simple_operator [ il_operand ]',
        'function_name [ il_operand_list ]')
     def il_simple_operation(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('il_expr_operator "(" [ il_operand ] EOL { EOL } [ simple_instr_list ] ")"')
     def il_expression(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('il_jump_operator label')
     def il_jump_operation(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('il_call_operator fb_name "(" ( EOL { EOL } [ il_param_list ] )  ")" ',
        'il_call_operator fb_name "("  [ il_operand_list ]  ")" ',
        'il_call_operator fb_name "(" ")"',
        'il_call_operator fb_name')
     def il_fb_call(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('function_name "(" EOL { EOL } [ il_param_list ] ')
     def il_formal_funct_call(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('constant', 'variable', 'enumerated_value')
     def il_operand(self, p):
-        pass
+        return self._node_from_production(p)
     
     @_('il_operand { "," il_operand }')
     def il_operand_list(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('il_simple_instruction { il_simple_instruction }')
     def simple_instr_list(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('il_simple_operation EOL { EOL }', 'il_expression EOL { EOL }', 'il_formal_funct_call EOL { EOL }')
     def il_simple_instruction(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('{ il_param_instruction } il_param_last_instruction')
     def il_param_list(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('il_param_assignment "," EOL { EOL }', 'il_param_out_assignment "," EOL { EOL }')
     def il_param_instruction(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('il_param_assignment EOL { EOL }', 'il_param_out_assignment  EOL { EOL }')
     def il_param_last_instruction(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('il_assign_operator il_operand', 'il_assign_operator "(" EOL { EOL } simple_instr_list ")"')
     def il_param_assignment(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('il_assign_out_operator variable')
     def il_param_out_assignment(self, p):
-        pass
+        return self._node_from_production(p)
 
 ###################
 # B.2.2 Operators #
@@ -1180,33 +1204,33 @@ class IECParser(Parser):
        'R', 'S1', 'R1', 'CLK', 'CU', 'CD', 'PV',
        'IN', 'PT', 'il_expr_operator')
     def il_simple_operator(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('AND', '"&"', 'OR', 'XOR', 'ANDN', 'AN', 'ORN',
        'XORN', 'ADD', 'SUB', 'MUL', 'DIV', 'MOD', 'GT', 'GE', 'EQ',
        'LT','LE','NE')
     def il_expr_operator(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('variable_name ASSIGN')
     def il_assign_operator(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('[ NOT ] variable_name SENDTO')
     def il_assign_out_operator(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('CAL', 'CALC', 'CALCN')
     def il_call_operator(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('RET', 'RETC', 'RETCN')
     def il_return_operator(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('JMP', 'JMPC', 'JMPCN')
     def il_jump_operator(self, p):
-        pass
+        return self._node_from_production(p)
 
 #####################################
 # B.3 Language ST (Structured Text) #
@@ -1338,16 +1362,16 @@ class IECParser(Parser):
 #########################################
     @_('fb_invocation', 'RETURN')
     def subprogram_control_statement(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('fb_name "(" [ param_assignment { "," param_assignment } ]')
     def fb_invocation(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('[ variable_name ASSIGN ] expression',
        '[ NOT ] variable_name SENDTO variable')
     def param_assignment(self, p):
-        pass
+        return self._node_from_production(p)
 
 ################################
 # B.3.2.3 Selection statements #
@@ -1380,19 +1404,19 @@ class IECParser(Parser):
 
     @_('CASE expression OF case_element { case_element } [ ELSE statement_list ] END_CASE')
     def case_statement(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('case_list ":" statement_list')
     def case_element(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('case_list_element { "," case_list_element }')
     def case_list(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('subrange', 'signed_integer', 'enumerated_value')
     def case_list_element(self, p):
-        pass
+        return self._node_from_production(p)
 
 ################################
 # B.3.2.4 Iteration statements #
@@ -1408,11 +1432,11 @@ class IECParser(Parser):
 
     @_('IDENTIFIER')
     def control_variable(self, p):
-        pass
+        return self._node_from_production(p)
     
     @_('expression TO expression [ BY expression ]')
     def for_list(self, p):
-        pass
+        return self._node_from_production(p)
 
     @_('WHILE expression DO statement_list END_WHILE')
     def while_statement(self, p):
@@ -1424,7 +1448,7 @@ class IECParser(Parser):
 
     @_('EXIT')
     def exit_statement(self, p):
-        pass
+        return self._node_from_production(p)
 
     def error(self, p):
         if p is None:

@@ -18,6 +18,8 @@ the supported subset.
 - C and Rust code generation for the supported function subset.
 - JSON AST output for downstream tooling and regression tests.
 - Minimal semantic checks for undeclared variables before code generation.
+- Structural AST output for every parser production currently present in the
+  grammar.
 
 ## Usage
 
@@ -53,11 +55,11 @@ the frontend.
 
 ## AST status
 
-The current AST is intentionally limited. It is a dictionary-based parse tree
-for the implemented function subset, not yet a complete IEC 61131-3 AST. Many
-grammar productions are present as placeholders and still need typed nodes,
-source spans, semantic symbols, and deterministic diagnostics before the tree
-can be treated as a compiler-grade IR.
+The current AST is structurally complete for every production currently present
+in `IECParser`: no parser production is left as a placeholder. It is still a
+dictionary-based parse tree, not yet a typed compiler IR. The next maturity step
+is typed nodes with source spans, semantic symbols, and deterministic
+diagnostics.
 
 Use the parser coverage audit to track that work:
 
