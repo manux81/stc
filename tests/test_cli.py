@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "src" / "main.py"
 SAMPLE = ROOT / "examples" / "inter.st"
+FIXTURES = ROOT / "tests" / "fixtures"
 AST_COVERAGE = ROOT / "tools" / "ast_coverage.py"
 PARSER_DOC_AUDIT = ROOT / "tools" / "parser_doc_audit.py"
 ANNEX_B = ROOT / "tmp" / "pdfs" / "annex_b.txt"
@@ -174,6 +175,42 @@ END_FUNCTION_BLOCK
         )
         self.assertEqual(result.returncode, 0)
         self.assertIn("missing_from_parser=0", result.stdout)
+
+    def test_valid_ast_fixtures_emit_json_ast(self):
+        fixtures = sorted((FIXTURES / "valid_ast").glob("*.st"))
+        self.assertTrue(fixtures)
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture.name):
+                result = run_stc(str(fixture), "-g", "ast")
+                ast = json.loads(result.stdout)
+                self.assertEqual(ast["name"], "library")
+
+    def test_valid_codegen_fixtures_emit_c_and_rust(self):
+        fixtures = sorted((FIXTURES / "valid_codegen").glob("*.st"))
+        self.assertTrue(fixtures)
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture.name, generator="c"):
+                c_result = run_stc(str(fixture), "-g", "c")
+                self.assertIn("#include", c_result.stdout)
+            with self.subTest(fixture=fixture.name, generator="rust"):
+                rust_result = run_stc(str(fixture), "-g", "rust")
+                self.assertIn("pub fn", rust_result.stdout)
+
+    def test_invalid_semantic_fixtures_fail_codegen(self):
+        fixtures = sorted((FIXTURES / "invalid_semantic").glob("*.st"))
+        self.assertTrue(fixtures)
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture.name):
+                result = subprocess.run(
+                    [sys.executable, str(MAIN), str(fixture), "-g", "c"],
+                    cwd=ROOT,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("semantic error", result.stderr)
 
 
 if __name__ == "__main__":

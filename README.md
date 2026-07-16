@@ -39,6 +39,20 @@ Use `-` or omit the source path to read from stdin.
 python3 -m unittest discover -s tests
 ```
 
+Interesting Structured Text examples live under `tests/fixtures/`:
+
+- `valid_ast/`: syntax that must parse to JSON AST.
+- `valid_codegen/`: syntax that must also emit C and Rust.
+- `invalid_semantic/`: syntax that parses but must fail semantic code generation.
+
+For example:
+
+```sh
+python3 src/main.py tests/fixtures/valid_ast/case_and_for.st -g ast
+python3 src/main.py tests/fixtures/valid_codegen/typed_literals.st -g c
+python3 src/main.py tests/fixtures/invalid_semantic/undeclared_variable.st -g c
+```
+
 ## Positioning
 
 The long-term target is to grow toward the practical compiler quality of
