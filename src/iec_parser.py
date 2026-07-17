@@ -28,6 +28,7 @@ __version__ = "0.0.1"
 
 from yacc import Parser
 from iec_lexer import IECLexer
+import os
 import sys
 
 class ParsingError(SyntaxError):
@@ -61,7 +62,12 @@ class ParsingError(SyntaxError):
 
 class IECParser(Parser):
     start = 'library'
-    debugfile = 'parser.out'
+    # The grammar is intentionally broader than the current start symbol.
+    # Keep SLY's grammar audit available as an opt-in diagnostic, but do not
+    # print hundreds of known warnings during normal compiler invocations.
+    _grammar_diagnostics = os.getenv('STC_PARSER_DIAGNOSTICS') == '1'
+    debugfile = 'parser.out' if _grammar_diagnostics else None
+    suppress_grammar_warnings = not _grammar_diagnostics
     tokens = IECLexer.tokens
 
 

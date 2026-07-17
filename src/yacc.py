@@ -1925,26 +1925,31 @@ class Parser(metaclass=ParserMeta):
             errors += '%s:%d: Symbol %r used, but not defined as a token or a rule\n' % (prod.file, prod.line, sym)
 
         unused_terminals = grammar.unused_terminals()
-        if unused_terminals:
+        suppress_warnings = getattr(cls, 'suppress_grammar_warnings', False)
+        if unused_terminals and not suppress_warnings:
             unused_str = '{' + ','.join(unused_terminals) + '}'
             cls.log.warning(f'Token{"(s)" if len(unused_terminals) >1 else ""} {unused_str} defined, but not used')
 
         unused_rules = grammar.unused_rules()
         for prod in unused_rules:
+            if suppress_warnings:
+                break
             cls.log.warning('%s:%d: Rule %r defined, but not used', prod.file, prod.line, prod.name)
 
-        if len(unused_terminals) == 1:
+        if not suppress_warnings and len(unused_terminals) == 1:
             cls.log.warning('There is 1 unused token')
-        if len(unused_terminals) > 1:
+        if not suppress_warnings and len(unused_terminals) > 1:
             cls.log.warning('There are %d unused tokens', len(unused_terminals))
 
-        if len(unused_rules) == 1:
+        if not suppress_warnings and len(unused_rules) == 1:
             cls.log.warning('There is 1 unused rule')
-        if len(unused_rules) > 1:
+        if not suppress_warnings and len(unused_rules) > 1:
             cls.log.warning('There are %d unused rules', len(unused_rules))
 
         unreachable = grammar.find_unreachable()
         for u in unreachable:
+           if suppress_warnings:
+               break
            cls.log.warning('Symbol %r is unreachable', u)
 
         if len(undefined_symbols) == 0:
@@ -1969,14 +1974,16 @@ class Parser(metaclass=ParserMeta):
         num_sr = len(lrtable.sr_conflicts)
 
         # Report shift/reduce and reduce/reduce conflicts
-        if num_sr != getattr(cls, 'expected_shift_reduce', None):
+        if (not getattr(cls, 'suppress_grammar_warnings', False)
+                and num_sr != getattr(cls, 'expected_shift_reduce', None)):
             if num_sr == 1:
                 cls.log.warning('1 shift/reduce conflict')
             elif num_sr > 1:
                 cls.log.warning('%d shift/reduce conflicts', num_sr)
 
         num_rr = len(lrtable.rr_conflicts)
-        if num_rr != getattr(cls, 'expected_reduce_reduce', None):
+        if (not getattr(cls, 'suppress_grammar_warnings', False)
+                and num_rr != getattr(cls, 'expected_reduce_reduce', None)):
             if num_rr == 1:
                 cls.log.warning('1 reduce/reduce conflict')
             elif num_rr > 1:

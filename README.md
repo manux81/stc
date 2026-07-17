@@ -123,3 +123,13 @@ python3 tools/parser_doc_audit.py
 - IEC 61131-3:2013, Programmable controllers, Part 3.
 - [Autonomy-Logic/STruCpp](https://github.com/Autonomy-Logic/STruCpp)
 - [beremiz/matiec](https://github.com/beremiz/matiec)
+
+### Diagnostica della grammatica
+
+Durante l'uso normale il compilatore nasconde i warning SLY/PLY già noti relativi a token o produzioni non usate, simboli irraggiungibili e conflitti della grammatica. Gli errori reali di costruzione della grammatica restano attivi.
+
+Per riattivare l'audit completo e generare `parser.out`:
+
+```bash
+STC_PARSER_DIAGNOSTICS=1 python3 src/main.py input.st -g c
+```
