@@ -129,7 +129,12 @@ class IECParser(Parser):
     @_('', 'library library_element_declaration')
     def library(self, p):
         if len(p) > 0:
-            return { "name": self.production.name, "children": [ p[1] ] }
+            children = []
+            if p[0]:
+                children.extend(p[0].get("children", []))
+            children.append(p[1])
+            return { "name": self.production.name, "children": children }
+        return { "name": self.production.name, "children": [] }
 
     @_('data_type_name', 'function_name',
        'function_block_type_name', 'program_type_name',
@@ -230,12 +235,14 @@ class IECParser(Parser):
     def character_string(self, p):
         return self._node_from_production(p)
 
-    @_( '"\'" "\'"',
+    @_( 'SINGLE_BYTE_STRING_LITERAL',
+        '"\'" "\'"',
         '"\'" single_byte_character_representation "\'"')
     def single_byte_character_string(self, p):
         return self._node_from_production(p)
 
-    @_( '"\"" "\""',
+    @_( 'DOUBLE_BYTE_STRING_LITERAL',
+        '"\"" "\""',
         '"\"" double_byte_character_representation "\""')
     def double_byte_character_string(self, p):
         return self._node_from_production(p)
@@ -263,8 +270,8 @@ class IECParser(Parser):
 #######################
 #  B.1.2.3.1 Duration #
 #######################
-    @_('"T" "#" [ "-" ] interval',
-       'TIME "#" [ "-" ] interval')
+    @_('T SHARP [ "-" ] interval',
+       'TIME SHARP [ "-" ] interval')
     def duration(self, p):
         return self._node_from_production(p)
 
@@ -272,23 +279,23 @@ class IECParser(Parser):
     def interval(self, p):
         return self._node_from_production(p)
 
-    @_('fixed_point "d"', 'integer "d" [ "_" ]  hours')
+    @_('fixed_point D')
     def days(self, p):
         return self._node_from_production(p)
 
-    @_('integer [ "." integer ] ')
+    @_('REAL_VALUE', 'integer [ "." integer ] ')
     def fixed_point(self, p):
         return self._node_from_production(p)
 
-    @_('fixed_point "h"', 'integer "h" [ "_" ] minutes')
+    @_('fixed_point H')
     def hours(self, p):
         return self._node_from_production(p)
 
-    @_('fixed_point "m"', 'integer "m" [ "_" ] seconds')
+    @_('fixed_point M')
     def minutes(self, p):
         return self._node_from_production(p)
 
-    @_('fixed_point "s"', 'integer "s" [ "_" ] milliseconds')
+    @_('fixed_point S')
     def seconds(self, p):
         return self._node_from_production(p)
 
@@ -300,7 +307,7 @@ class IECParser(Parser):
 #  B.1.2.3.2 Time of day and date #
 ###################################
 
-    @_('TIME_OF_DAY "#" daytime', 'TOD "#" daytime')
+    @_('TIME_OF_DAY SHARP daytime', 'TOD SHARP daytime')
     def time_of_day(self, p):
         return self._node_from_production(p)
 
@@ -320,7 +327,7 @@ class IECParser(Parser):
     def day_second(self, p):
         return self._node_from_production(p)
  
-    @_('DATE "#" date_literal', '"D" "#" date_literal')
+    @_('DATE SHARP date_literal', 'D SHARP date_literal')
     def date(self, p):
         return self._node_from_production(p)
  
@@ -340,8 +347,8 @@ class IECParser(Parser):
     def day(self, p):
         return self._node_from_production(p)
  
-    @_('DATE_AND_TIME "#" date_literal "-" daytime',
-       'DT "#" date_literal "-" daytime')
+    @_('DATE_AND_TIME SHARP date_literal "-" daytime',
+       'DT SHARP date_literal "-" daytime')
     def date_and_time(self, p):
         return self._node_from_production(p)
  
@@ -438,9 +445,10 @@ class IECParser(Parser):
     def data_type_declaration(self, p):
         return self._node_from_production(p)
 
-    @_('single_element_type_declaration',
-       'array_type_declaration',
-       'structure_type_declaration', 'string_type_declaration')
+    @_('array_type_declaration',
+       'structure_type_declaration',
+       'string_type_declaration',
+       'single_element_type_declaration')
     def type_declaration(self, p):
         return self._node_from_production(p)
 
@@ -460,7 +468,10 @@ class IECParser(Parser):
         return {"name": self.production.name, "children": [ p[0], p[1][1] ]}
 
 
-    @_('elementary_type_name', 'simple_type_name')
+    @_('elementary_type_name',
+       'simple_type_name',
+       'array_specification',
+       'structure_declaration')
     def simple_specification(self, p):
         return {"name": self.production.name, "children": [ p[0] ]}
 
@@ -511,11 +522,15 @@ class IECParser(Parser):
     def array_specification(self, p):
         return self._node_from_production(p)
 
-    @_('"[" array_initial_elements { "," array_initial_elements } "]"')
+    @_('"[" [ array_initialization_list ] "]"')
     def array_initialization(self, p):
         return self._node_from_production(p)
 
-    @_('array_initial_element', 'integer "(" [ array_initial_element ] ")"')
+    @_('array_initial_elements { "," array_initial_elements }')
+    def array_initialization_list(self, p):
+        return self._node_from_production(p)
+
+    @_('array_initial_element')
     def array_initial_elements(self, p):
         return self._node_from_production(p)
 
@@ -544,6 +559,8 @@ class IECParser(Parser):
        'structure_element_name ":" subrange_spec_init',
        'structure_element_name ":" enumerated_spec_init',
        'structure_element_name ":" array_spec_init',
+       'structure_element_name ":" single_byte_string_spec',
+       'structure_element_name ":" double_byte_string_spec',
        'structure_element_name ":" initialized_structure')
     def structure_element_declaration(self, p):
         return self._node_from_production(p)
@@ -552,7 +569,7 @@ class IECParser(Parser):
     def structure_element_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
-    @_('"(" structure_element_initialization "," { "," structure_element_initialization } ")"')
+    @_('"(" structure_element_initialization { "," structure_element_initialization } ")"')
     def structure_initialization(self, p):
         return self._node_from_production(p)
 
@@ -921,17 +938,26 @@ class IECParser(Parser):
     def derived_function_block_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
-    @_('FUNCTION_BLOCK derived_function_block_name { io_var_declarations } function_block_body END_FUNCTION_BLOCK',
-       'FUNCTION_BLOCK derived_function_block_name { other_var_declarations } function_block_body END_FUNCTION_BLOCK')
+    @_('FUNCTION_BLOCK derived_function_block_name pou_var_declarations_list function_block_body END_FUNCTION_BLOCK')
     def function_block_declaration(self, p):
+        return self._node_from_production(p)
+
+    @_('', 'pou_var_declarations_list pou_var_declarations')
+    def pou_var_declarations_list(self, p):
+        return self._node_from_production(p)
+
+    @_('io_var_declarations',
+       'other_var_declarations',
+       'program_access_decls')
+    def pou_var_declarations(self, p):
         return self._node_from_production(p)
 
     #NOTE: replaced non_retentive_var_declaclarations to non_retentive_var_decls
     @_('external_var_declarations', 'var_declarations',
        'retentive_var_declarations', 'non_retentive_var_decls',
-       'temp_var_decls', 'incompl_located_var_declarations')
+       'temp_var_decls')
     def other_var_declarations(self, p):
-        return { "name": self.production.name, "value": p[0].name, "children": [ p[0] ] }
+        return { "name": self.production.name, "children": [ p[0] ] }
 
     @_('VAR_TEMP temp_var_decl ";" { temp_var_decl ";" } END_VAR')
     def temp_var_decls(self, p):
@@ -953,10 +979,7 @@ class IECParser(Parser):
     def program_type_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
-    @_('PROGRAM program_type_name { io_var_declarations } function_block_body END_PROGRAM',
-       'PROGRAM program_type_name { other_var_declarations } function_block_body END_PROGRAM',
-       'PROGRAM program_type_name { located_var_declarations } function_block_body END_PROGRAM',
-       'PROGRAM program_type_name { program_access_decls } function_block_body END_PROGRAM')
+    @_('PROGRAM program_type_name pou_var_declarations_list function_block_body END_PROGRAM')
     def program_declaration(self, p):
         return self._node_from_production(p)
 
@@ -1374,13 +1397,18 @@ class IECParser(Parser):
         return { "name": self.production.name, "value": p[0], "children": [ ] }
 
     @_('constant', 'enumerated_value', 'variable', '"(" expression ")"',
-       'function_name "(" param_assignment { "," param_assignment } ")"')
+       'function_name "(" [ param_assignment { "," param_assignment } ] ")"')
     def primary_expression(self, p):
         if len(p) == 1:
             return { "name": self.production.name, "children": [ p[0] ] }
         elif p[0] == '(':
             return { "name": self.production.name, "children": [ p[1] ] }
-        return { "name": self.production.name, "children": [ p[0], p[1], p[3] ] }
+        children = [p[0]]
+        if p[2][0] is not None:
+            children.append(p[2][0])
+            for obj in p[2][1]:
+                children.append(obj[1])
+        return { "name": self.production.name, "children": children }
 
 ####################
 # B.3.2 Statements #
@@ -1412,13 +1440,19 @@ class IECParser(Parser):
     def subprogram_control_statement(self, p):
         return self._node_from_production(p)
 
-    @_('fb_name "(" [ param_assignment { "," param_assignment } ]')
+    @_('fb_name "(" [ param_assignment { "," param_assignment } ] ")"')
     def fb_invocation(self, p):
         return self._node_from_production(p)
 
-    @_('[ variable_name ASSIGN ] expression',
-       '[ NOT ] variable_name SENDTO variable')
+    @_('[ parameter_name ASSIGN ] expression',
+       '[ NOT ] parameter_name SENDTO variable')
     def param_assignment(self, p):
+        return self._node_from_production(p)
+
+    @_('variable_name',
+       'IN', 'PT', 'CLK', 'CU', 'CD', 'PV',
+       'S', 'R', 'S1', 'R1')
+    def parameter_name(self, p):
         return self._node_from_production(p)
 
 ################################

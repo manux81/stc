@@ -9,12 +9,16 @@ the supported subset.
 
 ## Current capabilities
 
-- IEC 61131-3 POU parsing for functions.
+- IEC 61131-3 POU parsing for functions, function blocks, and programs.
 - `VAR_INPUT` and function-local `VAR` declarations.
 - Elementary types including `BOOL`, signed/unsigned integers, `REAL`, `LREAL`,
   and bit-string integer families.
-- Integer, real, boolean, and typed numeric literals such as `INT#10`.
-- Assignments, `IF` / `ELSIF` / `ELSE`, `WHILE`, and `REPEAT`.
+- Derived type and declaration parsing for common arrays, structures, and
+  strings in AST output.
+- Integer, real, boolean, typed numeric literals such as `INT#10`, strings, and
+  date/time literals.
+- Assignments, `IF` / `ELSIF` / `ELSE`, `CASE`, `FOR`, `WHILE`, and `REPEAT`.
+- Standard function call parsing for common IEC functions in AST output.
 - C and Rust code generation for the supported function subset.
 - JSON AST output for downstream tooling and regression tests.
 - Minimal semantic checks for undeclared variables before code generation.
@@ -106,8 +110,8 @@ python3 tools/parser_doc_audit.py
    compiler phases.
 4. Implement a symbol table and type checker for functions, function blocks,
    programs, arrays, structs, direct variables, and configurations.
-5. Expand grammar coverage for function blocks, programs, `CASE`, `FOR`,
-   arrays, structures, strings, time/date literals, and standard functions.
+5. Continue expanding grammar coverage for located declarations, array repeat
+   initializers, positional calls, and broader standard function signatures.
 6. Add a compatibility corpus with accepted and rejected IEC 61131-3 programs.
 7. Add generated-code compile tests for C and Rust on CI.
 8. Add a runtime/library layer for standard IEC functions and function blocks.

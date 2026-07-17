@@ -27,14 +27,22 @@ from lex import Lexer
 
 def generate_standard_function_name():
     simple_type = {r'SINT', r'INT', r'DINT', r'LINT', r'USINT', r'UINT', r'UDINT', r'ULINT'}
-    ret = r'('
+    standard_functions = {
+        r'ABS', r'SQRT', r'LN', r'LOG', r'EXP',
+        r'SIN', r'COS', r'TAN', r'ASIN', r'ACOS', r'ATAN',
+        r'ADD', r'SUB', r'MUL', r'DIV', r'MOD', r'EXPT',
+        r'MOVE', r'SHL', r'SHR', r'ROL', r'ROR',
+        r'AND', r'OR', r'XOR', r'NOT',
+        r'SEL', r'MAX', r'MIN', r'LIMIT', r'MUX',
+        r'CONCAT', r'INSERT', r'DELETE', r'REPLACE', r'FIND',
+        r'LEN', r'LEFT', r'RIGHT', r'MID',
+        r'GT', r'GE', r'EQ', r'LT', r'LE', r'NE',
+    }
     for from_type in simple_type:
         for to_type in simple_type:
             if from_type != to_type:
-                ret += from_type + r'_TO_' + to_type + r'|'
-    ret = ret[0: -2]
-    ret += r')'
-    return ret
+                standard_functions.add(from_type + r'_TO_' + to_type)
+    return r'(' + r'|'.join(sorted(standard_functions, key=len, reverse=True)) + r')(?![a-zA-Z0-9_])'
 
 def generate_standard_function_block_name():
     ret = r'(R_TRIG|F_TRIG)'
@@ -71,13 +79,14 @@ class IECLexer(Lexer):
         # DIGIT, 
         #OCTAL_DIGIt, 
         HEX_DIGIT, DIRECT_VARIABLE,
+        SINGLE_BYTE_STRING_LITERAL, DOUBLE_BYTE_STRING_LITERAL,
         MINUS, PLUS, UNDERSCORE,
         BIT, BINARY_INTEGER, OCTAL_INTEGER, HEX_INTEGER, REAL_VALUE, INTEGER,
         TRUE,FALSE,
 
         DOLLAR_APC, DOLLAR_QOT, PRINTABLE_CHAR, DOLLAR_DOLLAR, DOLLAR_L, DOLLAR_N, DOLLAR_P,
 
-        MS, TIME,
+        MS, TIME, T, D, H, M,
     
         SINT, INT, DINT, LINT, USINT,
         UINT, UDINT, ULINT, REAL, LREAL, DATE, TIME_OF_DAY, TOD, DATE_AND_TIME,
@@ -127,6 +136,8 @@ class IECLexer(Lexer):
 ##############################
 #  B.1.2.2 Character strings #
 ##############################
+    SINGLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r"'([^'$]|(\$\$)|(\$')|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{2}))*'")
+    DOUBLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r'"([^"$]|(\$\$)|(\$")|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{4}))*"')
     DOLLAR_APC = r'\$\''
     DOLLAR_QOT = r'\$"'
     PRINTABLE_CHAR = r'ppppppp'
@@ -140,6 +151,10 @@ class IECLexer(Lexer):
 #######################
     IDENTIFIER['MS'] = MS
     IDENTIFIER['TIME'] = TIME
+    IDENTIFIER['T'] = T
+    IDENTIFIER['D'] = D
+    IDENTIFIER['H'] = H
+    IDENTIFIER['M'] = M
 
 ##################################
 #  B.1.3.1 Elementary data types #
@@ -387,6 +402,4 @@ class IECLexer(Lexer):
 
 
     
-
-
 

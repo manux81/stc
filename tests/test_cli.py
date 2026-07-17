@@ -180,6 +180,28 @@ END_FUNCTION_BLOCK
         self.assertIn("function_block_declaration", text)
         self.assertIn("function_block_body", text)
 
+    def test_ast_output_covers_expanded_grammar_constructs(self):
+        result = run_stc(str(FIXTURES / "valid_ast" / "expanded_grammar.st"), "-g", "ast")
+        ast = json.loads(result.stdout)
+        text = json.dumps(ast)
+        self.assertEqual(ast["name"], "library")
+        self.assertEqual(len(ast["children"]), 3)
+        for node_name in (
+            "array_initialization",
+            "structure_declaration",
+            "single_byte_character_string",
+            "date",
+            "time_of_day",
+            "date_and_time",
+            "duration",
+            "case_statement",
+            "for_statement",
+            "standard_function_name",
+            "program_declaration",
+        ):
+            with self.subTest(node_name=node_name):
+                self.assertIn(node_name, text)
+
     def test_ast_coverage_reports_complete_placeholder_elimination(self):
         result = subprocess.run(
             [sys.executable, str(AST_COVERAGE)],
