@@ -606,7 +606,7 @@ class IECParser(Parser):
     def symbolic_variable(self, p):
         return {"name": self.production.name, "children": [ p[0] ]}
 
-    @_('IDENTIFIER')
+    @_('IDENTIFIER', 'PARAMETER_IDENTIFIER')
     def variable_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
@@ -1349,6 +1349,7 @@ class IECParser(Parser):
     def equ_expression(self, p):
         items = [p[0]]
         for obj in p[1]:
+            items.append(obj[0])
             items.append(obj[1])
         return { "name": self.production.name, "children": items }
 
@@ -1387,9 +1388,10 @@ class IECParser(Parser):
     def power_expression(self, p):
         items = [p[0]]
         for obj in p[1]:
-            tmp = obj[1]
-            tmp["value"] = p.DOUBLESTAR
-            items.append(tmp)
+            # The operator is implicit in this production. Do not attach it to
+            # the operand: doing so overwrites a unary operator and, for a
+            # repeated '**', p.DOUBLESTAR is a list rather than a string.
+            items.append(obj[1])
         return { "name": self.production.name, "children": items }
 
     @_('[ unary_operator ] primary_expression')
@@ -1450,13 +1452,15 @@ class IECParser(Parser):
     def fb_invocation(self, p):
         return self._node_from_production(p)
 
-    @_('[ parameter_name ASSIGN ] expression',
-       '[ NOT ] parameter_name SENDTO variable')
+    @_('expression',
+       'PARAMETER_IDENTIFIER ASSIGN expression',
+       'parameter_name ASSIGN expression',
+       'parameter_name SENDTO variable',
+       'NOT parameter_name SENDTO variable')
     def param_assignment(self, p):
         return self._node_from_production(p)
 
-    @_('variable_name',
-       'IN', 'PT', 'CLK', 'CU', 'CD', 'PV',
+    @_('IN', 'PT', 'CLK', 'CU', 'CD', 'PV',
        'S', 'R', 'S1', 'R1')
     def parameter_name(self, p):
         return self._node_from_production(p)
@@ -1518,7 +1522,7 @@ class IECParser(Parser):
     def for_statement(self, p):
         return { "name": self.production.name, "children": [ p[1], p[3], p[5] ] }
 
-    @_('IDENTIFIER')
+    @_('IDENTIFIER', 'PARAMETER_IDENTIFIER')
     def control_variable(self, p):
         return self._node_from_production(p)
     

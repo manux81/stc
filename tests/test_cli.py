@@ -45,14 +45,14 @@ class CLITests(unittest.TestCase):
 
     def test_c_generator_emits_function_signature_and_return(self):
         result = run_stc(str(SAMPLE), "-g", "c")
-        self.assertIn("int16_t inter(int16_t a_1, int16_t b_1, bool test)", result.stdout)
+        self.assertIn("int16_t inter(int8_t a_1, int16_t b_1, bool test)", result.stdout)
         self.assertIn("return inter;", result.stdout)
         self.assertNotIn("INT#10", result.stdout)
 
     def test_rust_generator_emits_function_signature_and_return_expression(self):
         result = run_stc(str(SAMPLE), "-g", "rust")
         self.assertIn(
-            "pub fn inter(mut a_1: i16, mut b_1: i16, mut test: bool) -> i16",
+            "pub fn inter(mut a_1: i8, mut b_1: i16, mut test: bool) -> i16",
             result.stdout,
         )
         self.assertTrue(result.stdout.rstrip().endswith("}"))
@@ -100,6 +100,41 @@ END_FUNCTION
         ast = json.loads(result.stdout)
         self.assertIn("direct_variable", json.dumps(ast))
 
+    def test_iec_block_comments_are_ignored(self):
+        source = """\
+FUNCTION commented : INT (* declaration comment *)
+VAR_INPUT
+    value_in: INT; (* multiline
+                      comment *)
+END_VAR
+    commented := value_in;
+END_FUNCTION (* trailing comment *)
+"""
+        result = run_stc_input(source, "-g", "ast")
+        ast = json.loads(result.stdout)
+        self.assertEqual(ast["name"], "library")
+
+    def test_weigh_library_emits_nested_bcd_calls(self):
+        result = run_stc(str(ROOT / "library" / "weigh.st"), "-g", "c")
+
+        self.assertIn(
+            "WEIGH = INT_TO_BCD(BCD_TO_INT(gross_weight) - tare_weight);",
+            result.stdout,
+        )
+        self.assertIn("static inline int16_t BCD_TO_INT", result.stdout)
+        self.assertIn("static inline uint16_t INT_TO_BCD", result.stdout)
+
+    def test_cli_selectively_imports_a_library_export(self):
+        result = run_stc_input(
+            "",
+            "-g", "c",
+            "-L", str(ROOT / "library"),
+            "--import", "standard:WEIGH",
+        )
+
+        self.assertIn("uint16_t WEIGH(", result.stdout)
+        self.assertIn("WEIGH = INT_TO_BCD(BCD_TO_INT(gross_weight) - tare_weight);", result.stdout)
+
     def test_code_generation_reports_undeclared_variables(self):
         source = """\
 FUNCTION bad : INT
@@ -111,7 +146,7 @@ END_FUNCTION
 """
         result = run_stc_input(source, "-g", "c", check=False)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("semantic error", result.stderr)
+        self.assertIn(": error:", result.stderr)
         self.assertIn("missing_var", result.stderr)
 
     def test_syntax_error_reports_line_column_and_caret(self):
@@ -127,8 +162,8 @@ END_FUNCTION
 """
         result = run_stc_input(source, "-g", "ast", check=False)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("syntax error", result.stderr)
-        self.assertIn("line 6, column", result.stderr)
+        self.assertIn("[syntax-error]", result.stderr)
+        self.assertIn("<stdin>:6:", result.stderr)
         self.assertIn("broken := value_in;", result.stderr)
         self.assertIn("^", result.stderr)
 
@@ -143,7 +178,7 @@ END_VAR
         result = run_stc_input(source, "-g", "ast", check=False)
         self.assertEqual(result.returncode, 1)
         self.assertIn("unexpected end of input", result.stderr)
-        self.assertIn("line 5, column", result.stderr)
+        self.assertIn("<stdin>:5:", result.stderr)
 
     def test_ast_output_does_not_require_semantic_validity(self):
         source = """\
@@ -263,8 +298,42 @@ END_FUNCTION_BLOCK
                     check=False,
                 )
                 self.assertEqual(result.returncode, 1)
-                self.assertIn("semantic error", result.stderr)
+                self.assertIn(": error:", result.stderr)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+class ClangStyleDiagnosticTests(unittest.TestCase):
+    def test_semantic_error_has_clang_location_and_range(self):
+        source = """\
+FUNCTION bad : INT
+VAR
+    value: INT;
+END_VAR
+    value := 10.5;
+    bad := value;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "c", "--diagnostic-color=never", check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("<stdin>:5:5: error:", result.stderr)
+        self.assertIn("[incompatible-assignment]", result.stderr)
+        self.assertIn("value := 10.5;", result.stderr)
+        self.assertIn("^", result.stderr)
+        self.assertIn("1 error generated", result.stderr)
+
+    def test_c_generator_emits_for_loop(self):
+        source = """\
+FUNCTION loop_test : INT
+VAR
+    i: INT;
+END_VAR
+    loop_test := 0;
+    FOR i := 1 TO 3 DO
+        loop_test := loop_test + i;
+    END_FOR;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "c")
+        self.assertIn("for (i = 1; i <= 3; i++)", result.stdout)

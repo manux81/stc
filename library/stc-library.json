@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "name": "standard",
+  "exports": {
+    "WEIGH": {
+      "source": "weigh.st"
+    }
+  }
+}

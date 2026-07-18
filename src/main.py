@@ -1,12 +1,10 @@
 import argparse
-import json
 import sys
 
-from iec_generator_c import CCodeGenerator
-from iec_generator_rust import RustCodeGenerator
-from iec_lexer import IECLexer
-from iec_parser import IECParser
-from semantic import SemanticAnalyzer, SemanticError
+from compiler import compile_source
+from diagnostics import DiagnosticRenderer, DiagnosticStyle, should_use_color
+from iec_parser import ParsingError
+from library import LibraryError
 
 
 VERSION = "0.2.0"
@@ -26,31 +24,6 @@ def print_tree(node, indent=""):
             print_tree(item, indent)
     else:
         print(f"{indent}{node}")
-
-
-def parse_source(source):
-    lexer = IECLexer()
-    parser = IECParser().set_source(source)
-    tokens = lexer.tokenize(source)
-    return parser.parse(tokens)
-
-
-def generate(source, target, check_semantics=True):
-    ast = parse_source(source)
-    if ast is None:
-        raise SyntaxError("Unable to parse source.")
-
-    if target == "ast":
-        return json.dumps(ast, indent=2)
-    if target == "tree":
-        return ast
-
-    if check_semantics:
-        SemanticAnalyzer().analyze(ast)
-
-    generator = RustCodeGenerator() if target == "rust" else CCodeGenerator()
-    generator.visit(ast)
-    return generator.text.rstrip() + "\n"
 
 
 def read_source(path):
@@ -96,11 +69,71 @@ def build_arg_parser():
         help="Display compiler version information.",
     )
     parser.add_argument(
+        "--diagnostic-color",
+        choices=("auto", "always", "never"),
+        default="auto",
+        help="Colorize diagnostics like Clang.",
+    )
+    parser.add_argument(
         "--no-semantic-check",
         action="store_true",
         help="Skip semantic checks before code generation.",
     )
+    parser.add_argument(
+        "-L",
+        "--library-path",
+        action="append",
+        default=[],
+        help="Add a directory to the library search path.",
+    )
+    parser.add_argument(
+        "--import",
+        dest="imports",
+        action="append",
+        default=[],
+        metavar="LIBRARY[:SYMBOL]",
+        help="Import every export from a library or select one export.",
+    )
     return parser
+
+
+def report_compilation_failure(result, color_mode="auto", stream=None):
+    stream = stream or sys.stderr
+    color = should_use_color(color_mode, stream)
+    if result.syntax_error is not None:
+        exc = result.syntax_error
+        filename = "<stdin>" if result.source_name == "-" else result.source_name
+        if isinstance(exc, ParsingError):
+            line = exc.line or 1
+            column = exc.column or 1
+            label = "\033[1;31merror\033[0m" if color else "error"
+            print(f"{filename}:{line}:{column}: {label}: {exc.args[0]} [syntax-error]", file=stream)
+            if exc.source_line is not None:
+                print(f" {line:>4} | {exc.source_line}", file=stream)
+                marker = " " * max(0, column - 1) + "^"
+                if color:
+                    marker = " " * max(0, column - 1) + "\033[1;32m^\033[0m"
+                print(f"      | {marker}", file=stream)
+        else:
+            print(f"{filename}: error: {exc} [syntax-error]", file=stream)
+        print("stc: 1 error generated.", file=stream)
+        return
+
+    renderer = DiagnosticRenderer(
+        result.source_map,
+        DiagnosticStyle(color=color),
+    )
+    for diagnostic in result.diagnostics:
+        print(renderer.render(diagnostic), file=stream)
+    error_count = sum(d.severity == "error" for d in result.diagnostics)
+    warning_count = sum(d.severity == "warning" for d in result.diagnostics)
+    suffix = []
+    if error_count:
+        suffix.append(f"{error_count} error" + ("s" if error_count != 1 else ""))
+    if warning_count:
+        suffix.append(f"{warning_count} warning" + ("s" if warning_count != 1 else ""))
+    if suffix:
+        print("stc: " + " and ".join(suffix) + " generated.", file=stream)
 
 
 def main(argv=None):
@@ -113,27 +146,31 @@ def main(argv=None):
 
     try:
         source = read_source(args.source)
-        result = generate(source, args.generator, not args.no_semantic_check)
-    except OSError as exc:
+        compilation = compile_source(
+            source,
+            args.generator,
+            check_semantics=not args.no_semantic_check,
+            source_name=args.source,
+            library_paths=args.library_path,
+            imports=args.imports,
+        )
+    except (OSError, LibraryError) as exc:
         print(f"stc: {exc}", file=sys.stderr)
         return 2
-    except SyntaxError as exc:
-        print(f"stc: syntax error: {exc}", file=sys.stderr)
-        return 1
-    except SemanticError as exc:
-        for diagnostic in exc.diagnostics:
-            print(f"stc: semantic error: {diagnostic}", file=sys.stderr)
+
+    if not compilation.success:
+        report_compilation_failure(compilation, args.diagnostic_color)
         return 1
 
     if args.generator == "tree":
-        print_tree(result)
+        print_tree(compilation.output)
         return 0
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as output_file:
-            output_file.write(result)
+            output_file.write(compilation.output)
     else:
-        print(result, end="")
+        print(compilation.output, end="")
     return 0
 
 

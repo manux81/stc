@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from main import parse_source
+from compiler import parse_source
 from symbol_table import ScopeKind, StorageClass, SymbolKind, SymbolTableBuilder
 
 

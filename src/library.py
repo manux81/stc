@@ -1,0 +1,125 @@
+"""Library discovery, selective imports, and target-native implementations."""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+MANIFEST_NAME = "stc-library.json"
+
+
+class LibraryError(ValueError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class NativeImplementation:
+    kind: str
+    name: str
+    target: str
+    body: str
+    init: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryImport:
+    library: str
+    symbol: str
+    source_name: str
+    source: str
+    implementations: tuple[NativeImplementation, ...] = ()
+
+
+@dataclass(slots=True)
+class ResolvedLibraries:
+    imports: list[LibraryImport] = field(default_factory=list)
+
+    def native_implementations(self, target: str) -> dict[str, NativeImplementation]:
+        return {
+            item.name.casefold(): item
+            for imported in self.imports
+            for item in imported.implementations
+            if item.target == target
+        }
+
+
+class LibraryResolver:
+    def __init__(self, search_paths=()):
+        self.search_paths = tuple(Path(path) for path in search_paths)
+
+    def resolve(self, imports: tuple[str, ...] | list[str]) -> ResolvedLibraries:
+        result = ResolvedLibraries()
+        seen: set[tuple[str, str]] = set()
+        for request in imports:
+            library_name, separator, selected = request.partition(":")
+            manifest_path = self._find_manifest(library_name)
+            manifest = self._load_manifest(manifest_path)
+            exports = manifest.get("exports")
+            if not isinstance(exports, dict) or not exports:
+                raise LibraryError(f"Library {library_name!r} has no exports")
+            names = [selected] if separator else list(exports)
+            for name in names:
+                if name not in exports:
+                    raise LibraryError(f"Library {library_name!r} does not export {name!r}")
+                key = (library_name.casefold(), name.casefold())
+                if key in seen:
+                    continue
+                seen.add(key)
+                result.imports.append(self._load_export(manifest_path.parent, library_name, name, exports[name]))
+        return result
+
+    def _find_manifest(self, library_name: str) -> Path:
+        candidates = []
+        for root in self.search_paths:
+            candidates.extend((root / library_name / MANIFEST_NAME, root / MANIFEST_NAME))
+        for candidate in candidates:
+            if candidate.is_file():
+                manifest = self._load_manifest(candidate)
+                if str(manifest.get("name", "")).casefold() == library_name.casefold():
+                    return candidate
+        paths = ", ".join(str(path) for path in self.search_paths) or "<none>"
+        raise LibraryError(f"Library {library_name!r} was not found in: {paths}")
+
+    @staticmethod
+    def _load_manifest(path: Path) -> dict:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise LibraryError(f"Cannot load library manifest {path}: {exc}") from exc
+        if data.get("schema") != 1 or not isinstance(data.get("name"), str):
+            raise LibraryError(f"Invalid library manifest {path}")
+        return data
+
+    def _load_export(self, root: Path, library: str, symbol: str, spec) -> LibraryImport:
+        if isinstance(spec, str):
+            spec = {"source": spec}
+        if not isinstance(spec, dict) or not isinstance(spec.get("source"), str):
+            raise LibraryError(f"Invalid export {library}:{symbol}")
+        source_path = root / spec["source"]
+        try:
+            source = source_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise LibraryError(f"Cannot read library source {source_path}: {exc}") from exc
+
+        implementations = []
+        native = spec.get("native", {})
+        if not isinstance(native, dict):
+            raise LibraryError(f"Invalid native implementation map for {library}:{symbol}")
+        for target, implementation in native.items():
+            if not isinstance(implementation, dict) or not isinstance(implementation.get("body"), str):
+                raise LibraryError(f"Invalid {target} implementation for {library}:{symbol}")
+            kind = implementation.get("kind", "function")
+            body = self._read_native_file(root, implementation["body"])
+            init_name = implementation.get("init")
+            init = self._read_native_file(root, init_name) if isinstance(init_name, str) else None
+            implementations.append(NativeImplementation(kind, symbol, target, body, init))
+        return LibraryImport(library, symbol, str(source_path), source, tuple(implementations))
+
+    @staticmethod
+    def _read_native_file(root: Path, relative_name: str) -> str:
+        path = root / relative_name
+        try:
+            return path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise LibraryError(f"Cannot read native implementation {path}: {exc}") from exc

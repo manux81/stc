@@ -37,6 +37,63 @@ python3 src/main.py examples/inter.st -g c --no-semantic-check
 
 Use `-` or omit the source path to read from stdin.
 
+## Python compilation API
+
+Library clients can use the same result-based pipeline as the CLI:
+
+```python
+from compiler import compile_source
+
+result = compile_source(source, "c", source_name="example.st")
+if result.success:
+    c_source = result.output
+else:
+    for diagnostic in result.diagnostics:
+        print(diagnostic.code, diagnostic.message)
+```
+
+`CompilationResult` preserves the parse tree, AST, semantic context, source
+map, diagnostics, and generated output when they are available. Syntax and
+semantic failures are returned as data; invalid API usage and unexpected
+compiler faults still raise exceptions.
+
+The parser output is converted through an injectable `AstBuilder`. The current
+AST is still dictionary-based, but it is detached from parser-owned objects so
+typed nodes can replace it incrementally without changing the compilation API.
+
+## Libraries and native implementations
+
+Add library search directories with `-L` and import either every export or one
+selected symbol:
+
+```sh
+python3 src/main.py application.st -g c -L ./libraries --import math
+python3 src/main.py application.st -g c -L ./libraries --import math:NativeAdd
+```
+
+Each library is described by `stc-library.json`. IEC declarations stay in `.st`
+files, while target-specific bodies live in separate files:
+
+```json
+{
+  "schema": 1,
+  "name": "math",
+  "exports": {
+    "NativeAdd": {
+      "source": "NativeAdd.st",
+      "native": {
+        "c": { "body": "NativeAdd.cbody" }
+      }
+    }
+  }
+}
+```
+
+Native function bodies can access parameters, locals, and the generated return
+variable by their IEC names. A native function block uses `kind:
+"function_block"` and may provide both `init` and `body` files. Its snippets
+access state through `self->field_name`.
+
 Syntax errors include the unexpected token, line/column, source line, and a
 caret:
 
@@ -124,12 +181,45 @@ python3 tools/parser_doc_audit.py
 - [Autonomy-Logic/STruCpp](https://github.com/Autonomy-Logic/STruCpp)
 - [beremiz/matiec](https://github.com/beremiz/matiec)
 
-### Diagnostica della grammatica
+### Grammar diagnostics
 
-Durante l'uso normale il compilatore nasconde i warning SLY/PLY già noti relativi a token o produzioni non usate, simboli irraggiungibili e conflitti della grammatica. Gli errori reali di costruzione della grammatica restano attivi.
+During normal operation, the compiler hides known SLY/PLY warnings about unused
+tokens and productions, unreachable symbols, and grammar conflicts. Actual
+grammar construction errors remain enabled.
 
-Per riattivare l'audit completo e generare `parser.out`:
+To enable the complete grammar audit and generate `parser.out`:
 
 ```bash
 STC_PARSER_DIAGNOSTICS=1 python3 src/main.py input.st -g c
 ```
+
+## Clang-style diagnostics
+
+Semantic and syntax diagnostics include the file, line, column, source code,
+and a caret range:
+
+```text
+example.st:13:9: error: Cannot assign ['REAL'] to ['INT']. [incompatible-assignment]
+   13 |         b_1 := 10.5;
+      |         ^~~~~~~~~~~
+stc: 1 error generated.
+```
+
+Color is enabled automatically on interactive terminals and can be controlled
+explicitly:
+
+```bash
+python3 src/main.py input.st -g c --diagnostic-color=always
+python3 src/main.py input.st -g c --diagnostic-color=never
+```
+
+The C generator receives the semantic context and emits `FOR` loops and `#line`
+directives so C compiler diagnostics can refer back to the Structured Text
+source.
+
+## Extending semantic analysis
+
+Semantic checks are organized under `src/semantic_checks/`. Each check is a
+small registered class with explicit phase and dependencies. See
+[`docs/ADDING_SEMANTIC_CHECKS.md`](docs/ADDING_SEMANTIC_CHECKS.md) for a complete
+example.

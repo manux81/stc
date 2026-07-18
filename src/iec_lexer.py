@@ -37,6 +37,7 @@ def generate_standard_function_name():
         r'CONCAT', r'INSERT', r'DELETE', r'REPLACE', r'FIND',
         r'LEN', r'LEFT', r'RIGHT', r'MID',
         r'GT', r'GE', r'EQ', r'LT', r'LE', r'NE',
+        r'BCD_TO_INT', r'INT_TO_BCD',
     }
     for from_type in simple_type:
         for to_type in simple_type:
@@ -66,6 +67,12 @@ class IECLexer(Lexer):
     }
     ignore = ' \t'
 
+    # IEC 61131-3 block comments may appear anywhere whitespace is allowed.
+    ignore_block_comment = r'\(\*[\s\S]*?\*\)'
+
+    def ignore_block_comment(self, t):
+        self.lineno += t.value.count('\n')
+
     # Ignored pattern
     ignore_newline = r'\n+'
 
@@ -74,7 +81,7 @@ class IECLexer(Lexer):
         self.lineno += t.value.count('\n')
 
     tokens = { 
-        IDENTIFIER,
+        IDENTIFIER, PARAMETER_IDENTIFIER,
         LETTER, 
         # DIGIT, 
         #OCTAL_DIGIt, 
@@ -385,6 +392,11 @@ class IECLexer(Lexer):
     IDENTIFIER['END_REPEAT'] = END_REPEAT
     IDENTIFIER['EXIT'] = EXIT
 
+    def IDENTIFIER(self, token):
+        if re.match(r'\s*:=', self.text[self.index:]):
+            token.type = 'PARAMETER_IDENTIFIER'
+        return token
+
     #MINUS   = r'\-'
     #PLUS    = r'\+'
 
@@ -402,4 +414,3 @@ class IECLexer(Lexer):
 
 
     
-
