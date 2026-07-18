@@ -94,13 +94,12 @@ class CompilerApiTests(unittest.TestCase):
             (package / "native_add.st").write_text(
                 """FUNCTION NativeAdd : INT
 VAR_INPUT lhs, rhs: INT; END_VAR
+{#native c body}
+NativeAdd = lhs + rhs;
+{#end_native}
 NativeAdd := 0;
 END_FUNCTION
 """,
-                encoding="utf-8",
-            )
-            (package / "native_add.cbody").write_text(
-                "NativeAdd = lhs + rhs;\n",
                 encoding="utf-8",
             )
             (package / "stc-library.json").write_text(
@@ -108,10 +107,7 @@ END_FUNCTION
                     "schema": 1,
                     "name": "math",
                     "exports": {
-                        "NativeAdd": {
-                            "source": "native_add.st",
-                            "native": {"c": {"body": "native_add.cbody"}},
-                        }
+                        "NativeAdd": {"source": "native_add.st"}
                     },
                 }),
                 encoding="utf-8",
@@ -129,7 +125,7 @@ END_FUNCTION
         self.assertEqual([item.symbol for item in result.libraries.imports], ["NativeAdd"])
         self.assertIn("NativeAdd = lhs + rhs;", result.output)
 
-    def test_native_function_block_emits_init_and_body(self):
+    def test_native_function_block_emits_setup_and_loop(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             package = root / "blocks"
@@ -138,14 +134,15 @@ END_FUNCTION
                 """FUNCTION_BLOCK Latch
 VAR_INPUT set_value: BOOL; END_VAR
 VAR_OUTPUT output_value: BOOL; END_VAR
+{#native c setup}
+self->output_value = false;
+{#end_native}
+{#native c loop}
+if (self->set_value) self->output_value = true;
+{#end_native}
 output_value := set_value;
 END_FUNCTION_BLOCK
 """,
-                encoding="utf-8",
-            )
-            (package / "Latch.init.cbody").write_text("self->output_value = false;\n", encoding="utf-8")
-            (package / "Latch.body.cbody").write_text(
-                "if (self->set_value) self->output_value = true;\n",
                 encoding="utf-8",
             )
             (package / "stc-library.json").write_text(
@@ -153,14 +150,7 @@ END_FUNCTION_BLOCK
                     "schema": 1,
                     "name": "blocks",
                     "exports": {
-                        "Latch": {
-                            "source": "Latch.st",
-                            "native": {"c": {
-                                "kind": "function_block",
-                                "init": "Latch.init.cbody",
-                                "body": "Latch.body.cbody",
-                            }},
-                        }
+                        "Latch": {"source": "Latch.st"}
                     },
                 }),
                 encoding="utf-8",
@@ -176,8 +166,8 @@ END_FUNCTION_BLOCK
 
         self.assertTrue(result.success)
         self.assertIn("typedef struct Latch", result.output)
-        self.assertIn("void Latch_init(Latch *self)", result.output)
-        self.assertIn("void Latch_body(Latch *self)", result.output)
+        self.assertIn("void Latch_setup(Latch *self)", result.output)
+        self.assertIn("void Latch_loop(Latch *self)", result.output)
         self.assertIn("if (self->set_value) self->output_value = true;", result.output)
 
 

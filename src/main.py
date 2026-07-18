@@ -5,6 +5,7 @@ from compiler import compile_source
 from diagnostics import DiagnosticRenderer, DiagnosticStyle, should_use_color
 from iec_parser import ParsingError
 from library import LibraryError
+from native import NativePragmaError
 
 
 VERSION = "0.2.0"
@@ -154,7 +155,7 @@ def main(argv=None):
             library_paths=args.library_path,
             imports=args.imports,
         )
-    except (OSError, LibraryError) as exc:
+    except (OSError, LibraryError, NativePragmaError) as exc:
         print(f"stc: {exc}", file=sys.stderr)
         return 2
 

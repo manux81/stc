@@ -71,8 +71,7 @@ python3 src/main.py application.st -g c -L ./libraries --import math
 python3 src/main.py application.st -g c -L ./libraries --import math:NativeAdd
 ```
 
-Each library is described by `stc-library.json`. IEC declarations stay in `.st`
-files, while target-specific bodies live in separate files:
+Each library is described by `stc-library.json`:
 
 ```json
 {
@@ -80,19 +79,38 @@ files, while target-specific bodies live in separate files:
   "name": "math",
   "exports": {
     "NativeAdd": {
-      "source": "NativeAdd.st",
-      "native": {
-        "c": { "body": "NativeAdd.cbody" }
-      }
+      "source": "NativeAdd.st"
     }
   }
 }
 ```
 
-Native function bodies can access parameters, locals, and the generated return
-variable by their IEC names. A native function block uses `kind:
-"function_block"` and may provide both `init` and `body` files. Its snippets
-access state through `self->field_name`.
+Target-native implementations use matiec-style pragmas inside the IEC source.
+A function uses a `body` section:
+
+```iecst
+{#native c body}
+NativeAdd = lhs + rhs;
+{#end_native}
+```
+
+A function block uses Arduino-style `setup` and `loop` sections:
+
+```iecst
+{#native c setup}
+self->output_value = false;
+{#end_native}
+
+{#native c loop}
+if (self->set_value) self->output_value = true;
+{#end_native}
+```
+
+The C backend emits `Block_setup(Block *self)` and `Block_loop(Block *self)`.
+Native function code can access parameters, locals, and the generated return
+variable by their IEC names. Function-block code accesses state through
+`self->field_name`. A valid ST body remains in the declaration as a portable
+fallback for targets without a matching native pragma.
 
 Syntax errors include the unexpected token, line/column, source line, and a
 caret:

@@ -14,35 +14,16 @@ class LibraryError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class NativeImplementation:
-    kind: str
-    name: str
-    target: str
-    body: str
-    init: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class LibraryImport:
     library: str
     symbol: str
     source_name: str
     source: str
-    implementations: tuple[NativeImplementation, ...] = ()
 
 
 @dataclass(slots=True)
 class ResolvedLibraries:
     imports: list[LibraryImport] = field(default_factory=list)
-
-    def native_implementations(self, target: str) -> dict[str, NativeImplementation]:
-        return {
-            item.name.casefold(): item
-            for imported in self.imports
-            for item in imported.implementations
-            if item.target == target
-        }
-
 
 class LibraryResolver:
     def __init__(self, search_paths=()):
@@ -102,24 +83,4 @@ class LibraryResolver:
         except OSError as exc:
             raise LibraryError(f"Cannot read library source {source_path}: {exc}") from exc
 
-        implementations = []
-        native = spec.get("native", {})
-        if not isinstance(native, dict):
-            raise LibraryError(f"Invalid native implementation map for {library}:{symbol}")
-        for target, implementation in native.items():
-            if not isinstance(implementation, dict) or not isinstance(implementation.get("body"), str):
-                raise LibraryError(f"Invalid {target} implementation for {library}:{symbol}")
-            kind = implementation.get("kind", "function")
-            body = self._read_native_file(root, implementation["body"])
-            init_name = implementation.get("init")
-            init = self._read_native_file(root, init_name) if isinstance(init_name, str) else None
-            implementations.append(NativeImplementation(kind, symbol, target, body, init))
-        return LibraryImport(library, symbol, str(source_path), source, tuple(implementations))
-
-    @staticmethod
-    def _read_native_file(root: Path, relative_name: str) -> str:
-        path = root / relative_name
-        try:
-            return path.read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            raise LibraryError(f"Cannot read native implementation {path}: {exc}") from exc
+        return LibraryImport(library, symbol, str(source_path), source)

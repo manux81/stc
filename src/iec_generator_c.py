@@ -206,7 +206,7 @@ class CCodeGenerator(NodeVisitor):
         if local_decls or return_type != "void":
             self.text += "\n"
         if native is not None:
-            self._emit_native_code(native.body)
+            self._emit_native_code(native.section("body") or "")
         else:
             self.accept(node, lambda child_name: child_name == "function_body")
         if return_type != "void":
@@ -236,18 +236,19 @@ class CCodeGenerator(NodeVisitor):
         self.indent_dec()
         self.text += f"}} {name};\n\n"
 
-        self.text += f"void {name}_init({name} *self)\n{{\n"
+        self.text += f"void {name}_setup({name} *self)\n{{\n"
         self.indent_inc()
         for var_type, var_name in declarations:
             self.text += f"{self.indent}self->{var_name} = {self.zero_value(var_type)};\n"
-        if native.init:
-            self._emit_native_code(native.init)
+        setup = native.section("setup")
+        if setup:
+            self._emit_native_code(setup)
         self.indent_dec()
         self.text += "}\n\n"
 
-        self.text += f"void {name}_body({name} *self)\n{{\n"
+        self.text += f"void {name}_loop({name} *self)\n{{\n"
         self.indent_inc()
-        self._emit_native_code(native.body)
+        self._emit_native_code(native.section("loop") or "")
         self.indent_dec()
         self.text += "}\n"
 

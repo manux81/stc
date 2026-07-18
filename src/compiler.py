@@ -11,6 +11,7 @@ from iec_generator_rust import RustCodeGenerator
 from iec_lexer import IECLexer
 from iec_parser import IECParser, ParsingError
 from library import LibraryError, LibraryResolver, ResolvedLibraries
+from native import extract_native_pragmas
 from semantic import SemanticAnalyzer, SemanticError
 from semantic_context import Diagnostic, SemanticContext
 from source_map import SourceMap, build_source_map
@@ -76,9 +77,10 @@ def compile_source(
         raise ValueError(f"Unsupported compilation target {target!r}; expected one of: {supported}")
 
     libraries = LibraryResolver(library_paths).resolve(imports) if imports else ResolvedLibraries()
+    parser_source, native_sections = extract_native_pragmas(source)
     builder = ast_builder or AstBuilder()
     try:
-        tree = parse_tree(source)
+        tree = parse_tree(parser_source)
     except ParsingError as exc:
         return CompilationResult(target=target, source_name=source_name, syntax_error=exc)
 
@@ -92,8 +94,15 @@ def compile_source(
     ast = builder.build(tree)
     imported_nodes = []
     for imported in libraries.imports:
+        imported_source, imported_native = extract_native_pragmas(imported.source)
+        for key, implementation in imported_native.items():
+            if key in native_sections:
+                raise LibraryError(
+                    f"Duplicate native implementation for {implementation.target}:{implementation.name}"
+                )
+            native_sections[key] = implementation
         try:
-            imported_tree = parse_tree(imported.source)
+            imported_tree = parse_tree(imported_source)
         except ParsingError as exc:
             raise LibraryError(
                 f"Cannot parse imported source {imported.source_name}: {exc}"
@@ -125,7 +134,7 @@ def compile_source(
         )
 
     diagnostic_name = "<stdin>" if source_name == "-" else source_name
-    source_map = build_source_map(ast, source, diagnostic_name, IECLexer)
+    source_map = build_source_map(ast, parser_source, diagnostic_name, IECLexer)
     context = None
     if check_semantics:
         try:
@@ -148,7 +157,11 @@ def compile_source(
         else CCodeGenerator(
             context=context,
             source_name=source_name,
-            native_implementations=libraries.native_implementations("c"),
+            native_implementations={
+                name: implementation
+                for (implementation_target, name), implementation in native_sections.items()
+                if implementation_target == "c"
+            },
         )
     )
     generator.visit(ast)
