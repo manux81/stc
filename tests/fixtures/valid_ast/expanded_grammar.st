@@ -1,3 +1,7 @@
+(* Copyright (C) 2021-2026 Manuele Conti
+   SPDX-License-Identifier: GPL-2.0-or-later
+   Summary: Covers declarations, literals, calls, programs, and control flow. *)
+
 TYPE
     SampleArray : ARRAY [0..3] OF INT;
     SampleStruct : STRUCT

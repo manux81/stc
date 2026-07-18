@@ -1,4 +1,6 @@
-"""Public compilation API for the Structured Text frontend."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Expose the result-based Structured Text compilation pipeline."""
 from __future__ import annotations
 
 import json

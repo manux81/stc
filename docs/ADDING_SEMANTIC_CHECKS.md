@@ -1,3 +1,9 @@
+<!--
+Copyright (C) 2021-2026 Manuele Conti
+SPDX-License-Identifier: GPL-2.0-or-later
+Summary: Explains how to implement, register, order, and test semantic checks.
+-->
+
 # Adding a semantic check
 
 Each rule lives in one small class under `src/semantic_checks/`. A check does not

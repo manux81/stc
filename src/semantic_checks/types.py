@@ -1,4 +1,6 @@
-"""Candidate-type inference, narrowing, and type diagnostics."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Infer candidate types, narrow them, and report type errors."""
 from __future__ import annotations
 
 from semantic_types import ERROR_TYPE, TypeCategory, UNKNOWN_TYPE, conversion_cost, is_assignable

@@ -1,3 +1,7 @@
+(* Copyright (C) 2021-2026 Manuele Conti
+   SPDX-License-Identifier: GPL-2.0-or-later
+   Summary: Verifies code generation for typed and based numeric literals. *)
+
 FUNCTION add_literals : INT
 VAR_INPUT
     base_value: INT;

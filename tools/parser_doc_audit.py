@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Compare implemented parser productions with extracted IEC documentation."""
+
 import ast
 import re
 from pathlib import Path

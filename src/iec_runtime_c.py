@@ -1,4 +1,6 @@
-"""C runtime support emitted for IEC standard operations."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Provide C runtime fragments for IEC standard operations."""
 
 
 BCD_TO_INT_RUNTIME = r'''static inline int16_t BCD_TO_INT(uint16_t value)

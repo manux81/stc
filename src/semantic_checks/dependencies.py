@@ -1,4 +1,6 @@
-"""Declaration dependency collection and topological ordering."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Collect declaration dependencies and compute stable topological order."""
 from __future__ import annotations
 
 from symbol_table import normalize_identifier

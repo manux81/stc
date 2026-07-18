@@ -1,4 +1,6 @@
-"""Infrastructure shared by semantic checks.
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Define registration metadata and traversal helpers for semantic checks.
 
 A new check normally subclasses :class:`SemanticCheck`, implements ``run`` or
 one or more ``visit_<ast-node-name>`` methods, and is registered with

@@ -1,3 +1,7 @@
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Generate portable C code from the analyzed Structured Text AST."""
+
 from nodevisitor import NodeVisitor
 from iec_runtime_c import C_RUNTIME_FUNCTIONS
 

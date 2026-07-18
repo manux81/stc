@@ -1,3 +1,7 @@
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Verify the result-based compiler API, libraries, and native pragmas."""
+
 import unittest
 import json
 import tempfile

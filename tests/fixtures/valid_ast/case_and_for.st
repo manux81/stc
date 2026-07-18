@@ -1,3 +1,7 @@
+(* Copyright (C) 2021-2026 Manuele Conti
+   SPDX-License-Identifier: GPL-2.0-or-later
+   Summary: Exercises CASE selection and FOR iteration AST nodes. *)
+
 FUNCTION normalize_mode : INT
 VAR_INPUT
     mode_value: INT;

@@ -1,3 +1,7 @@
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Summary: Excludes generated files, caches, environments, and local tooling state.
+
 # Byte-compiled / optimized / DLL files
 __pycache__
 *.py[cod]

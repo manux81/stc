@@ -1,4 +1,6 @@
-"""Ordering and execution of registered semantic checks."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Order registered semantic checks and execute their dependency pipeline."""
 from __future__ import annotations
 
 from semantic_context import SemanticContext

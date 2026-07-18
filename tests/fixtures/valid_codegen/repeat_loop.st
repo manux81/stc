@@ -1,3 +1,7 @@
+(* Copyright (C) 2021-2026 Manuele Conti
+   SPDX-License-Identifier: GPL-2.0-or-later
+   Summary: Verifies code generation for REPEAT iteration. *)
+
 FUNCTION climb_until : INT
 VAR_INPUT
     start_value: INT;

@@ -1,4 +1,7 @@
 {
+  "$comment": "Summary: Declares selectively importable Structured Text standard-library exports.",
+  "copyright": "Copyright (C) 2021-2026 Manuele Conti",
+  "license": "GPL-2.0-or-later",
   "schema": 1,
   "name": "standard",
   "exports": {

@@ -1,3 +1,7 @@
+(* Copyright (C) 2021-2026 Manuele Conti
+   SPDX-License-Identifier: GPL-2.0-or-later
+   Summary: Implements a BCD-aware weighing function for the standard library. *)
+
 FUNCTION WEIGH : WORD (* BCD encoded *)
 VAR_INPUT (* "EN" input is used to indicate "scale ready" *)
 weigh_command : BOOL;

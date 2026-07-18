@@ -1,3 +1,7 @@
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Verify semantic-check registration and dependency ordering."""
+
 from semantic_checks import SemanticCheck, SemanticPhase, SemanticPipeline, register_check
 from semantic_context import SemanticContext
 from symbol_table import SymbolTableBuilder

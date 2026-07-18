@@ -1,4 +1,6 @@
-"""Type-system primitives shared by semantic-analysis passes."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Define type-system primitives shared by semantic analysis passes."""
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum

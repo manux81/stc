@@ -1,4 +1,6 @@
-"""Symbol table construction for the IEC 61131-3 AST.
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Build lexical scopes and symbol indexes for the IEC 61131-3 AST.
 
 The table is deliberately independent from type checking and code generation.  A
 single AST traversal records declarations, lexical scopes and identifier uses so

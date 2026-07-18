@@ -1,3 +1,7 @@
+(* Copyright (C) 2021-2026 Manuele Conti
+   SPDX-License-Identifier: GPL-2.0-or-later
+   Summary: Demonstrates function declarations, branching, typed values, and loops. *)
+
 FUNCTION inter : INT
 VAR_INPUT
     a_1: SINT;

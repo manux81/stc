@@ -1,4 +1,6 @@
-"""Declaration and name-resolution checks."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Validate declarations, type names, and identifier resolution."""
 from __future__ import annotations
 
 from semantic_types import BUILTIN_TYPES, DataType, TypeCategory, UNKNOWN_TYPE

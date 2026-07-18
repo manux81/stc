@@ -1,3 +1,7 @@
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Implement the command-line interface for the Structured Text compiler."""
+
 import argparse
 import sys
 

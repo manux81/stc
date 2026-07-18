@@ -1,4 +1,6 @@
-"""Independent semantic validation checks."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Run independent lvalue, control-flow, CASE, and array validations."""
 from __future__ import annotations
 
 from dataclasses import dataclass

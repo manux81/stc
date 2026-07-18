@@ -1,4 +1,6 @@
-"""Clang-style diagnostic rendering."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Render compiler diagnostics with Clang-style source locations."""
 from __future__ import annotations
 
 import os

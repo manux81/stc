@@ -1,3 +1,9 @@
+<!--
+Copyright (C) 2021-2026 Manuele Conti
+SPDX-License-Identifier: GPL-2.0-or-later
+Summary: Documents the compiler architecture, usage, libraries, diagnostics, and roadmap.
+-->
+
 # stc
 
 Structured Text Compiler.

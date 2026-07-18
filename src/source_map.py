@@ -1,4 +1,6 @@
-"""Source locations for AST nodes without polluting the serialized AST."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Map AST nodes to source spans without mutating serialized nodes."""
 from __future__ import annotations
 
 from dataclasses import dataclass

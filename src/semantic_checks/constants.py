@@ -1,4 +1,6 @@
-"""Compile-time constant evaluation."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Evaluate and type compile-time constant expressions."""
 from __future__ import annotations
 
 from semantic_types import (

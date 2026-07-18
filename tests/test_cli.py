@@ -1,3 +1,7 @@
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Exercise command-line parsing, diagnostics, and code-generation workflows."""
+
 import json
 import subprocess
 import sys

@@ -1,4 +1,6 @@
-"""Extraction of target-native code embedded in IEC pragma blocks."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Extract target-native code embedded in IEC pragma blocks."""
 from __future__ import annotations
 
 import re

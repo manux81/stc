@@ -1,4 +1,6 @@
-"""Shared state for all semantic passes."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Store symbols, inferred types, constants, and diagnostics across checks."""
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any

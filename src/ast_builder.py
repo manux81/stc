@@ -1,4 +1,6 @@
-"""Parse-tree to AST conversion boundary."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Convert parser-owned trees into detached compiler AST nodes."""
 from __future__ import annotations
 
 from typing import Any

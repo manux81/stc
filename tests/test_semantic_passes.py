@@ -1,3 +1,7 @@
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Test constant folding, type validation, lvalues, and dependency analysis."""
+
 import sys
 from pathlib import Path
 import pytest

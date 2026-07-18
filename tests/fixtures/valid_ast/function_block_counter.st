@@ -1,3 +1,7 @@
+(* Copyright (C) 2021-2026 Manuele Conti
+   SPDX-License-Identifier: GPL-2.0-or-later
+   Summary: Exercises a stateful counter function-block declaration. *)
+
 FUNCTION_BLOCK Counter
 VAR_INPUT
     reset_value : BOOL;

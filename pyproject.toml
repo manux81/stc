@@ -1,7 +1,13 @@
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Summary: Defines package metadata and Python test configuration.
+
 [project]
 name = "stc"
 version = "0.2.0"
 description = "IEC 61131-3 Structured Text compiler front-end"
+authors = [{ name = "Manuele Conti", email = "conti.manuele@gmail.com" }]
+license = { text = "GPL-2.0-or-later" }
 requires-python = ">=3.10"
 
 [tool.pytest.ini_options]

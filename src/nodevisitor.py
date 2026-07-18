@@ -1,22 +1,14 @@
-""" Structure Text Compiler
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version.
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
-You should have received a copy of the GNU General Public License along with
-this program. If not, see <http://www.gnu.org/licenses/>.
-"""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Dispatch AST nodes to specialized visitor methods."""
 
 __authors__ = ["Manuele Conti"]
 __contact__ = "conti.manuele@gmail.com"
-__copyright__ = "Copyright $YEAR, $COMPANY_NAME"
+__copyright__ = "Copyright (C) 2021-2026 Manuele Conti"
 __date__ = "2021/03/01"
 __deprecated__ = False
 __email__ =  "conti.manuele@gmail.com"
-__license__ = "GPLv3"
+__license__ = "GPL-2.0-or-later"
 __maintainer__ = "developer"
 __status__ = "Production"
 __version__ = "0.0.1"
@@ -46,4 +38,3 @@ class NodeVisitor:
             if callback != None and not callback(child["name"]):
                 continue
             self.visit(child)
-

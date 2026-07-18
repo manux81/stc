@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Audit parser productions for placeholder or structurally incomplete AST nodes."""
+
 import ast
 import argparse
 from pathlib import Path

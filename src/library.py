@@ -1,4 +1,6 @@
-"""Library discovery, selective imports, and target-native implementations."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Discover libraries and resolve selective Structured Text imports."""
 from __future__ import annotations
 
 import json

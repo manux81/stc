@@ -1,4 +1,6 @@
-"""Public API and registration side effects for semantic checks."""
+# Copyright (C) 2021-2026 Manuele Conti
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Export semantic-check APIs and register built-in checks."""
 from .base import (
     SemanticCheck,
     SemanticPhase,
