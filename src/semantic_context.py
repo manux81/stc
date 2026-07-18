@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from semantic_types import ConstantValue, DataType
 from symbol_table import SymbolTable
+from source_map import SourceMap
 AstNode=dict[str,Any]
 
 @dataclass(frozen=True,slots=True)
@@ -22,6 +23,7 @@ class SemanticContext:
     declaration_order:list[str]=field(default_factory=list)
     reachable_nodes:set[int]=field(default_factory=set)
     diagnostics:list[Diagnostic]=field(default_factory=list)
+    source_map:SourceMap|None=None
     def error(self,code,message,node): self.diagnostics.append(Diagnostic(code,message,node))
     def warning(self,code,message,node): self.diagnostics.append(Diagnostic(code,message,node,'warning'))
     def type_of(self,node): return self.node_types.get(id(node))

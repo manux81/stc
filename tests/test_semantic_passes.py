@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import pytest
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT/'src'))
-from main import parse_source
+from compiler import parse_source
 from semantic import SemanticAnalyzer,SemanticError
 from semantic_context import SemanticContext
 from semantic_passes import ConstantFolder,CaseElementsCheck,topological_declaration_order

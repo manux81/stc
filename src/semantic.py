@@ -1,33 +1,34 @@
-"""Semantic-analysis pipeline."""
+"""Entry point for semantic analysis."""
+from semantic_checks import SemanticPipeline
 from semantic_context import SemanticContext
-from semantic_passes import (
-    ArrayRangeCheck, CaseElementsCheck, ConstantFolder, DeclarationCheck,
-    DependencyAnalysis, EnumDeclarationCheck, FillCandidateDatatypes,
-    FlowControlAnalysis, ForcedNarrowCandidateDatatypes, LValueCheck,
-    NarrowCandidateDatatypes, PrintDatatypesError, TypeDeclarationCollector,
-)
 from symbol_table import SymbolTableBuilder
 
+
 class SemanticError(Exception):
-    def __init__(self,diagnostics):
-        self.diagnostics=diagnostics
-        super().__init__('\n'.join(str(d) for d in diagnostics))
+    def __init__(self, diagnostics, source_map=None, context=None):
+        self.diagnostics = diagnostics
+        self.source_map = source_map
+        self.context = context
+        super().__init__("\n".join(diagnostic.message for diagnostic in diagnostics))
+
 
 class SemanticAnalyzer:
-    """Run ordered semantic passes and return their shared context.
+    """Build the symbol table and execute the registered semantic checks."""
 
-    ``strict_types`` may be disabled while extending the language type model;
-    declaration, name, lvalue, CASE and range errors remain active.
-    """
-    PASS_TYPES=(EnumDeclarationCheck,TypeDeclarationCollector,FlowControlAnalysis,
-                ConstantFolder,DeclarationCheck,FillCandidateDatatypes,
-                NarrowCandidateDatatypes,PrintDatatypesError,
-                ForcedNarrowCandidateDatatypes,LValueCheck,ArrayRangeCheck,
-                CaseElementsCheck,DependencyAnalysis)
-    def __init__(self,strict_types=True): self.strict_types=strict_types
-    def analyze(self,ast)->SemanticContext:
-        context=SemanticContext(SymbolTableBuilder().build(ast))
-        for pass_type in self.PASS_TYPES: pass_type(context).run(ast)
-        errors=[d.message for d in context.diagnostics if d.severity=='error']
-        if errors: raise SemanticError(errors)
+    def __init__(self, pipeline: SemanticPipeline | None = None):
+        self.pipeline = pipeline or SemanticPipeline()
+
+    def analyze(self, ast, source_map=None) -> SemanticContext:
+        context = SemanticContext(
+            symbols=SymbolTableBuilder().build(ast),
+            source_map=source_map,
+        )
+        self.pipeline.run(ast, context)
+        errors = [item for item in context.diagnostics if item.severity == "error"]
+        if errors:
+            raise SemanticError(
+                context.diagnostics,
+                source_map=context.source_map,
+                context=context,
+            )
         return context
