@@ -52,6 +52,16 @@ class CompilerApiTests(unittest.TestCase):
         self.assertIsNotNone(result.source_map)
         self.assertTrue(any(item.code == "undeclared-variable" for item in result.diagnostics))
 
+    def test_undeclared_assignment_target_suppresses_invalid_lvalue(self):
+        source = VALID_SOURCE.replace("increment :=", "missing_target :=")
+        result = compile_source(source, "c", source_name="bad.st")
+
+        self.assertFalse(result.success)
+        self.assertEqual(
+            [item.code for item in result.diagnostics],
+            ["undeclared-variable"],
+        )
+
     def test_syntax_failure_is_returned_instead_of_raised(self):
         result = compile_source("FUNCTION broken : INT\n", "c", source_name="broken.st")
 

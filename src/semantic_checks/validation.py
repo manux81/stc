@@ -53,11 +53,24 @@ class LValueCheck(SemanticCheck):
         self.context.lvalues[id(node)] = result
         return result
 
+    def has_unresolved_reference(self, node) -> bool:
+        for variable_node in descendants(node, "variable_name"):
+            if (
+                self.context.symbols.reference_was_indexed(variable_node)
+                and self.context.symbols.symbol_for_reference(variable_node) is None
+            ):
+                return True
+        return False
+
     def run(self, ast):
         for node in walk(ast):
             if node.get("name") == "assignment_statement":
                 node_children = direct_children(node)
-                if node_children and not self.is_lvalue(node_children[0]):
+                if (
+                    node_children
+                    and not self.has_unresolved_reference(node_children[0])
+                    and not self.is_lvalue(node_children[0])
+                ):
                     self.error(
                         "invalid-lvalue",
                         "Assignment target is not writable.",
