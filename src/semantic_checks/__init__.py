@@ -13,6 +13,7 @@ from .base import (
 )
 from .declarations import DeclarationCheck, EnumDeclarationCheck, TypeDeclarationCollector
 from .constants import ConstantFolder
+from .calls import FillCallCandidates, NarrowCallCandidates
 from .types import (
     FillCandidateDatatypes,
     ForcedNarrowCandidateDatatypes,
@@ -37,6 +38,8 @@ __all__ = [
     "TypeDeclarationCollector",
     "FlowControlAnalysis",
     "ConstantFolder",
+    "FillCallCandidates",
+    "NarrowCallCandidates",
     "DeclarationCheck",
     "FillCandidateDatatypes",
     "NarrowCandidateDatatypes",

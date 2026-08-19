@@ -3,14 +3,28 @@
 """Generate Rust code from the supported Structured Text AST subset."""
 
 from nodevisitor import NodeVisitor
+from iec_runtime_rust import RUST_RUNTIME_FUNCTIONS
 
 
 class RustCodeGenerator(NodeVisitor):
-    def __init__(self):
+    def __init__(self, context=None, native_implementations=None):
+        self.context = context
+        self.native_implementations = native_implementations or {}
         self.text = ""
         self.indent = ""
         self.current_function = None
         self.current_return_type = None
+        self.current_instance = False
+        self.current_instance_fields = set()
+        self.current_reference_params = set()
+
+    def render(self, node):
+        previous = self.text
+        self.text = ""
+        self.visit(node)
+        rendered = self.text
+        self.text = previous
+        return rendered
 
     def iecType2Rust(self, typein):
         conv = {
@@ -20,6 +34,37 @@ class RustCodeGenerator(NodeVisitor):
             "BOOL": "bool", "BYTE": "u8", "WORD": "u16", "DWORD": "u32", "LWORD": "u64",
         }
         return conv.get(typein.upper(), typein)
+
+    def rust_type_for_node(self, node):
+        if self.context is None:
+            return None
+        datatype = self.context.type_of(node)
+        if datatype is None or datatype.name in {"<unknown>", "<error>"}:
+            return None
+        return self.iecType2Rust(datatype.name)
+
+    def common_numeric_type(self, nodes):
+        ranks = {
+            "i8": (1, True), "u8": (1, False),
+            "i16": (2, True), "u16": (2, False),
+            "i32": (3, True), "u32": (3, False),
+            "i64": (4, True), "u64": (4, False),
+            "f32": (5, True), "f64": (6, True),
+        }
+        types = [self.rust_type_for_node(node) for node in nodes]
+        types = [item for item in types if item in ranks]
+        if not types:
+            return None
+        # IEC arithmetic promotes to the widest operand. At equal widths a
+        # signed type is used, matching the frontend's assignment semantics.
+        return max(types, key=lambda item: ranks[item])
+
+    def render_as(self, node, target_type):
+        rendered = self.render(node)
+        source_type = self.rust_type_for_node(node)
+        if target_type is not None and source_type is not None and source_type != target_type:
+            return f"({rendered}) as {target_type}"
+        return rendered
 
     def indent_inc(self):
         self.indent += "    "
@@ -37,23 +82,45 @@ class RustCodeGenerator(NodeVisitor):
                     return found
         return None
 
+    def declaration_type(self, node, fallback="i16"):
+        found = self.extract_type(node)
+        if found:
+            return found
+        if self._first_named(node, "single_byte_string_spec") is not None:
+            return "String"
+        if self._first_named(node, "double_byte_string_spec") is not None:
+            return "Vec<u16>"
+        return fallback
+
     def zero_value(self, rust_type):
         if rust_type == "bool":
             return "false"
         if rust_type in ("f32", "f64"):
             return "0.0"
+        if rust_type == "String":
+            return "String::new()"
+        if rust_type.startswith("Vec<"):
+            return "Vec::new()"
         return "0"
 
     def collect_var_decls(self, node):
         declarations = []
         if not isinstance(node, dict):
             return declarations
-        if node.get("name") == "var1_init_decl":
+        if node.get("name") in {"var1_init_decl", "var1_declaration"}:
             names = [child["value"] for child in node["children"][0].get("children", [])]
-            var_type = self.extract_type(node["children"][1]) or "i16"
+            var_type = self.declaration_type(node["children"][1])
             return [(var_type, name) for name in names]
         for child in node.get("children", []):
             declarations.extend(self.collect_var_decls(child))
+        return declarations
+
+    def _section_declarations(self, node):
+        declarations = []
+        for section in ("input_declarations", "output_declarations", "input_output_declarations",
+                        "var_declarations", "retentive_var_declarations", "non_retentive_var_decls",
+                        "temp_var_decls", "function_var_decls"):
+            declarations.extend(self.collect_sections(node, section))
         return declarations
 
     def collect_sections(self, node, section_name):
@@ -66,17 +133,47 @@ class RustCodeGenerator(NodeVisitor):
             declarations.extend(self.collect_sections(child, section_name))
         return declarations
 
+    def visit_library(self, node):
+        for name, runtime_source in RUST_RUNTIME_FUNCTIONS.items():
+            if self._contains_function(node, {name}):
+                self.text += runtime_source + "\n"
+        self.accept(node)
+
+    def _contains_function(self, node, names):
+        if not isinstance(node, dict):
+            return False
+        if node.get("name") == "standard_function_name" and node.get("value") in names:
+            return True
+        return any(self._contains_function(child, names) for child in node.get("children", []))
+
     def visit_function_declaration(self, node):
         name = node["children"][0]["value"]
+        native = self.native_implementations.get(name.casefold())
+        symbol = None
+        if self.context is not None:
+            symbol = self.context.symbols.symbol_for_declaration(node["children"][0])
+        emitted_name = (
+            self.context.generated_names.get(id(symbol), name)
+            if self.context is not None and symbol is not None
+            else name
+        )
         return_type = self.extract_type(node["children"][1]) or "()"
         self.current_function = name
         self.current_return_type = return_type
 
         input_decls = self.collect_sections(node["children"][2], "input_declarations")
+        output_decls = self.collect_sections(node["children"][2], "output_declarations")
+        inout_decls = self.collect_sections(node["children"][2], "input_output_declarations")
         local_decls = self.collect_sections(node["children"][2], "function_var_decls")
         params = [f"mut {var_name}: {var_type}" for var_type, var_name in input_decls]
+        params += [f"{var_name}: &mut {var_type}" for var_type, var_name in output_decls + inout_decls]
 
-        self.text += f"pub fn {name}({', '.join(params)}) -> {return_type}\n{{\n"
+        # IEC variables have deterministic default values and remain mutable
+        # even when a particular control-flow path overwrites them before the
+        # first read. These are meaningful PLC semantics, but rustc reports
+        # them as dead-store/unused-variable warnings in generated code.
+        self.text += "#[allow(unused_assignments, unused_mut, unused_variables)]\n"
+        self.text += f"pub fn {emitted_name}({', '.join(params)}) -> {return_type}\n{{\n"
         self.indent_inc()
         if return_type != "()":
             self.text += f"{self.indent}let mut {name}: {return_type} = {self.zero_value(return_type)};\n"
@@ -84,13 +181,194 @@ class RustCodeGenerator(NodeVisitor):
             self.text += f"{self.indent}let mut {var_name}: {var_type} = {self.zero_value(var_type)};\n"
         if local_decls or return_type != "()":
             self.text += "\n"
-        self.accept(node, lambda child_name: child_name == "function_body")
+        if native is not None:
+            self._emit_native_code(native.section("body") or "")
+        else:
+            self.accept(node, lambda child_name: child_name == "function_body")
         if return_type != "()":
             self.text += f"{self.indent}{name}\n"
         self.indent_dec()
         self.text += "}\n"
         self.current_function = None
         self.current_return_type = None
+
+    def _emit_native_code(self, source):
+        for line in source.splitlines():
+            self.text += f"{self.indent}{line.rstrip()}\n" if line.strip() else "\n"
+
+    def _first_named(self, node, name):
+        if not isinstance(node, dict):
+            return None
+        if node.get("name") == name:
+            return node
+        for child in node.get("children", []):
+            found = self._first_named(child, name)
+            if found is not None:
+                return found
+        return None
+
+    def _named_nodes(self, node, name):
+        if not isinstance(node, dict):
+            return []
+        result = [node] if node.get("name") == name else []
+        for child in node.get("children", []):
+            result.extend(self._named_nodes(child, name))
+        return result
+
+    def visit_function_block_declaration(self, node):
+        name_node = self._first_named(node, "derived_function_block_name")
+        if name_node is None:
+            return
+        name, declarations = name_node["value"], self._section_declarations(node)
+        self.text += "#[allow(non_camel_case_types)]\npub struct " + name + " {\n"
+        self.indent_inc()
+        for var_type, var_name in declarations:
+            self.text += f"{self.indent}pub {var_name}: {var_type},\n"
+        self.indent_dec()
+        self.text += "}\n\nimpl " + name + " {\n    pub fn step(&mut self) {\n"
+        self.indent = "        "
+        inouts = self.collect_sections(node, "input_output_declarations")
+        self.text = self.text[:-len("    pub fn step(&mut self) {\n")] + f"    pub fn step(&mut self, {', '.join(f'{var_name}: &mut {var_type}' for var_type, var_name in inouts)}) {{\n"
+        old_instance, old_fields, old_refs = self.current_instance, self.current_instance_fields, self.current_reference_params
+        self.current_reference_params = {field.casefold() for _, field in inouts}
+        self.current_instance, self.current_instance_fields = True, {field.casefold() for _, field in declarations}
+        self.current_instance_fields -= self.current_reference_params
+        self.accept(node, lambda child_name: child_name == "function_block_body")
+        self.current_instance, self.current_instance_fields, self.current_reference_params = old_instance, old_fields, old_refs
+        self.indent = ""
+        self.text += "    }\n}\n"
+
+    def visit_program_declaration(self, node):
+        name_node = self._first_named(node, "program_type_name")
+        if name_node is None:
+            return
+        name, declarations = name_node["value"], self._section_declarations(node)
+        self.text += "#[allow(non_camel_case_types)]\npub struct " + name + " {\n"
+        self.indent_inc()
+        for var_type, var_name in declarations:
+            self.text += f"{self.indent}pub {var_name}: {var_type},\n"
+        self.indent_dec()
+        self.text += "}\n\nimpl " + name + " {\n    pub fn run(&mut self) {\n"
+        self.indent = "        "
+        old_instance, old_fields, old_refs = self.current_instance, self.current_instance_fields, self.current_reference_params
+        self.current_instance, self.current_instance_fields = True, {field.casefold() for _, field in declarations}
+        self.accept(node, lambda child_name: child_name == "function_block_body")
+        self.current_instance, self.current_instance_fields, self.current_reference_params = old_instance, old_fields, old_refs
+        self.indent = ""
+        self.text += "    }\n}\n"
+
+    def visit_action(self, node):
+        name = self._first_named(node, "action_name")
+        if name:
+            self.text += f"pub fn {name['value']}() {{\n"
+            self.indent_inc()
+            self.accept(node, lambda child_name: child_name == "function_block_body")
+            self.indent_dec()
+            self.text += "}\n"
+
+    def visit_simple_type_declaration(self, node):
+        name = self._first_named(node, "simple_type_name")
+        array, structure = self._first_named(node, "array_specification"), self._first_named(node, "structure_declaration")
+        if name and array:
+            self._emit_array_type(name["value"], array)
+        elif name and structure:
+            self._emit_structure_type(name["value"], structure)
+        elif name:
+            self.text += f"pub type {name['value']} = {self.declaration_type(node)};\n"
+
+    def visit_data_type_declaration(self, node):
+        for declaration in self._named_nodes(node, "simple_type_declaration"):
+            self.visit_simple_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "subrange_type_declaration"):
+            self.visit_subrange_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "enumerated_type_declaration"):
+            self.visit_enumerated_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "array_type_declaration"):
+            self.visit_array_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "structure_type_declaration"):
+            self.visit_structure_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "string_type_declaration"):
+            self.visit_string_type_declaration(declaration)
+
+    def visit_subrange_type_declaration(self, node):
+        name = self._first_named(node, "subrange_type_name")
+        if name:
+            self.text += f"pub type {name['value']} = {self.declaration_type(node)};\n"
+
+    def visit_enumerated_type_declaration(self, node):
+        name = self._first_named(node, "enumerated_type_name")
+        values = [item["value"] for item in self._named_nodes(node, "enumerated_value") if item.get("value")]
+        if name and values:
+            self.text += f"#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum {name['value']} {{ {', '.join(values)} }}\n"
+
+    def visit_array_type_declaration(self, node):
+        name, spec = self._first_named(node, "array_type_name"), self._first_named(node, "array_specification")
+        if name and spec:
+            self._emit_array_type(name["value"], spec)
+
+    def _emit_array_type(self, name, spec):
+        dimensions = []
+        for range_node in self._named_nodes(spec, "subrange"):
+            ints = self._named_nodes(range_node, "signed_integer")
+            if len(ints) == 2:
+                dimensions.append(f"({self.render(ints[1])} - ({self.render(ints[0])}) + 1) as usize")
+        element = self.declaration_type(spec)
+        for size in reversed(dimensions):
+            element = f"[{element}; {size}]"
+        self.text += f"pub type {name} = {element};\n"
+
+    def visit_string_type_declaration(self, node):
+        name = self._first_named(node, "string_type_name")
+        if name:
+            self.text += f"pub type {name['value']} = String;\n"
+
+    def visit_structure_type_declaration(self, node):
+        name = self._first_named(node, "structure_type_name")
+        if name:
+            self._emit_structure_type(name["value"], node)
+
+    def _emit_structure_type(self, name, node):
+        self.text += f"pub struct {name} {{\n"
+        self.indent_inc()
+        for element in self._named_nodes(node, "structure_element_declaration"):
+            field = self._first_named(element, "structure_element_name")
+            if field:
+                self.text += f"{self.indent}pub {field['value']}: {self.declaration_type(element)},\n"
+        self.indent_dec()
+        self.text += "}\n"
+
+    def visit_primary_expression(self, node):
+        children = node.get("children", [])
+        if not children or children[0].get("name") != "function_name":
+            self.accept(node)
+            return
+
+        resolved = self.context.resolved_calls.get(id(node)) if self.context is not None else None
+        if resolved is not None:
+            self.text += self.context.generated_names.get(id(resolved), resolved.name)
+        else:
+            self.visit(children[0])
+        self.text += "("
+        resolved_arguments = (
+            self.context.resolved_arguments.get(id(node)) if self.context is not None else None
+        )
+        arguments = resolved_arguments or [child for child in children[1:] if child.get("name") == "param_assignment"]
+        for index, argument in enumerate(arguments):
+            if index:
+                self.text += ", "
+            if resolved_arguments is not None:
+                self.visit(argument)
+            else:
+                expressions = [child for child in argument.get("children", []) if child.get("name") == "expression"]
+                if expressions:
+                    self.visit(expressions[-1])
+        self.text += ")"
+
+    def visit_standard_function_name(self, node):
+        self.text += node["value"]
+
+    def visit_derived_function_name(self, node):
+        self.text += node["value"]
 
     def visit_integer_literal(self, node):
         self.text += node["value"].replace("_", "")
@@ -100,6 +378,26 @@ class RustCodeGenerator(NodeVisitor):
 
     def visit_integer(self, node):
         self.text += node["value"].replace("_", "")
+
+    def visit_signed_integer(self, node):
+        if node.get("value") is not None:
+            self.text += str(node["value"]).replace("_", "")
+        else:
+            self.accept(node)
+
+    def _visit_based_integer(self, node, base, prefix=""):
+        value = self.render(node["children"][0]).replace("_", "")
+        digits = value.split("#", 1)[-1]
+        self.text += prefix + digits if prefix else str(int(digits, base))
+
+    def visit_binary_integer(self, node):
+        self._visit_based_integer(node, 2, "0b")
+
+    def visit_octal_integer(self, node):
+        self._visit_based_integer(node, 8, "0o")
+
+    def visit_hex_integer(self, node):
+        self._visit_based_integer(node, 16, "0x")
 
     def visit_boolean_literal(self, node):
         self.text += node["value"].lower()
@@ -121,7 +419,19 @@ class RustCodeGenerator(NodeVisitor):
         self.text += self.iecType2Rust(node["value"])
 
     def visit_variable_name(self, node):
-        self.text += node["value"]
+        name = node["value"]
+        if self.current_instance and name.casefold() in self.current_instance_fields:
+            self.text += f"self.{name}"
+        elif name.casefold() in self.current_reference_params:
+            self.text += f"*{name}"
+        elif self.context is not None:
+            symbol = self.context.symbols.symbol_for_reference(node)
+            if symbol is not None and symbol.storage in {"output", "in_out"}:
+                self.text += f"*{name}"
+            else:
+                self.text += name
+        else:
+            self.text += name
 
     def visit_expression(self, node):
         self._join_children(node, " || ")
@@ -133,17 +443,17 @@ class RustCodeGenerator(NodeVisitor):
         self._join_children(node, " && ")
 
     def visit_comparison(self, node):
-        self._visit_infix(node)
+        self._visit_infix_coerced(node)
 
     def visit_comparison_equality_operator(self, node):
         op = {"=": "==", "NEQ": "!=", "<>": "!="}.get(node["value"], node["value"])
         self.text += f" {op} "
 
     def visit_equ_expression(self, node):
-        self._visit_infix(node)
+        self._visit_infix_coerced(node)
 
     def visit_add_expression(self, node):
-        self._visit_infix(node)
+        self._visit_infix_coerced(node)
 
     def visit_term(self, node):
         children = node["children"]
@@ -174,11 +484,19 @@ class RustCodeGenerator(NodeVisitor):
         self.text += f" {op} "
 
     def visit_assignment_statement(self, node):
-        self.text += self.indent
-        self.accept(node, lambda name: name == "variable")
-        self.text += " = "
-        self.accept(node, lambda name: name == "expression")
-        self.text += ";\n"
+        variable = next(child for child in node["children"] if child.get("name") == "variable")
+        expression = next(child for child in node["children"] if child.get("name") == "expression")
+        target_type = self.rust_type_for_node(variable)
+        rendered = self.render(expression)
+        expression_type = self.rust_type_for_node(expression)
+        if target_type is not None and expression_type is not None and target_type != expression_type:
+            rendered = f"({rendered}) as {target_type}"
+        elif target_type is not None and expression_type is None and target_type != "bool":
+            rendered = f"({rendered}) as {target_type}"
+        self.text += f"{self.indent}{self.render(variable)} = {rendered};\n"
+
+    def visit_exit_statement(self, node):
+        self.text += f"{self.indent}break;\n"
 
     def visit_if_statement(self, node):
         self.text += self.indent + "if "
@@ -226,6 +544,67 @@ class RustCodeGenerator(NodeVisitor):
         self.indent_dec()
         self.text += self.indent + "}\n"
 
+    def visit_token(self, node):
+        self.text += str(node.get("value", ""))
+
+    def visit_control_variable(self, node):
+        value = next((child.get("value") for child in node.get("children", []) if isinstance(child, dict)), "")
+        if self.current_instance and isinstance(value, str) and value.casefold() in self.current_instance_fields:
+            self.text += f"self.{value}"
+        elif isinstance(value, str) and value.casefold() in self.current_reference_params:
+            self.text += f"*{value}"
+        else:
+            self.accept(node)
+
+    def visit_for_statement(self, node):
+        control, for_list, body = node["children"][:3]
+        parts = [child for child in for_list.get("children", []) if isinstance(child, dict)]
+        start = parts[0]
+        direction = str(parts[1].get("value", "TO")).upper() if len(parts) > 1 else "TO"
+        end = parts[2] if len(parts) > 2 else parts[-1]
+        by = parts[4] if len(parts) > 4 and parts[3].get("value") == "BY" else None
+        variable = self.render(control)
+        self.text += f"{self.indent}{variable} = {self.render(start)};\n"
+        comparator = ">=" if direction == "DOWNTO" else "<="
+        self.text += f"{self.indent}while {variable} {comparator} {self.render(end)} {{\n"
+        self.indent_inc()
+        self.visit(body)
+        operator = "-=" if direction == "DOWNTO" else "+="
+        step = self.render(by) if by is not None else "1"
+        self.text += f"{self.indent}{variable} {operator} {step};\n"
+        self.indent_dec()
+        self.text += f"{self.indent}}}\n"
+
+    def visit_case_statement(self, node):
+        children = node.get("children", [])
+        expression = next(child for child in children if child.get("name") == "expression")
+        self.text += f"{self.indent}match {self.render(expression)} {{\n"
+        self.indent_inc()
+        for child in children:
+            if child.get("name") == "case_element":
+                self.visit(child)
+            elif child.get("name") == "statement_list":
+                self.text += f"{self.indent}_ => {{\n"
+                self.indent_inc()
+                self.visit(child)
+                self.indent_dec()
+                self.text += f"{self.indent}}},\n"
+        if not any(child.get("name") == "statement_list" for child in children):
+            self.text += f"{self.indent}_ => {{}},\n"
+        self.indent_dec()
+        self.text += f"{self.indent}}}\n"
+
+    def visit_case_element(self, node):
+        case_list = next(child for child in node["children"] if child.get("name") == "case_list")
+        statements = next(child for child in node["children"] if child.get("name") == "statement_list")
+        labels = [child for child in case_list.get("children", []) if child.get("name") == "case_list_element"]
+        patterns = " | ".join(self.render(label) for label in labels)
+        self.text += f"{self.indent}{patterns} => {{\n"
+        self.indent_inc()
+        self.visit(statements)
+        self.indent_dec()
+        self.text += f"{self.indent}}},\n"
+
     def _join_children(self, node, separator):
         for index, child in enumerate(node["children"]):
             if index:
@@ -235,3 +614,17 @@ class RustCodeGenerator(NodeVisitor):
     def _visit_infix(self, node):
         for child in node["children"]:
             self.visit(child)
+
+    def _visit_infix_coerced(self, node):
+        operands = [
+            child for child in node.get("children", [])
+            if child.get("name") not in {
+                "add_operator", "comparison_operator", "comparison_equality_operator"
+            }
+        ]
+        target_type = self.common_numeric_type(operands)
+        for child in node.get("children", []):
+            if child in operands:
+                self.text += self.render_as(child, target_type)
+            else:
+                self.visit(child)

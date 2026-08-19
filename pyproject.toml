@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Summary: Defines package metadata and Python test configuration.
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "stc"
 version = "0.2.0"
@@ -9,6 +13,39 @@ description = "IEC 61131-3 Structured Text compiler front-end"
 authors = [{ name = "Manuele Conti", email = "conti.manuele@gmail.com" }]
 license = { text = "GPL-2.0-or-later" }
 requires-python = ">=3.10"
+
+[project.scripts]
+stc = "main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = [
+    "ast_builder",
+    "compiler",
+    "diagnostics",
+    "iec_generator_c",
+    "iec_generator_rust",
+    "iec_lexer",
+    "iec_parser",
+    "iec_runtime_c",
+    "iec_runtime_rust",
+    "lex",
+    "library",
+    "main",
+    "native",
+    "nodevisitor",
+    "semantic",
+    "semantic_context",
+    "semantic_passes",
+    "semantic_types",
+    "source_map",
+    "symbol_table",
+    "yacc",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["semantic_checks*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

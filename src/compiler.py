@@ -72,6 +72,7 @@ def compile_source(
     ast_builder: AstBuilder | None = None,
     library_paths: tuple[str, ...] | list[str] = (),
     imports: tuple[str, ...] | list[str] = (),
+    generate_code: bool = True,
 ) -> CompilationResult:
     """Compile source and return its products and diagnostics."""
     if target not in SUPPORTED_TARGETS:
@@ -153,8 +154,27 @@ def compile_source(
                 libraries=libraries,
             )
 
+    if not generate_code:
+        return CompilationResult(
+            target=target,
+            source_name=source_name,
+            parse_tree=tree,
+            ast=ast,
+            context=context,
+            diagnostics=tuple(context.diagnostics) if context is not None else (),
+            source_map=source_map,
+            libraries=libraries,
+        )
+
     generator = (
-        RustCodeGenerator()
+        RustCodeGenerator(
+            context=context,
+            native_implementations={
+                name: implementation
+                for (implementation_target, name), implementation in native_sections.items()
+                if implementation_target == "rust"
+            },
+        )
         if target == "rust"
         else CCodeGenerator(
             context=context,

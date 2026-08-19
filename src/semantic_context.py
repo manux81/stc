@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 from semantic_types import ConstantValue, DataType
-from symbol_table import SymbolTable
+from symbol_table import Symbol, SymbolTable
 from source_map import SourceMap
 AstNode=dict[str,Any]
 
@@ -19,6 +19,10 @@ class SemanticContext:
     declared_types:dict[str,DataType]=field(default_factory=dict)
     node_types:dict[int,DataType]=field(default_factory=dict)
     candidate_types:dict[int,set[DataType]]=field(default_factory=dict)
+    candidate_functions:dict[int,list[Symbol]]=field(default_factory=dict)
+    resolved_calls:dict[int,Symbol]=field(default_factory=dict)
+    resolved_arguments:dict[int,list[AstNode]]=field(default_factory=dict)
+    generated_names:dict[int,str]=field(default_factory=dict)
     constants:dict[int,ConstantValue]=field(default_factory=dict)
     lvalues:dict[int,bool]=field(default_factory=dict)
     dependencies:dict[str,set[str]]=field(default_factory=dict)

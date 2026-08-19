@@ -92,12 +92,18 @@ class Scope:
     node: AstNode
     parent: "Scope | None" = None
     symbols: dict[str, Symbol] = field(default_factory=dict)
+    function_overloads: dict[str, list[Symbol]] = field(default_factory=dict)
     children: list["Scope"] = field(default_factory=list)
 
     def define(self, symbol: Symbol) -> Symbol | None:
         """Insert *symbol* and return the previous local declaration, if any."""
 
         key = symbol.key
+        if symbol.kind == SymbolKind.FUNCTION:
+            overloads = self.function_overloads.setdefault(key, [])
+            overloads.append(symbol)
+            self.symbols.setdefault(key, symbol)
+            return None
         previous = self.symbols.get(key)
         if previous is None:
             self.symbols[key] = symbol
@@ -116,6 +122,18 @@ class Scope:
                 return symbol
             scope = scope.parent
         return None
+
+    def lookup_functions(self, name: str) -> tuple[Symbol, ...]:
+        """Return the nearest overload set named *name*."""
+
+        scope: Scope | None = self
+        key = normalize_identifier(name)
+        while scope is not None:
+            overloads = scope.function_overloads.get(key)
+            if overloads:
+                return tuple(overloads)
+            scope = scope.parent
+        return ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +168,9 @@ class SymbolTable:
     def lookup(self, name: str, scope: Scope | None = None) -> Symbol | None:
         return (scope or self.global_scope).lookup(name)
 
+    def lookup_functions(self, name: str, scope: Scope | None = None) -> tuple[Symbol, ...]:
+        return (scope or self.global_scope).lookup_functions(name)
+
     def iter_scopes(self) -> Iterator[Scope]:
         stack = [self.global_scope]
         while stack:
@@ -159,7 +180,19 @@ class SymbolTable:
 
     def iter_symbols(self) -> Iterator[Symbol]:
         for scope in self.iter_scopes():
+            overloaded = {
+                id(symbol)
+                for overloads in scope.function_overloads.values()
+                for symbol in overloads
+            }
             yield from scope.symbols.values()
+            for overloads in scope.function_overloads.values():
+                for symbol in overloads:
+                    if id(symbol) not in overloaded:
+                        continue
+                    if scope.symbols.get(symbol.key) is symbol:
+                        continue
+                    yield symbol
 
 
 class SymbolTableBuilder:

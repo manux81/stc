@@ -11,10 +11,13 @@ class CCodeGenerator(NodeVisitor):
         self.context = context
         self.source_name = source_name
         self.native_implementations = native_implementations or {}
-        self.text = "#include <stdbool.h>\n#include <stdint.h>\n#include <math.h>\n\n"
+        self.text = "#include <stdbool.h>\n#include <stdint.h>\n#include <math.h>\n#include <string.h>\n\n"
         self.indent = ""
         self.current_function = None
         self.current_return_type = None
+        self.current_instance = None
+        self.current_instance_fields = set()
+        self.current_pointer_params = set()
 
     def iecType2C(self, typein):
         conv = {
@@ -67,6 +70,17 @@ class CCodeGenerator(NodeVisitor):
                     return found
         return None
 
+    def declaration_type(self, node, fallback="int16_t"):
+        """Return a target type for an IEC declaration, including strings."""
+        found = self.extract_type(node)
+        if found:
+            return found
+        if self._first_named(node, "single_byte_string_spec") is not None:
+            return "char"
+        if self._first_named(node, "double_byte_string_spec") is not None:
+            return "uint16_t"
+        return fallback
+
     def zero_value(self, c_type):
         if c_type == "bool":
             return "false"
@@ -78,17 +92,25 @@ class CCodeGenerator(NodeVisitor):
         declarations = []
         if not isinstance(node, dict):
             return declarations
-        if node.get("name") == "var1_init_decl":
+        if node.get("name") in {"var1_init_decl", "var1_declaration"}:
             names = []
             var_list = node["children"][0]
             for child in var_list.get("children", []):
                 if child.get("name") == "variable_name":
                     names.append(child["value"])
-            var_type = self.extract_type(node["children"][1]) or "int16_t"
+            var_type = self.declaration_type(node["children"][1])
             declarations.extend((var_type, name) for name in names)
             return declarations
         for child in node.get("children", []):
             declarations.extend(self.collect_var_decls(child))
+        return declarations
+
+    def _section_declarations(self, node):
+        declarations = []
+        for section in ("input_declarations", "output_declarations", "input_output_declarations",
+                        "var_declarations", "retentive_var_declarations", "non_retentive_var_decls",
+                        "temp_var_decls", "function_var_decls"):
+            declarations.extend(self.collect_sections(node, section))
         return declarations
 
     def collect_sections(self, node, section_name):
@@ -152,13 +174,58 @@ class CCodeGenerator(NodeVisitor):
         self.text += self.iecType2C(node["value"])
 
     def visit_variable_name(self, node):
-        self.text += node["value"]
+        name = node["value"]
+        if self.current_instance is not None and name.casefold() in self.current_instance_fields:
+            self.text += f"{self.current_instance}->{name}"
+        elif name.casefold() in self.current_pointer_params:
+            self.text += f"(*{name})"
+        elif self.context is not None:
+            symbol = self.context.symbols.symbol_for_reference(node)
+            if symbol is not None and symbol.storage in {"output", "in_out"}:
+                self.text += f"(*{name})"
+            else:
+                self.text += name
+        else:
+            self.text += name
 
     def visit_library(self, node):
         for name, runtime_source in C_RUNTIME_FUNCTIONS.items():
             if self._contains_function(node, {name}):
                 self.text += runtime_source + "\n"
+        declarations = list(self._function_declarations(node))
+        if declarations:
+            for declaration in declarations:
+                return_type, emitted_name, params = self._function_signature(declaration)
+                self.text += f"{return_type} {emitted_name}({', '.join(params)});\n"
+            self.text += "\n"
         self.accept(node)
+
+    def _function_declarations(self, node):
+        if not isinstance(node, dict):
+            return
+        if node.get("name") == "function_declaration":
+            yield node
+            return
+        for child in node.get("children", []):
+            yield from self._function_declarations(child)
+
+    def _function_signature(self, node):
+        name = node["children"][0]["value"]
+        symbol = None
+        if self.context is not None:
+            symbol = self.context.symbols.symbol_for_declaration(node["children"][0])
+        emitted_name = (
+            self.context.generated_names.get(id(symbol), name)
+            if self.context is not None and symbol is not None
+            else name
+        )
+        return_type = self.extract_type(node["children"][1]) or "void"
+        input_decls = self.collect_sections(node["children"][2], "input_declarations")
+        output_decls = self.collect_sections(node["children"][2], "output_declarations")
+        inout_decls = self.collect_sections(node["children"][2], "input_output_declarations")
+        params = [f"{var_type} {var_name}" for var_type, var_name in input_decls]
+        params += [f"{var_type} *{var_name}" for var_type, var_name in output_decls + inout_decls]
+        return return_type, emitted_name, params
 
     def _contains_function(self, node, names):
         if not isinstance(node, dict):
@@ -179,29 +246,39 @@ class CCodeGenerator(NodeVisitor):
             self.accept(node)
             return
 
-        self.visit(children[0])
+        resolved = self.context.resolved_calls.get(id(node)) if self.context is not None else None
+        if resolved is not None:
+            self.text += self.context.generated_names.get(id(resolved), resolved.name)
+        else:
+            self.visit(children[0])
         self.text += "("
-        arguments = [child for child in children[1:] if child.get("name") == "param_assignment"]
+        resolved_arguments = (
+            self.context.resolved_arguments.get(id(node)) if self.context is not None else None
+        )
+        arguments = resolved_arguments or [
+            child for child in children[1:] if child.get("name") == "param_assignment"
+        ]
         for index, argument in enumerate(arguments):
             if index:
                 self.text += ", "
-            expressions = [child for child in argument.get("children", []) if child.get("name") == "expression"]
-            if expressions:
-                self.visit(expressions[-1])
+            if resolved_arguments is not None:
+                self.visit(argument)
+            else:
+                expressions = [child for child in argument.get("children", []) if child.get("name") == "expression"]
+                if expressions:
+                    self.visit(expressions[-1])
         self.text += ")"
 
     def visit_function_declaration(self, node):
         name = node["children"][0]["value"]
         native = self.native_implementations.get(name.casefold())
-        return_type = self.extract_type(node["children"][1]) or "void"
+        return_type, emitted_name, params = self._function_signature(node)
         self.current_function = name
         self.current_return_type = return_type
 
-        input_decls = self.collect_sections(node["children"][2], "input_declarations")
         local_decls = self.collect_sections(node["children"][2], "function_var_decls")
-        params = [f"{var_type} {var_name}" for var_type, var_name in input_decls]
 
-        self.text += f"{return_type} {name}({', '.join(params)})\n{{\n"
+        self.text += f"{return_type} {emitted_name}({', '.join(params)})\n{{\n"
         self.indent_inc()
         if return_type != "void":
             self.text += f"{self.indent}{return_type} {name} = {self.zero_value(return_type)};\n"
@@ -226,12 +303,7 @@ class CCodeGenerator(NodeVisitor):
             return
         name = name_node["value"]
         native = self.native_implementations.get(name.casefold())
-        if native is None or native.kind != "function_block":
-            return
-
-        declarations = []
-        for section in ("input_declarations", "output_declarations", "var_declarations", "temp_var_decls"):
-            declarations.extend(self.collect_sections(node, section))
+        declarations = self._section_declarations(node)
 
         self.text += f"typedef struct {name} {{\n"
         self.indent_inc()
@@ -244,17 +316,142 @@ class CCodeGenerator(NodeVisitor):
         self.indent_inc()
         for var_type, var_name in declarations:
             self.text += f"{self.indent}self->{var_name} = {self.zero_value(var_type)};\n"
-        setup = native.section("setup")
+        setup = native.section("setup") if native is not None and native.kind == "function_block" else None
         if setup:
             self._emit_native_code(setup)
         self.indent_dec()
         self.text += "}\n\n"
 
-        self.text += f"void {name}_loop({name} *self)\n{{\n"
+        inouts = self.collect_sections(node, "input_output_declarations")
+        parameters = [f"{name} *self"] + [f"{var_type} *{var_name}" for var_type, var_name in inouts]
+        entrypoint = "loop" if native is not None and native.kind == "function_block" else "step"
+        self.text += f"void {name}_{entrypoint}({', '.join(parameters)})\n{{\n"
         self.indent_inc()
-        self._emit_native_code(native.section("loop") or "")
+        previous_instance, previous_fields, previous_pointers = self.current_instance, self.current_instance_fields, self.current_pointer_params
+        self.current_instance = "self"
+        self.current_instance_fields = {field.casefold() for _, field in declarations if field.casefold() not in {item.casefold() for _, item in inouts}}
+        self.current_pointer_params = {field.casefold() for _, field in inouts}
+        if native is not None and native.kind == "function_block":
+            self._emit_native_code(native.section("loop") or "")
+        else:
+            self.accept(node, lambda child_name: child_name == "function_block_body")
+        self.current_instance, self.current_instance_fields, self.current_pointer_params = previous_instance, previous_fields, previous_pointers
         self.indent_dec()
         self.text += "}\n"
+
+    def visit_program_declaration(self, node):
+        name_node = self._first_named(node, "program_type_name")
+        if name_node is None:
+            return
+        name = name_node["value"]
+        declarations = self._section_declarations(node)
+        self.text += f"typedef struct {name} {{\n"
+        self.indent_inc()
+        for var_type, var_name in declarations:
+            self.text += f"{self.indent}{var_type} {var_name};\n"
+        self.indent_dec()
+        self.text += f"}} {name};\n\nvoid {name}_run({name} *self)\n{{\n"
+        self.indent_inc()
+        previous_instance, previous_fields, previous_pointers = self.current_instance, self.current_instance_fields, self.current_pointer_params
+        self.current_instance, self.current_instance_fields = "self", {field.casefold() for _, field in declarations}
+        self.accept(node, lambda child_name: child_name == "function_block_body")
+        self.current_instance, self.current_instance_fields, self.current_pointer_params = previous_instance, previous_fields, previous_pointers
+        self.indent_dec()
+        self.text += "}\n"
+
+    def visit_action(self, node):
+        name_node = self._first_named(node, "action_name")
+        if name_node is None:
+            return
+        self.text += f"void {name_node['value']}(void)\n{{\n"
+        self.indent_inc()
+        self.accept(node, lambda child_name: child_name == "function_block_body")
+        self.indent_dec()
+        self.text += "}\n"
+
+    def visit_simple_type_declaration(self, node):
+        name = self._first_named(node, "simple_type_name")
+        array = self._first_named(node, "array_specification")
+        structure = self._first_named(node, "structure_declaration")
+        if name and array:
+            self._emit_array_type(name["value"], array)
+        elif name and structure:
+            self._emit_structure_type(name["value"], structure)
+        elif name:
+            self.text += f"typedef {self.declaration_type(node)} {name['value']};\n"
+
+    def visit_data_type_declaration(self, node):
+        for declaration in self._named_nodes(node, "simple_type_declaration"):
+            self.visit_simple_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "subrange_type_declaration"):
+            self.visit_subrange_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "enumerated_type_declaration"):
+            self.visit_enumerated_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "array_type_declaration"):
+            self.visit_array_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "structure_type_declaration"):
+            self.visit_structure_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "string_type_declaration"):
+            self.visit_string_type_declaration(declaration)
+
+    def visit_subrange_type_declaration(self, node):
+        name = self._first_named(node, "subrange_type_name")
+        if name:
+            self.text += f"typedef {self.declaration_type(node)} {name['value']};\n"
+
+    def visit_enumerated_type_declaration(self, node):
+        name = self._first_named(node, "enumerated_type_name")
+        values = [item["value"] for item in self._named_nodes(node, "enumerated_value") if item.get("value")]
+        if name and values:
+            self.text += f"typedef enum {name['value']} {{ {', '.join(values)} }} {name['value']};\n"
+
+    def visit_array_type_declaration(self, node):
+        name = self._first_named(node, "array_type_name")
+        spec = self._first_named(node, "array_specification")
+        if name and spec:
+            self._emit_array_type(name["value"], spec)
+
+    def _emit_array_type(self, name, spec):
+        ranges = self._named_nodes(spec, "subrange")
+        sizes = []
+        for range_node in ranges:
+            ints = self._named_nodes(range_node, "signed_integer")
+            if len(ints) == 2:
+                sizes.append(f"[{self.render(ints[1])} - ({self.render(ints[0])}) + 1]")
+        element = self.declaration_type(spec)
+        self.text += f"typedef {element} {name}{''.join(sizes)};\n"
+
+    def visit_string_type_declaration(self, node):
+        name = self._first_named(node, "string_type_name")
+        size = next((self.render(item) for item in self._named_nodes(node, "integer")), "80")
+        if name:
+            self.text += f"typedef char {name['value']}[{size} + 1];\n"
+
+    def visit_structure_type_declaration(self, node):
+        name = self._first_named(node, "structure_type_name")
+        if not name:
+            return
+        self._emit_structure_type(name["value"], node)
+
+    def _emit_structure_type(self, name, node):
+        self.text += f"typedef struct {name} {{\n"
+        self.indent_inc()
+        for element in self._named_nodes(node, "structure_element_declaration"):
+            field = self._first_named(element, "structure_element_name")
+            if field:
+                self.text += f"{self.indent}{self.declaration_type(element)} {field['value']};\n"
+        self.indent_dec()
+        self.text += f"}} {name};\n"
+
+    def _named_nodes(self, node, name):
+        result = []
+        if not isinstance(node, dict):
+            return result
+        if node.get("name") == name:
+            result.append(node)
+        for child in node.get("children", []):
+            result.extend(self._named_nodes(child, name))
+        return result
 
     def _emit_native_code(self, source):
         for line in source.splitlines():
@@ -335,6 +532,9 @@ class CCodeGenerator(NodeVisitor):
         self.accept(node, lambda name: name == "expression")
         self.text += ";\n"
 
+    def visit_exit_statement(self, node):
+        self.text += f"{self.indent}break;\n"
+
     def visit_if_statement(self, node):
         self.text += self.indent + "if ("
         self.visit(node["children"][0])
@@ -384,7 +584,13 @@ class CCodeGenerator(NodeVisitor):
         self.text += str(node.get("value", ""))
 
     def visit_control_variable(self, node):
-        self.accept(node)
+        value = next((child.get("value") for child in node.get("children", []) if isinstance(child, dict)), "")
+        if self.current_instance is not None and isinstance(value, str) and value.casefold() in self.current_instance_fields:
+            self.text += f"{self.current_instance}->{value}"
+        elif isinstance(value, str) and value.casefold() in self.current_pointer_params:
+            self.text += f"(*{value})"
+        else:
+            self.accept(node)
 
     def visit_for_statement(self, node):
         control, for_list, body = node["children"][:3]

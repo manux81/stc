@@ -25,7 +25,14 @@ the supported subset.
   date/time literals.
 - Assignments, `IF` / `ELSIF` / `ELSE`, `CASE`, `FOR`, `WHILE`, and `REPEAT`.
 - Standard function call parsing for common IEC functions in AST output.
-- C and Rust code generation for the supported function subset.
+- C and Rust code generation for functions, programs, function blocks, and
+  standalone actions in the supported subset. Function-block instances expose
+  a cycle entry point (`_step` in C, `step` in Rust); native C blocks retain
+  their existing `_setup` / `_loop` ABI.
+- `VAR_OUTPUT` and `VAR_IN_OUT` lowering for functions and function blocks,
+  plus standard `EXIT` in generated loop bodies.
+- Target declarations for aliases, arrays, structures, strings, subranges,
+  and enumerations when represented by the parser AST.
 - JSON AST output for downstream tooling and regression tests.
 - Minimal semantic checks for undeclared variables before code generation.
 - Structural AST output for every parser production currently present in the
@@ -40,6 +47,13 @@ python3 src/main.py examples/inter.st -g rust
 python3 src/main.py examples/inter.st -g c -o build/inter.c
 python3 src/main.py examples/inter.st -g c --no-semantic-check
 ```
+
+`src/main.py` is the compiler CLI entry point: `-g c` selects
+`CCodeGenerator`, while `-g rust` selects `RustCodeGenerator` through the
+shared `compile_source()` pipeline. The generated files contain IEC functions
+as reusable C/Rust functions; they intentionally do not synthesize an
+application `main()`, because a PLC runtime must decide how and when to invoke
+the program cycle.
 
 Use `-` or omit the source path to read from stdin.
 

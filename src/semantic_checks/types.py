@@ -80,7 +80,7 @@ class NarrowCandidateDatatypes(SemanticCheck):
 @register_check(
     name="type-errors",
     phase=SemanticPhase.VALIDATION,
-    after=("narrow-candidate-types",),
+    after=("narrow-candidate-types", "narrow-call-candidates"),
 )
 class PrintDatatypesError(SemanticCheck):
     def run(self, ast):
