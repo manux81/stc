@@ -1553,9 +1553,36 @@ class IECParser(Parser):
     def case_list(self, p):
         return self._node_from_production(p)
 
-    @_('subrange', 'signed_integer', 'enumerated_value')
+    @_('subrange',
+       'signed_integer',
+       'enumerated_value',
+       'CASE_LABEL_IDENTIFIER',
+       'IDENTIFIER SHARP CASE_LABEL_IDENTIFIER')
     def case_list_element(self, p):
-        return self._node_from_production(p)
+        if isinstance(p[0], dict):
+            return self._node_from_production(p)
+
+        if len(p) == 1:
+            enum_value = {
+                "name": "enumerated_value",
+                "value": p[0],
+                "children": [],
+            }
+        else:
+            enum_value = {
+                "name": "enumerated_value",
+                "value": p[2],
+                "children": [{
+                    "name": "enumerated_type_name",
+                    "value": p[0],
+                    "children": [],
+                }],
+            }
+
+        return {
+            "name": self.production.name,
+            "children": [enum_value],
+        }
 
 ################################
 # B.3.2.4 Iteration statements #
