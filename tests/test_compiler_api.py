@@ -184,6 +184,89 @@ END_FUNCTION_BLOCK
         self.assertIn("void Latch_loop(Latch *self)", result.output)
         self.assertIn("if (self->set_value) self->output_value = true;", result.output)
 
+    def test_iec_overload_resolution_mangles_declarations_and_selected_call(self):
+        source = """\
+FUNCTION caller : DINT
+VAR_INPUT value : DINT; END_VAR
+caller := choose(value);
+END_FUNCTION
+FUNCTION choose : INT
+VAR_INPUT value : INT; END_VAR
+choose := value;
+END_FUNCTION
+FUNCTION choose : DINT
+VAR_INPUT value : DINT; END_VAR
+choose := value;
+END_FUNCTION
+"""
+
+        c_result = compile_source(source, "c")
+        rust_result = compile_source(source, "rust")
+
+        self.assertTrue(c_result.success)
+        self.assertIn("caller = choose__input_DINT(value);", c_result.output)
+        self.assertIn("int16_t choose__input_INT(int16_t value)", c_result.output)
+        self.assertIn("int32_t choose__input_DINT(int32_t value)", c_result.output)
+        self.assertTrue(rust_result.success)
+        self.assertIn("caller = choose__input_DINT(value);", rust_result.output)
+        self.assertIn("pub fn choose__input_INT", rust_result.output)
+
+    def test_formal_arguments_are_emitted_in_declaration_order(self):
+        source = """\
+FUNCTION caller : INT
+VAR_INPUT x, y : INT; END_VAR
+caller := subtract(second := y, first := x);
+END_FUNCTION
+FUNCTION subtract : INT
+VAR_INPUT first, second : INT; END_VAR
+subtract := first - second;
+END_FUNCTION
+"""
+        result = compile_source(source, "c")
+
+        self.assertTrue(result.success)
+        self.assertIn("caller = subtract(x, y);", result.output)
+
+    def test_reports_ambiguous_no_match_and_duplicate_overloads(self):
+        ambiguous = """\
+FUNCTION caller : INT
+VAR_INPUT unused : INT; END_VAR
+caller := choose(unused);
+END_FUNCTION
+FUNCTION choose : INT
+VAR_INPUT value : INT; END_VAR
+choose := value;
+END_FUNCTION
+FUNCTION choose : INT
+VAR_IN_OUT value : INT; END_VAR
+choose := value;
+END_FUNCTION
+"""
+        no_match = """\
+FUNCTION caller : INT
+VAR_INPUT value : REAL; END_VAR
+caller := choose(value);
+END_FUNCTION
+FUNCTION choose : INT
+VAR_INPUT value : INT; END_VAR
+choose := value;
+END_FUNCTION
+"""
+        duplicate = """\
+FUNCTION choose : INT
+VAR_INPUT first : INT; END_VAR
+choose := first;
+END_FUNCTION
+FUNCTION choose : INT
+VAR_INPUT second : INT; END_VAR
+choose := second;
+END_FUNCTION
+"""
+
+        self.assertIn("ambiguous-overload", [d.code for d in compile_source(ambiguous, "c").diagnostics])
+        self.assertIn("no-matching-overload", [d.code for d in compile_source(no_match, "c").diagnostics])
+        self.assertIn("duplicate-overload", [d.code for d in compile_source(duplicate, "c").diagnostics])
+
 
 if __name__ == "__main__":
     unittest.main()

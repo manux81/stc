@@ -77,6 +77,23 @@ END_FUNCTION
         self.assertTrue(table.reference_was_indexed(missing))
         self.assertIsNone(table.symbol_for_reference(missing))
 
+    def test_collects_functions_with_the_same_name_as_an_overload_set(self):
+        table = self.build("""\
+FUNCTION choose : INT
+VAR_INPUT value : INT; END_VAR
+choose := value;
+END_FUNCTION
+FUNCTION choose : DINT
+VAR_INPUT value : DINT; END_VAR
+choose := value;
+END_FUNCTION
+""")
+
+        overloads = table.lookup_functions("CHOOSE")
+        self.assertEqual(len(overloads), 2)
+        self.assertEqual([symbol.type_ref.name for symbol in overloads], ["INT", "DINT"])
+        self.assertFalse(table.diagnostics)
+
     @classmethod
     def nodes(cls, node):
         if not isinstance(node, dict):

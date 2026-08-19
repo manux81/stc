@@ -3,6 +3,7 @@
 """Exercise command-line parsing, diagnostics, and code-generation workflows."""
 
 import json
+import tempfile
 import subprocess
 import sys
 import unittest
@@ -39,6 +40,61 @@ def run_stc_input(source, *args, check=True):
         stderr=subprocess.PIPE,
         check=check,
     )
+
+
+class EasyOptionTests(unittest.TestCase):
+    def test_long_version_option(self):
+        result = run_stc("--version")
+        self.assertEqual(result.stdout.strip(), "stc 0.2.0")
+
+    def test_skip_code_generation_runs_frontend_without_output(self):
+        source = """\
+FUNCTION identity : INT
+VAR_INPUT
+    value_in : INT;
+END_VAR
+    identity := value_in;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "c", "-fskip-code-gen")
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "")
+
+    def test_skip_code_generation_still_reports_semantic_errors(self):
+        source = """\
+FUNCTION broken : INT
+    broken := missing_value;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-fskip-code-gen", check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("missing_value", result.stderr)
+
+    def test_log_none_suppresses_failure_diagnostics(self):
+        source = """\
+FUNCTION broken : INT
+    broken := missing_value;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "--log", "None", check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, "")
+
+    def test_write_statistics_to_json(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            statistics_path = Path(temporary_directory) / "statistics.json"
+            result = run_stc(
+                str(SAMPLE),
+                "-fskip-code-gen",
+                "-1",
+                "--write-statistics-to", str(statistics_path),
+            )
+            statistics = json.loads(statistics_path.read_text(encoding="utf-8"))
+            self.assertEqual(result.stdout, "")
+            self.assertTrue(statistics["success"])
+            self.assertTrue(statistics["code_generation_skipped"])
+            self.assertTrue(statistics["requested_one_core"])
+            self.assertEqual(statistics["cores_used"], 1)
 
 
 class CLITests(unittest.TestCase):
