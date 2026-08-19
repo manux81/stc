@@ -450,10 +450,31 @@ class IECParser(Parser):
     def type_declaration(self, p):
         return self._node_from_production(p)
 
-    @_('simple_type_declaration',
-      'subrange_type_declaration', 'enumerated_type_declaration')
+    @_('IDENTIFIER ":" simple_spec_init',
+       'IDENTIFIER ":" subrange_spec_init',
+       'IDENTIFIER ":" enumerated_spec_init')
     def single_element_type_declaration(self, p):
-        return self._node_from_production(p)
+        spec = p[2]
+        spec_name = spec.get("name")
+
+        if spec_name == "enumerated_spec_init":
+            declaration_name = "enumerated_type_declaration"
+            type_name = "enumerated_type_name"
+        elif spec_name == "subrange_spec_init":
+            declaration_name = "subrange_type_declaration"
+            type_name = "subrange_type_name"
+        else:
+            declaration_name = "simple_type_declaration"
+            type_name = "simple_type_name"
+
+        declaration = {
+            "name": declaration_name,
+            "children": [
+                {"name": type_name, "value": p[0], "children": []},
+                spec,
+            ],
+        }
+        return {"name": self.production.name, "children": [declaration]}
 
     @_('simple_type_name ":" simple_spec_init')
     def simple_type_declaration(self, p):
