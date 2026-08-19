@@ -249,12 +249,7 @@ class CCodeGenerator(NodeVisitor):
     def visit_primary_expression(self, node):
         children = node.get("children", [])
         if not children or children[0].get("name") != "function_name":
-            if node.get("value") == "parenthesized":
-                self.text += "("
-                self.accept(node)
-                self.text += ")"
-            else:
-                self.accept(node)
+            self.accept(node)
             return
 
         resolved = self.context.resolved_calls.get(id(node)) if self.context is not None else None
@@ -485,13 +480,13 @@ class CCodeGenerator(NodeVisitor):
         self.text += f"{var_type} {', '.join(names)}"
 
     def visit_expression(self, node):
-        self._join_children(node, " || ")
+        self._join_children(node, " || ", parenthesize_operands=True)
 
     def visit_xor_expression(self, node):
-        self._join_children(node, " ^ ")
+        self._join_children(node, " ^ ", parenthesize_operands=True)
 
     def visit_and_expression(self, node):
-        self._join_children(node, " && ")
+        self._join_children(node, " && ", parenthesize_operands=True)
 
     def visit_comparison(self, node):
         self._visit_infix(node)
@@ -656,11 +651,17 @@ class CCodeGenerator(NodeVisitor):
         self.text += f"{self.indent}break;\n"
         self.indent_dec()
 
-    def _join_children(self, node, separator):
-        for index, child in enumerate(node["children"]):
+    def _join_children(self, node, separator, parenthesize_operands=False):
+        children = node["children"]
+        wrap = parenthesize_operands and len(children) > 1
+        for index, child in enumerate(children):
             if index:
                 self.text += separator
+            if wrap:
+                self.text += "("
             self.visit(child)
+            if wrap:
+                self.text += ")"
 
     def _visit_infix(self, node):
         for child in node["children"]:

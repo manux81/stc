@@ -1418,11 +1418,7 @@ class IECParser(Parser):
         if len(p) == 1:
             return { "name": self.production.name, "children": [ p[0] ] }
         elif p[0] == '(':
-            return {
-                "name": self.production.name,
-                "value": "parenthesized",
-                "children": [p[1]],
-            }
+            return { "name": self.production.name, "children": [ p[1] ] }
         children = [p[0]]
         if p[2][0] is not None:
             children.append(p[2][0])
