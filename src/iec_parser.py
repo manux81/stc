@@ -524,9 +524,27 @@ class IECParser(Parser):
     def enumerated_specification(self, p):
         return self._node_from_production(p)
 
-    @_('[ enumerated_type_name "#" ] IDENTIFIER')
+    @_('IDENTIFIER',
+       'IDENTIFIER SHARP IDENTIFIER')
     def enumerated_value(self, p):
-        return self._node_from_production(p)
+        if len(p) == 1:
+            return {
+                "name": self.production.name,
+                "value": p[0],
+                "children": [],
+            }
+
+        return {
+            "name": self.production.name,
+            "value": p[2],
+            "children": [
+                {
+                    "name": "enumerated_type_name",
+                    "value": p[0],
+                    "children": [],
+                }
+            ],
+        }
 
     @_('array_type_name ":" array_spec_init')
     def array_type_declaration(self, p):
