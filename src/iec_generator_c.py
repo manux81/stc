@@ -243,7 +243,12 @@ class CCodeGenerator(NodeVisitor):
     def visit_primary_expression(self, node):
         children = node.get("children", [])
         if not children or children[0].get("name") != "function_name":
-            self.accept(node)
+            if node.get("value") == "parenthesized":
+                self.text += "("
+                self.accept(node)
+                self.text += ")"
+            else:
+                self.accept(node)
             return
 
         resolved = self.context.resolved_calls.get(id(node)) if self.context is not None else None
