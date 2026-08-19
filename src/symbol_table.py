@@ -340,7 +340,7 @@ class SymbolTableBuilder:
             self._walk(child, child_scope, StorageClass.UNKNOWN, declaration_context=False)
 
     def _declare_variables(self, node: AstNode, scope: Scope, storage: StorageClass) -> None:
-        names_container = self._first_child_named(node, "var1_list")
+        names_container = self._first_descendant(node, "var1_list")
         if names_container is None:
             return
         type_ref = self._extract_type(node)

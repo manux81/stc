@@ -18,24 +18,41 @@ from typing import SupportsInt
 from lex import Lexer
 
 def generate_standard_function_name():
-    simple_type = {r'SINT', r'INT', r'DINT', r'LINT', r'USINT', r'UINT', r'UDINT', r'ULINT'}
+    simple_type = {
+        r'SINT', r'INT', r'DINT', r'LINT',
+        r'USINT', r'UINT', r'UDINT', r'ULINT'
+    }
+
     standard_functions = {
         r'ABS', r'SQRT', r'LN', r'LOG', r'EXP',
         r'SIN', r'COS', r'TAN', r'ASIN', r'ACOS', r'ATAN',
-        r'ADD', r'SUB', r'MUL', r'DIV', r'MOD', r'EXPT',
+
+        # ADD/SUB/MUL/DIV/MOD are lexer keywords/operators.
+        r'EXPT',
+
         r'MOVE', r'SHL', r'SHR', r'ROL', r'ROR',
-        r'AND', r'OR', r'XOR', r'NOT',
+
+        # AND/OR/XOR/NOT are lexer keywords/operators.
+
         r'SEL', r'MAX', r'MIN', r'LIMIT', r'MUX',
         r'CONCAT', r'INSERT', r'DELETE', r'REPLACE', r'FIND',
         r'LEN', r'LEFT', r'RIGHT', r'MID',
-        r'GT', r'GE', r'EQ', r'LT', r'LE', r'NE',
+
+        # GT/GE/EQ/LT/LE/NE are lexer keywords/operators.
+
         r'BCD_TO_INT', r'INT_TO_BCD',
     }
+
     for from_type in simple_type:
         for to_type in simple_type:
             if from_type != to_type:
                 standard_functions.add(from_type + r'_TO_' + to_type)
-    return r'(' + r'|'.join(sorted(standard_functions, key=len, reverse=True)) + r')(?![a-zA-Z0-9_])'
+
+    return (
+        r'('
+        + r'|'.join(sorted(standard_functions, key=len, reverse=True))
+        + r')(?![a-zA-Z0-9_])(?=\s*\()'
+    )
 
 def generate_standard_function_block_name():
     ret = r'(R_TRIG|F_TRIG)'

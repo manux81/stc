@@ -868,9 +868,16 @@ class IECParser(Parser):
     def function_name(self, p):
         return { "name": self.production.name, "children": [ p[0] ] }
 
-    @_('STANDARD_FUNCTION_NAME')
+    @_('STANDARD_FUNCTION_NAME',
+       'ADD', 'SUB', 'MUL', 'DIV', 'MOD',
+       'AND', 'OR', 'XOR', 'NOT',
+       'GT', 'GE', 'EQ', 'LT', 'LE', 'NE')
     def standard_function_name(self, p):
-        return { "name": self.production.name, "value": p[0], "children": [ ] }
+        return {
+            "name": self.production.name,
+            "value": p[0],
+            "children": [],
+            }
 
     @_('IDENTIFIER')
     def derived_function_name(self, p):
@@ -907,8 +914,8 @@ class IECParser(Parser):
             raise SyntaxError(f"Unclosed function variable(s) declaration at line {p[-1].lineno - 1}.")
 
         var_declarations = [p[2]]
-        if p[4]:
-            var_declarations += list(p[4])
+        for repeated_decl in p[4]:
+            var_declarations.append(repeated_decl[0])
         return { "name": self.production.name, "children": var_declarations }
 
     @_('instruction_list', 'statement_list')
@@ -1388,9 +1395,18 @@ class IECParser(Parser):
 
     @_('[ unary_operator ] primary_expression')
     def unary_expression(self, p):
-        if p[0][0] == None:
-            return { "name": self.production.name, "value": None, "children": [ p[1] ] }
-        return { "name": self.production.name, "value": p[0]["value"], "children": [ p[1] ] }
+        if p[0][0] is None:
+            return {
+                "name": self.production.name,
+                "value": None,
+                "children": [p[1]],
+            }
+        return {
+            "name": self.production.name,
+            "value": p[0][0]["value"],
+            "children": [p[1]],
+        }
+
 
     @_('"-"', 'NOT')
     def unary_operator(self, p):
