@@ -165,12 +165,50 @@ class IECLexer(Lexer):
 #######################
 #  B.1.2.3.1 Duration #
 #######################
-    IDENTIFIER['MS'] = MS
     IDENTIFIER['TIME'] = TIME
-    IDENTIFIER['T'] = T
-    IDENTIFIER['D'] = D
-    IDENTIFIER['H'] = H
-    IDENTIFIER['M'] = M
+
+    # T, D, H, M and MS are duration delimiters, not globally reserved
+    # keywords. Outside a duration literal they remain legal identifiers.
+    T = before("IDENTIFIER", r'T(?![a-zA-Z0-9_])')
+    D = before("IDENTIFIER", r'D(?![a-zA-Z0-9_])')
+    H = before("IDENTIFIER", r'H(?![a-zA-Z0-9_])')
+    M = before("IDENTIFIER", r'M(?![a-zA-Z0-9_])')
+    MS = before("IDENTIFIER", r'MS(?![a-zA-Z0-9_])')
+
+    def _inside_duration_literal(self, index):
+        before_text = self.text[:index]
+        sharp = before_text.rfind('#')
+        if sharp < 0:
+            return False
+
+        prefix = before_text[:sharp].rstrip()
+        if re.search(r'(?i)(?:^|[^a-zA-Z0-9_])(?:T|TIME)$', prefix) is None:
+            return False
+
+        tail = before_text[sharp + 1:]
+        return re.fullmatch(r'[\s0-9_+\-.dDhHmMsS]*', tail) is not None
+
+    def _duration_unit_or_identifier(self, t):
+        if not self._inside_duration_literal(t.index):
+            t.type = 'IDENTIFIER'
+        return t
+
+    def T(self, t):
+        if re.match(r'\s*#', self.text[self.index:]) is None:
+            t.type = 'IDENTIFIER'
+        return t
+
+    def D(self, t):
+        return self._duration_unit_or_identifier(t)
+
+    def H(self, t):
+        return self._duration_unit_or_identifier(t)
+
+    def M(self, t):
+        return self._duration_unit_or_identifier(t)
+
+    def MS(self, t):
+        return self._duration_unit_or_identifier(t)
 
 ##################################
 #  B.1.3.1 Elementary data types #
