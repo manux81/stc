@@ -84,7 +84,9 @@ class CCodeGenerator(NodeVisitor):
     def zero_value(self, c_type):
         if c_type == "bool":
             return "false"
-        if c_type in ("float", "double"):
+        if c_type == "float":
+            return "0.0f"
+        if c_type == "double":
             return "0.0"
         return "0"
 
@@ -127,7 +129,11 @@ class CCodeGenerator(NodeVisitor):
         self.text += node["value"].replace("_", "")
 
     def visit_real_literal(self, node):
-        self.text += node["value"].replace("_", "")
+        value = node["value"].replace("_", "")
+        c_type = self.c_type_for_node(node)
+        if c_type == "float" and not value.lower().endswith("f"):
+            value += "f"
+        self.text += value
 
     def visit_integer(self, node):
         self.text += node["value"].replace("_", "")
