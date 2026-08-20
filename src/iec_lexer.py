@@ -169,11 +169,11 @@ class IECLexer(Lexer):
 
     # T, D, H, M and MS are duration delimiters, not globally reserved
     # keywords. Outside a duration literal they remain legal identifiers.
-    T = before("IDENTIFIER", r'T(?![a-zA-Z0-9_])')
-    D = before("IDENTIFIER", r'D(?![a-zA-Z0-9_])')
-    H = before("IDENTIFIER", r'H(?![a-zA-Z0-9_])')
-    M = before("IDENTIFIER", r'M(?![a-zA-Z0-9_])')
-    MS = before("IDENTIFIER", r'MS(?![a-zA-Z0-9_])')
+    T = before("IDENTIFIER", r'T(?![a-zA-Z])')
+    D = before("IDENTIFIER", r'D(?![a-zA-Z])')
+    H = before("IDENTIFIER", r'H(?![a-zA-Z])')
+    M = before("IDENTIFIER", r'M(?![a-zA-Z])')
+    MS = before("IDENTIFIER", r'MS(?![a-zA-Z])')
 
     def _inside_duration_literal(self, index):
         before_text = self.text[:index]

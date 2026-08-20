@@ -273,33 +273,17 @@ class IECParser(Parser):
     def duration(self, p):
         return self._node_from_production(p)
 
-    @_('days',  'hours', 'minutes', 'seconds', 'milliseconds')
+    @_('duration_component', 'duration_component [ UNDERSCORE ] interval')
     def interval(self, p):
         return self._node_from_production(p)
-
-    @_('fixed_point D')
-    def days(self, p):
+    @_('fixed_point D', 'fixed_point H', 'fixed_point M', 'fixed_point S', 'fixed_point MS')
+    def duration_component(self, p):
         return self._node_from_production(p)
 
     @_('REAL_VALUE', 'integer [ "." integer ] ')
     def fixed_point(self, p):
         return self._node_from_production(p)
 
-    @_('fixed_point H')
-    def hours(self, p):
-        return self._node_from_production(p)
-
-    @_('fixed_point M')
-    def minutes(self, p):
-        return self._node_from_production(p)
-
-    @_('fixed_point S')
-    def seconds(self, p):
-        return self._node_from_production(p)
-
-    @_('fixed_point MS')
-    def milliseconds(self, p):
-        return self._node_from_production(p)
 
 ###################################
 #  B.1.2.3.2 Time of day and date #
