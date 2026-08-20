@@ -51,7 +51,7 @@ def generate_standard_function_name():
     return (
         r'('
         + r'|'.join(sorted(standard_functions, key=len, reverse=True))
-        + r')(?![a-zA-Z0-9_])(?=\s*\()'
+        + r')(?![a-zA-Z0-9_])'
     )
 
 def generate_standard_function_block_name():
@@ -90,7 +90,7 @@ class IECLexer(Lexer):
         self.lineno += t.value.count('\n')
 
     tokens = { 
-        IDENTIFIER, PARAMETER_IDENTIFIER,
+        IDENTIFIER, PARAMETER_IDENTIFIER, CASE_LABEL_IDENTIFIER,
         LETTER, 
         # DIGIT, 
         #OCTAL_DIGIt, 
@@ -423,8 +423,16 @@ class IECLexer(Lexer):
     IDENTIFIER['ELSIF'] = ELSIF
     IDENTIFIER['ELSE'] = ELSE
     IDENTIFIER['END_IF'] = END_IF
-    IDENTIFIER['CASE'] = CASE
-    IDENTIFIER['END_CASE'] = END_CASE
+    CASE = before("IDENTIFIER", r'CASE(?![a-zA-Z0-9_])')
+    END_CASE = before("IDENTIFIER", r'END_CASE(?![a-zA-Z0-9_])')
+
+    def CASE(self, token):
+        self._case_depth = getattr(self, '_case_depth', 0) + 1
+        return token
+
+    def END_CASE(self, token):
+        self._case_depth = max(getattr(self, '_case_depth', 0) - 1, 0)
+        return token
 
 
 
@@ -440,8 +448,11 @@ class IECLexer(Lexer):
     IDENTIFIER['EXIT'] = EXIT
 
     def IDENTIFIER(self, token):
-        if re.match(r'\s*:=', self.text[self.index:]):
+        rest = self.text[self.index:]
+        if re.match(r'\s*:=', rest):
             token.type = 'PARAMETER_IDENTIFIER'
+        elif getattr(self, '_case_depth', 0) > 0 and re.match(r'\s*:(?!=)', rest):
+            token.type = 'CASE_LABEL_IDENTIFIER'
         return token
 
     #MINUS   = r'\-'

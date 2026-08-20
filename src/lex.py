@@ -239,10 +239,12 @@ class Lexer(metaclass=LexerMeta):
                     rules[n] = (key, value)
                     existing[key] = value
 
-                elif isinstance(value, TokenStr) and key in cls._before:
+                elif key in cls._before:
                     before = cls._before[key]
                     if before in existing:
-                        # Position the token before another specified token
+                        # Position the token before another specified token.
+                        # This also applies when a before() rule is later
+                        # replaced by a callback with the same name.
                         n = rules.index((before, existing[before]))
                         rules.insert(n, (key, value))
                     else:
