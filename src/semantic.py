@@ -20,9 +20,10 @@ class SemanticAnalyzer:
     def __init__(self, pipeline: SemanticPipeline | None = None):
         self.pipeline = pipeline or SemanticPipeline()
 
-    def analyze(self, ast, source_map=None) -> SemanticContext:
+    def analyze(self, ast, source_map=None, standard_edition=3) -> SemanticContext:
         context = SemanticContext(
             symbols=SymbolTableBuilder().build(ast),
+            standard_edition=standard_edition,
             source_map=source_map,
         )
         self.pipeline.run(ast, context)

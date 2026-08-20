@@ -22,6 +22,7 @@ from .types import (
 )
 from .validation import ArrayRangeCheck, CaseElementsCheck, FlowControlAnalysis, LValueCheck
 from .dependencies import DependencyAnalysis, topological_declaration_order
+from .edition import EditionCompatibilityCheck
 from .pipeline import SemanticPipeline
 
 __all__ = [
@@ -50,4 +51,5 @@ __all__ = [
     "CaseElementsCheck",
     "DependencyAnalysis",
     "topological_declaration_order",
+    "EditionCompatibilityCheck",
 ]

@@ -16,6 +16,18 @@ CODEGEN_FIXTURES = ROOT / "tests" / "fixtures" / "valid_codegen"
 
 
 class GeneratedCodeTests(unittest.TestCase):
+    FIND_SOURCE = """\
+FUNCTION SearchText : INT
+VAR
+    Text : STRING;
+    Pattern : STRING;
+END_VAR
+Text := 'ABCBC';
+Pattern := 'BC';
+SearchText := FIND(Text, Pattern);
+END_FUNCTION
+"""
+
     def test_all_codegen_fixtures_compile_as_c11(self):
         compiler = shutil.which("cc")
         if compiler is None:
@@ -232,6 +244,68 @@ END_CONFIGURATION
         )
         self.assertFalse(mismatch.success)
         self.assertIn("external-type-mismatch", {item.code for item in mismatch.diagnostics})
+
+    def test_find_is_imported_from_the_st_standard_library(self):
+        compiler = shutil.which("cc")
+        if compiler is None:
+            self.skipTest("A C compiler is not installed")
+        result = compile_source(
+            self.FIND_SOURCE,
+            "c",
+            library_paths=[str(ROOT / "library")],
+            imports=["standard:FIND"],
+        )
+
+        self.assertTrue(result.success, result.diagnostics)
+        self.assertIn("int16_t FIND(const char *IN1, const char *IN2)", result.output)
+        self.assertNotIn("static inline int16_t FIND", result.output)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "generated.c").write_text(result.output, encoding="utf-8")
+            harness = root / "harness.c"
+            harness.write_text(
+                '#include "generated.c"\nint main(void) { return SearchText() == 2 ? 0 : 1; }\n',
+                encoding="utf-8",
+            )
+            executable = root / "find-test"
+            subprocess.run(
+                [compiler, "-std=c11", str(harness), "-o", str(executable)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run([str(executable)], check=True)
+
+        automatic = compile_source(self.FIND_SOURCE, "c")
+        self.assertTrue(automatic.success, automatic.diagnostics)
+        self.assertEqual([item.symbol for item in automatic.libraries.imports], ["FIND"])
+        self.assertTrue(automatic.libraries.imports[0].source_name.endswith("standard-functions.st"))
+        self.assertIn("int16_t FIND(const char *IN1, const char *IN2)", automatic.output)
+
+    def test_find_standard_library_compiles_for_rust(self):
+        compiler = shutil.which("rustc")
+        if compiler is None:
+            self.skipTest("rustc is not installed")
+        result = compile_source(
+            self.FIND_SOURCE,
+            "rust",
+            library_paths=[str(ROOT / "library")],
+            imports=["standard:FIND"],
+        )
+
+        self.assertTrue(result.success, result.diagnostics)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            generated = root / "find.rs"
+            generated.write_text(result.output, encoding="utf-8")
+            subprocess.run(
+                [compiler, "--crate-type", "lib", "-D", "warnings", str(generated),
+                 "-o", str(root / "find.rlib")],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
 
 if __name__ == "__main__":

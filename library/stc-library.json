@@ -5,6 +5,17 @@
   "schema": 1,
   "name": "standard",
   "exports": {
+    "FIND": {
+      "source": "standard-functions.st"
+    },
+    "BYTE_TO_BOOL": { "source": "standard-functions.st" },
+    "WORD_TO_BOOL": { "source": "standard-functions.st" },
+    "DWORD_TO_BOOL": { "source": "standard-functions.st" },
+    "LWORD_TO_BOOL": { "source": "standard-functions.st" },
+    "USINT_TO_CHAR": { "source": "standard-functions.st" },
+    "UINT_TO_WCHAR": { "source": "standard-functions.st" },
+    "UDINT_TO_UCHAR": { "source": "standard-functions.st" },
+    "WCHAR_TO_UINT": { "source": "standard-functions.st" },
     "WEIGH": {
       "source": "weigh.st"
     }

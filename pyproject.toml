@@ -27,13 +27,12 @@ py-modules = [
     "iec_generator_rust",
     "iec_lexer",
     "iec_parser",
-    "iec_runtime_c",
-    "iec_runtime_rust",
     "lex",
     "library",
     "main",
     "native",
     "nodevisitor",
+    "primitive_runtime",
     "semantic",
     "semantic_context",
     "semantic_passes",
@@ -45,7 +44,10 @@ py-modules = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["semantic_checks*"]
+include = ["semantic_checks*", "stc_runtime*"]
+
+[tool.setuptools.package-data]
+stc_runtime = ["*.c", "*.rs"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

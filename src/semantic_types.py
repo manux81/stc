@@ -8,7 +8,7 @@ from typing import Any
 
 class TypeCategory(str, Enum):
     BOOL='bool'; SIGNED_INT='signed_int'; UNSIGNED_INT='unsigned_int'; REAL='real'
-    BIT_STRING='bit_string'; STRING='string'; TIME='time'; DATE='date'; ENUM='enum'
+    BIT_STRING='bit_string'; STRING='string'; CHAR='char'; TIME='time'; DATE='date'; ENUM='enum'
     ARRAY='array'; STRUCT='struct'; FUNCTION_BLOCK='function_block'; UNKNOWN='unknown'; ERROR='error'
 
 @dataclass(frozen=True, slots=True)
@@ -45,9 +45,14 @@ REAL=DataType('REAL',TypeCategory.REAL,32); LREAL=DataType('LREAL',TypeCategory.
 BYTE=DataType('BYTE',TypeCategory.BIT_STRING,8); WORD=DataType('WORD',TypeCategory.BIT_STRING,16)
 DWORD=DataType('DWORD',TypeCategory.BIT_STRING,32); LWORD=DataType('LWORD',TypeCategory.BIT_STRING,64)
 STRING=DataType('STRING',TypeCategory.STRING); WSTRING=DataType('WSTRING',TypeCategory.STRING)
+USTRING=DataType('USTRING',TypeCategory.STRING)
+CHAR=DataType('CHAR',TypeCategory.CHAR,8); WCHAR=DataType('WCHAR',TypeCategory.CHAR,16)
+UCHAR=DataType('UCHAR',TypeCategory.CHAR,32)
 TIME=DataType('TIME',TypeCategory.TIME); DATE=DataType('DATE',TypeCategory.DATE)
+LTIME=DataType('LTIME',TypeCategory.TIME)
 TOD=DataType('TOD',TypeCategory.DATE); TIME_OF_DAY=DataType('TIME_OF_DAY',TypeCategory.DATE)
 DT=DataType('DT',TypeCategory.DATE); DATE_AND_TIME=DataType('DATE_AND_TIME',TypeCategory.DATE)
+LDATE=DataType('LDATE',TypeCategory.DATE); LTOD=DataType('LTOD',TypeCategory.DATE); LDT=DataType('LDT',TypeCategory.DATE)
 TON=DataType('TON',TypeCategory.FUNCTION_BLOCK); TOF=DataType('TOF',TypeCategory.FUNCTION_BLOCK)
 TP=DataType('TP',TypeCategory.FUNCTION_BLOCK); CTU=DataType('CTU',TypeCategory.FUNCTION_BLOCK)
 CTD=DataType('CTD',TypeCategory.FUNCTION_BLOCK); CTUD=DataType('CTUD',TypeCategory.FUNCTION_BLOCK)
@@ -57,7 +62,7 @@ UNKNOWN_TYPE=DataType('<unknown>',TypeCategory.UNKNOWN); ERROR_TYPE=DataType('<e
 
 BUILTIN_TYPES={t.name.casefold():t for t in (
     BOOL,SINT,INT,DINT,LINT,USINT,UINT,UDINT,ULINT,REAL,LREAL,BYTE,WORD,DWORD,LWORD,
-    STRING,WSTRING,TIME,DATE,TOD,TIME_OF_DAY,DT,DATE_AND_TIME,
+    STRING,WSTRING,USTRING,CHAR,WCHAR,UCHAR,TIME,LTIME,DATE,LDATE,TOD,LTOD,TIME_OF_DAY,DT,LDT,DATE_AND_TIME,
     TON,TOF,TP,CTU,CTD,CTUD,R_TRIG,F_TRIG,SR,RS,
 )}
 INTEGER_TYPES=(SINT,INT,DINT,LINT,USINT,UINT,UDINT,ULINT)
@@ -73,6 +78,9 @@ def value_fits(value:int,t:DataType)->bool:
 def is_assignable(source:DataType,destination:DataType)->bool:
     if ERROR_TYPE in (source,destination) or UNKNOWN_TYPE in (source,destination): return True
     if source==destination: return True
+    if source.category==TypeCategory.STRING and destination.category==TypeCategory.STRING: return True
+    if source.category==TypeCategory.CHAR and destination.category==TypeCategory.CHAR: return True
+    if (is_integer(source) and destination.category==TypeCategory.CHAR) or (source.category==TypeCategory.CHAR and is_integer(destination)): return True
     if is_integer(source) and is_integer(destination):
         return source.bits is not None and destination.bits is not None
     return is_integer(source) and destination.category==TypeCategory.REAL

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from ast_builder import AstBuilder, ParseNode
@@ -23,6 +24,99 @@ from source_map import SourceMap, build_source_map
 AstNode = dict[str, Any]
 CompilationTarget = Literal["c", "rust", "ast", "tree"]
 SUPPORTED_TARGETS = frozenset(("c", "rust", "ast", "tree"))
+BUNDLED_LIBRARY_DIRECTORY = Path(__file__).resolve().parent.parent / "library"
+
+
+def normalize_standard_edition(standard: str | int) -> int:
+    """Return the IEC 61131-3 edition selected by a public CLI/API spelling."""
+    normalized = str(standard).strip().casefold().replace(" ", "")
+    aliases = {
+        "3": 3,
+        "3.0": 3,
+        "2013": 3,
+        "ed3": 3,
+        "iec61131-3:ed3": 3,
+        "4": 4,
+        "4.0": 4,
+        "2025": 4,
+        "ed4": 4,
+        "iec61131-3:ed4": 4,
+    }
+    try:
+        return aliases[normalized]
+    except KeyError as exc:
+        choices = "iec61131-3:ed3 or iec61131-3:ed4"
+        raise ValueError(f"Unsupported IEC standard {standard!r}; expected {choices}") from exc
+
+
+def _walk_ast(node):
+    if not isinstance(node, dict):
+        return
+    yield node
+    for child in node.get("children", []):
+        yield from _walk_ast(child)
+
+
+def _mark_library_ast(node):
+    """Tag imported nodes so source-profile diagnostics remain caller-local."""
+    if not isinstance(node, dict):
+        return
+    node["library_import"] = True
+    for child in node.get("children", []):
+        _mark_library_ast(child)
+
+
+def _selected_library_nodes(ast, symbol):
+    """Return the top-level declaration exported under ``symbol``."""
+    selected = []
+    expected = symbol.casefold()
+    declaration_names = {
+        "derived_function_name",
+        "derived_function_block_name",
+        "program_type_name",
+        "configuration_name",
+    }
+    for child in ast.get("children", []):
+        names = {
+            str(node.get("value", "")).casefold()
+            for node in _walk_ast(child)
+            if node.get("name") in declaration_names
+        }
+        if expected in names:
+            selected.append(child)
+    if not selected:
+        raise LibraryError(f"Imported source does not declare exported symbol {symbol!r}")
+    return selected
+
+
+def _implicit_standard_imports(ast, libraries):
+    """Load bundled ST implementations for referenced standard functions."""
+    declared = {
+        str(node.get("value", "")).casefold()
+        for node in _walk_ast(ast)
+        if node.get("name") == "derived_function_name"
+    }
+    referenced = {
+        str(node.get("value", "")).upper()
+        for node in _walk_ast(ast)
+        if node.get("name") == "standard_function_name"
+    }
+    imported = {item.symbol.casefold() for item in libraries.imports}
+    available = {
+        "FIND",
+        "BYTE_TO_BOOL", "WORD_TO_BOOL", "DWORD_TO_BOOL", "LWORD_TO_BOOL",
+        "USINT_TO_CHAR", "UINT_TO_WCHAR", "UDINT_TO_UCHAR", "WCHAR_TO_UINT",
+    }
+    required = sorted(
+        name for name in referenced & available
+        if name.casefold() not in declared and name.casefold() not in imported
+    )
+    if not required or not BUNDLED_LIBRARY_DIRECTORY.is_dir():
+        return
+    resolved = LibraryResolver([BUNDLED_LIBRARY_DIRECTORY]).resolve(
+        [f"standard:{name}" for name in required]
+    )
+    libraries.imports.extend(resolved.imports)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +130,7 @@ class CompilationResult:
 
     target: CompilationTarget
     source_name: str
+    standard_edition: int = 3
     parse_tree: ParseNode | None = None
     ast: AstNode | None = None
     context: SemanticContext | None = None
@@ -74,11 +169,13 @@ def compile_source(
     library_paths: tuple[str, ...] | list[str] = (),
     imports: tuple[str, ...] | list[str] = (),
     generate_code: bool = True,
+    standard: str | int = "iec61131-3:ed3",
 ) -> CompilationResult:
     """Compile source and return its products and diagnostics."""
     if target not in SUPPORTED_TARGETS:
         supported = ", ".join(sorted(SUPPORTED_TARGETS))
         raise ValueError(f"Unsupported compilation target {target!r}; expected one of: {supported}")
+    standard_edition = normalize_standard_edition(standard)
 
     libraries = LibraryResolver(library_paths).resolve(imports) if imports else ResolvedLibraries()
     parser_source, native_sections = extract_native_pragmas(source)
@@ -86,16 +183,23 @@ def compile_source(
     try:
         tree = parse_tree(parser_source)
     except ParsingError as exc:
-        return CompilationResult(target=target, source_name=source_name, syntax_error=exc)
+        return CompilationResult(
+            target=target,
+            source_name=source_name,
+            standard_edition=standard_edition,
+            syntax_error=exc,
+        )
 
     if tree is None:
         return CompilationResult(
             target=target,
             source_name=source_name,
+            standard_edition=standard_edition,
             syntax_error=SyntaxError("Unable to parse source."),
         )
 
     ast = builder.build(tree)
+    _implicit_standard_imports(ast, libraries)
     imported_nodes = []
     for imported in libraries.imports:
         imported_source, imported_native = extract_native_pragmas(imported.source)
@@ -114,7 +218,10 @@ def compile_source(
         if imported_tree is None:
             raise LibraryError(f"Cannot parse imported source {imported.source_name}")
         imported_ast = builder.build(imported_tree)
-        imported_nodes.extend(imported_ast.get("children", []))
+        selected_nodes = _selected_library_nodes(imported_ast, imported.symbol)
+        for selected_node in selected_nodes:
+            _mark_library_ast(selected_node)
+        imported_nodes.extend(selected_nodes)
     if imported_nodes:
         ast["children"] = imported_nodes + ast.get("children", [])
 
@@ -122,6 +229,7 @@ def compile_source(
         return CompilationResult(
             target=target,
             source_name=source_name,
+            standard_edition=standard_edition,
             parse_tree=tree,
             ast=ast,
             output=json.dumps(ast, indent=2),
@@ -131,6 +239,7 @@ def compile_source(
         return CompilationResult(
             target=target,
             source_name=source_name,
+            standard_edition=standard_edition,
             parse_tree=tree,
             ast=ast,
             output=ast,
@@ -143,11 +252,16 @@ def compile_source(
     context = None
     if check_semantics:
         try:
-            context = (semantic_analyzer or SemanticAnalyzer()).analyze(ast, source_map=source_map)
+            context = (semantic_analyzer or SemanticAnalyzer()).analyze(
+                ast,
+                source_map=source_map,
+                standard_edition=standard_edition,
+            )
         except SemanticError as exc:
             return CompilationResult(
                 target=target,
                 source_name=source_name,
+                standard_edition=standard_edition,
                 parse_tree=tree,
                 ast=ast,
                 context=exc.context,
@@ -160,6 +274,7 @@ def compile_source(
         return CompilationResult(
             target=target,
             source_name=source_name,
+            standard_edition=standard_edition,
             parse_tree=tree,
             ast=ast,
             context=context,
@@ -192,6 +307,7 @@ def compile_source(
     return CompilationResult(
         target=target,
         source_name=source_name,
+        standard_edition=standard_edition,
         parse_tree=tree,
         ast=ast,
         context=context,

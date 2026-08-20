@@ -16,6 +16,7 @@ class Diagnostic:
 @dataclass(slots=True)
 class SemanticContext:
     symbols:SymbolTable
+    standard_edition:int=3
     declared_types:dict[str,DataType]=field(default_factory=dict)
     node_types:dict[int,DataType]=field(default_factory=dict)
     candidate_types:dict[int,set[DataType]]=field(default_factory=dict)

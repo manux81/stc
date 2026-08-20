@@ -22,7 +22,8 @@ def generate_standard_function_name():
         r'SINT', r'INT', r'DINT', r'LINT',
         r'USINT', r'UINT', r'UDINT', r'ULINT',
         r'REAL', r'LREAL', r'BOOL', r'BYTE', r'WORD', r'DWORD', r'LWORD',
-        r'TIME', r'DATE', r'TOD', r'DT', r'STRING', r'WSTRING',
+        r'TIME', r'LTIME', r'DATE', r'LDATE', r'TOD', r'LTOD', r'DT', r'LDT', r'CHAR', r'WCHAR',
+        r'STRING', r'WSTRING', r'UCHAR', r'USTRING',
     }
 
     standard_functions = {
@@ -38,7 +39,9 @@ def generate_standard_function_name():
 
         r'SEL', r'MAX', r'MIN', r'LIMIT', r'MUX',
         r'CONCAT', r'INSERT', r'DELETE', r'REPLACE', r'FIND',
-        r'LEN', r'LEFT', r'RIGHT', r'MID',
+        r'LEN', r'LEN_CODE_UNIT', r'LEFT', r'RIGHT', r'MID',
+
+        r'ASSERT',
 
         # GT/GE/EQ/LT/LE/NE are lexer keywords/operators.
 
@@ -49,6 +52,12 @@ def generate_standard_function_name():
         for to_type in simple_type:
             if from_type != to_type:
                 standard_functions.add(from_type + r'_TO_' + to_type)
+
+    integer_types = (r'SINT', r'INT', r'DINT', r'LINT', r'USINT', r'UINT', r'UDINT', r'ULINT')
+    for result_type in integer_types:
+        standard_functions.add(r'TRUNC_' + result_type)
+        standard_functions.add(r'REAL_TRUNC_' + result_type)
+        standard_functions.add(r'LREAL_TRUNC_' + result_type)
 
     return (
         r'('
@@ -109,6 +118,7 @@ class IECLexer(Lexer):
         #OCTAL_DIGIt, 
         HEX_DIGIT, DIRECT_VARIABLE,
         SINGLE_BYTE_STRING_LITERAL, DOUBLE_BYTE_STRING_LITERAL,
+        TYPED_CHARACTER_STRING_LITERAL, UNICODE_STRING_LITERAL,
         MINUS, PLUS, UNDERSCORE,
         BIT, BINARY_INTEGER, OCTAL_INTEGER, HEX_INTEGER, REAL_VALUE, INTEGER,
         ARRAY_REPEAT_COUNT,
@@ -116,11 +126,11 @@ class IECLexer(Lexer):
 
         DOLLAR_APC, DOLLAR_QOT, PRINTABLE_CHAR, DOLLAR_DOLLAR, DOLLAR_L, DOLLAR_N, DOLLAR_P,
 
-        MS, SEC, TIME, T, D, H, M,
+        MS, SEC, TIME, LTIME, T, D, H, M,
     
         SINT, INT, DINT, LINT, USINT,
-        UINT, UDINT, ULINT, REAL, LREAL, DATE, TIME_OF_DAY, TOD, DATE_AND_TIME,
-        DT, BOOL, BYTE, WORD, DWORD, LWORD,
+        UINT, UDINT, ULINT, REAL, LREAL, DATE, LDATE, TIME_OF_DAY, TOD, LTOD,
+        DATE_AND_TIME, DT, LDT, BOOL, BYTE, WORD, DWORD, LWORD, CHAR, WCHAR, UCHAR, USTRING,
 
         ANY, ANY_DERIVED, ANY_ELEMENTARY, ANY_MAGNITUDE, ANY_NUM, ANY_REAL, ANY_INT, ANY_BIT, ANY_STRING, ANY_DATE,
 
@@ -129,7 +139,7 @@ class IECLexer(Lexer):
         NIL,
 
         VAR_INPUT, RETAIN, END_VAR, NON_RETAIN, R_EDGE, F_EDGE, VAR_OUTPUT, VAR_IN_OUT, VAR, CONSTANT, VAR_EXTERNAL, VAR_GLOBAL, AT,
-        STANDARD_FUNCTION_NAME, FUNCTION, END_FUNCTION,
+        STANDARD_FUNCTION_NAME, ASSERT, FUNCTION, END_FUNCTION,
 
         STANDARD_FUNCTION_BLOCK_NAME, FUNCTION_BLOCK, END_FUNCTION_BLOCK, VAR_TEMP,
         PROGRAM, END_PROGRAM, VAR_ACCESS,
@@ -161,7 +171,9 @@ class IECLexer(Lexer):
         # Standard function names are not reserved words in IEC 61131-3.  Only
         # classify one as a function when it is used as a call; otherwise it
         # remains a legal (case-insensitive) user identifier.
-        if re.match(r'\s*\(', self.text[self.index:]) is None:
+        if str(token.value).upper() == "ASSERT":
+            token.type = "ASSERT"
+        elif re.match(r'\s*\(', self.text[self.index:]) is None:
             token.type = 'IDENTIFIER'
         return token
  
@@ -174,6 +186,14 @@ class IECLexer(Lexer):
 ##############################
 #  B.1.2.2 Character strings #
 ##############################
+    TYPED_CHARACTER_STRING_LITERAL = before(
+        "IDENTIFIER",
+        r"(?:(?:STRING|CHAR)\s*#\s*'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{2}))*'|(?:WSTRING|WCHAR)\s*#\s*(?:\"([^\"$]|(\$\$)|(\$\"\")|(\"\")|(\$\")|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{4}))*\"|'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{4}))*'))",
+    )
+    UNICODE_STRING_LITERAL = before(
+        "IDENTIFIER",
+        r"(?:USTRING|UCHAR|U)\s*#\s*'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$\{[0-9A-Fa-f]{1,6}\})|(\$[0-9A-Fa-f]{2}))*'",
+    )
     SINGLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r"'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{2}))*'")
     DOUBLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r'"([^"$]|(\$\$)|(\$"")|("")|(\$")|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{4}))*"')
     DOLLAR_APC = r'\$\''
@@ -188,6 +208,7 @@ class IECLexer(Lexer):
 #  B.1.2.3.1 Duration #
 #######################
     IDENTIFIER['TIME'] = TIME
+    IDENTIFIER['LTIME'] = LTIME
 
     # T, D, H, M and MS are duration delimiters, not globally reserved
     # keywords. Outside a duration literal they remain legal identifiers.
@@ -261,15 +282,21 @@ class IECLexer(Lexer):
     IDENTIFIER['REAL'] = REAL
     IDENTIFIER['LREAL'] = LREAL
     IDENTIFIER['DATE'] = DATE
+    IDENTIFIER['LDATE'] = LDATE
     IDENTIFIER['TIME_OF_DAY'] = TIME_OF_DAY
     IDENTIFIER['TOD'] = TOD
+    IDENTIFIER['LTOD'] = LTOD
     IDENTIFIER['DATE_AND_TIME'] = DATE_AND_TIME
     IDENTIFIER['DT'] = DT
+    IDENTIFIER['LDT'] = LDT
     IDENTIFIER['BOOL'] = BOOL
     IDENTIFIER['BYTE'] = BYTE
     IDENTIFIER['WORD'] = WORD
     IDENTIFIER['DWORD'] = DWORD
     IDENTIFIER['LWORD'] = LWORD
+    IDENTIFIER['CHAR'] = CHAR
+    IDENTIFIER['WCHAR'] = WCHAR
+    IDENTIFIER['UCHAR'] = UCHAR
     
 
 ###############################
@@ -301,6 +328,7 @@ class IECLexer(Lexer):
     IDENTIFIER['END_STRUCT'] = END_STRUCT
     IDENTIFIER['STRING'] = STRING
     IDENTIFIER['WSTRING'] = WSTRING
+    IDENTIFIER['USTRING'] = USTRING
 
 ###########################################
 # B.1.(4.1 Directly represented variables #

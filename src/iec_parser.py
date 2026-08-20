@@ -229,7 +229,9 @@ class IECParser(Parser):
 #  B.1.2.2 Character strings #
 ##############################
     @_('single_byte_character_string',
-       'double_byte_character_string')
+       'double_byte_character_string',
+       'typed_character_string',
+       'unicode_character_string')
     def character_string(self, p):
         return self._node_from_production(p)
 
@@ -243,6 +245,14 @@ class IECParser(Parser):
         '"\"" "\""',
         '"\"" double_byte_character_representation "\""')
     def double_byte_character_string(self, p):
+        return self._node_from_production(p)
+
+    @_('UNICODE_STRING_LITERAL')
+    def unicode_character_string(self, p):
+        return self._node_from_production(p)
+
+    @_('TYPED_CHARACTER_STRING_LITERAL')
+    def typed_character_string(self, p):
         return self._node_from_production(p)
 
     @_('common_character_representation', 'DOLLAR_APC', '"\""', '"$" HEX_DIGIT HEX_DIGIT',)
@@ -349,8 +359,8 @@ class IECParser(Parser):
 ##################################
 #  B.1.3.1 Elementary data types #
 ##################################
-    @_('numeric_type_name', 'date_type_name', 'bit_string_type_name', 'STRING', 
-       'WSTRING', 'TIME')
+    @_('numeric_type_name', 'date_type_name', 'bit_string_type_name', 'STRING',
+       'WSTRING', 'USTRING', 'CHAR', 'WCHAR', 'UCHAR', 'TIME', 'LTIME')
     def elementary_type_name(self, p):
         return {"name": self.production.name, "children": [ p[0] ]}
 
@@ -374,7 +384,7 @@ class IECParser(Parser):
     def real_type_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
-    @_('DATE', 'TIME_OF_DAY', 'TOD', 'DATE_AND_TIME', 'DT')
+    @_('DATE', 'LDATE', 'TIME_OF_DAY', 'TOD', 'LTOD', 'DATE_AND_TIME', 'DT', 'LDT')
     def date_type_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
@@ -1555,9 +1565,13 @@ class IECParser(Parser):
 #########################################
 # B.3.2.2 Subprogram control statements #
 #########################################
-    @_('fb_invocation', 'RETURN')
+    @_('fb_invocation', 'assert_statement', 'RETURN')
     def subprogram_control_statement(self, p):
         return self._node_from_production(p)
+
+    @_('ASSERT "(" expression ")"')
+    def assert_statement(self, p):
+        return {"name": self.production.name, "children": [p.expression]}
 
     @_('fb_name "(" [ param_assignment { "," param_assignment } ] ")"',
        'array_variable "(" [ param_assignment { "," param_assignment } ] ")"')

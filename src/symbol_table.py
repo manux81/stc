@@ -412,7 +412,7 @@ class SymbolTableBuilder:
                 if leaf is not None:
                     return TypeRef(leaf.get("value"), candidate)
         for value in self._raw_strings(node):
-            if value.upper() in {"STRING", "WSTRING"}:
+            if value.upper() in {"STRING", "WSTRING", "USTRING", "CHAR", "WCHAR", "UCHAR"}:
                 return TypeRef(value.upper(), node)
         return None
 

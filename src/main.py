@@ -78,7 +78,8 @@ def build_arg_parser():
         "-s",
         "--std",
         default="iec61131-3:ed3",
-        help="IEC standard dialect marker accepted for compatibility.",
+        metavar="EDITION",
+        help="IEC standard profile (iec61131-3:ed3 or iec61131-3:ed4).",
     )
     parser.add_argument(
         "-v",
@@ -214,9 +215,10 @@ def main(argv=None):
             library_paths=args.library_path,
             imports=args.imports,
             generate_code=not args.fskip_code_gen,
+            standard=args.std,
         )
         elapsed_ms = (perf_counter() - started_at) * 1000.0
-    except (OSError, LibraryError, NativePragmaError) as exc:
+    except (OSError, ValueError, LibraryError, NativePragmaError) as exc:
         print(f"stc: {exc}", file=sys.stderr)
         return 2
 
@@ -251,6 +253,9 @@ def main(argv=None):
     if failed:
         report_compilation_failure(compilation, args.diagnostic_color, args.log)
         return 1
+
+    if warning_count:
+        report_compilation_failure(compilation, args.diagnostic_color, args.log)
 
     if args.fskip_code_gen:
         return 0
