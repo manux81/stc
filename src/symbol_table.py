@@ -222,6 +222,7 @@ class SymbolTableBuilder:
         "structured_var_declaration",
         "string_var_declaration",
         "edge_declaration",
+        "located_var_decl",
     }
 
     _SECTION_STORAGE = {
@@ -293,7 +294,16 @@ class SymbolTableBuilder:
             return
 
         if name == "fb_name_decl":
-            self._declare_named_nodes(node, scope, storage, "fb_name", SymbolKind.VARIABLE)
+            if self._first_descendant(node, "var1_list") is not None:
+                self._declare_variables(node, scope, storage)
+            else:
+                self._declare_named_nodes(node, scope, storage, "fb_name", SymbolKind.VARIABLE)
+            for child in node.get("children", []):
+                self._walk(child, scope, storage, declaration_context=True)
+            return
+
+        if name in {"external_declaration", "global_var_decl"}:
+            self._declare_named_nodes(node, scope, storage, "global_var_name", SymbolKind.VARIABLE)
             for child in node.get("children", []):
                 self._walk(child, scope, storage, declaration_context=True)
             return
@@ -341,6 +351,8 @@ class SymbolTableBuilder:
 
     def _declare_variables(self, node: AstNode, scope: Scope, storage: StorageClass) -> None:
         names_container = self._first_descendant(node, "var1_list")
+        if names_container is None and node.get("name") == "located_var_decl":
+            names_container = node
         if names_container is None:
             return
         type_ref = self._extract_type(node)

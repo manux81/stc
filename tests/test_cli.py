@@ -160,6 +160,59 @@ END_FUNCTION
         ast = json.loads(result.stdout)
         self.assertIn("direct_variable", json.dumps(ast))
 
+    def test_standard_function_name_is_legal_as_a_variable(self):
+        source = """\
+FUNCTION standard_name_collision : INT
+VAR
+    Mux : INT;
+END_VAR
+    Mux := MUX(1, 10, 20);
+    standard_name_collision := Mux;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "ast")
+        ast = json.loads(result.stdout)
+        text = json.dumps(ast)
+        self.assertIn('"variable_name", "value": "Mux"', text)
+        self.assertIn('"standard_function_name", "value": "MUX"', text)
+
+    def test_ast_accepts_repeated_array_initializers(self):
+        source = "TYPE ZeroedArray : ARRAY[0..9] OF INT := [10(0)]; END_TYPE\n"
+        result = run_stc_input(source, "-g", "ast")
+        ast = json.loads(result.stdout)
+        text = json.dumps(ast)
+        self.assertIn("array_initialization", text)
+        self.assertIn("array_initial_elements", text)
+
+    def test_torture_type_and_case_constructs_compile_together(self):
+        source = """\
+TYPE
+    Bounded : INT (0..100);
+    Mode : (IDLE, RUN);
+    Zeroes : ARRAY[0..2] OF INT := [3(0)];
+END_TYPE
+FUNCTION torture_slice : Bounded
+VAR_INPUT
+    CurrentMode : Mode;
+END_VAR
+VAR
+    T1 : TIME;
+    Values : Zeroes := [3(0)];
+END_VAR
+    // A nested CASE may repeat a label from its parent CASE.
+    CASE CurrentMode OF
+        IDLE:
+            CASE Values[0] OF
+                0: torture_slice := 0;
+            END_CASE;
+        RUN:
+            torture_slice := 90;
+    END_CASE;
+END_FUNCTION
+"""
+        result = run_stc_input(source, "-g", "c")
+        self.assertIn("torture_slice", result.stdout)
+
     def test_iec_block_comments_are_ignored(self):
         source = """\
 FUNCTION commented : INT (* declaration comment *)

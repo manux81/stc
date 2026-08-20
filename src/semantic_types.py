@@ -44,9 +44,22 @@ UDINT=DataType('UDINT',TypeCategory.UNSIGNED_INT,32); ULINT=DataType('ULINT',Typ
 REAL=DataType('REAL',TypeCategory.REAL,32); LREAL=DataType('LREAL',TypeCategory.REAL,64)
 BYTE=DataType('BYTE',TypeCategory.BIT_STRING,8); WORD=DataType('WORD',TypeCategory.BIT_STRING,16)
 DWORD=DataType('DWORD',TypeCategory.BIT_STRING,32); LWORD=DataType('LWORD',TypeCategory.BIT_STRING,64)
+STRING=DataType('STRING',TypeCategory.STRING); WSTRING=DataType('WSTRING',TypeCategory.STRING)
+TIME=DataType('TIME',TypeCategory.TIME); DATE=DataType('DATE',TypeCategory.DATE)
+TOD=DataType('TOD',TypeCategory.DATE); TIME_OF_DAY=DataType('TIME_OF_DAY',TypeCategory.DATE)
+DT=DataType('DT',TypeCategory.DATE); DATE_AND_TIME=DataType('DATE_AND_TIME',TypeCategory.DATE)
+TON=DataType('TON',TypeCategory.FUNCTION_BLOCK); TOF=DataType('TOF',TypeCategory.FUNCTION_BLOCK)
+TP=DataType('TP',TypeCategory.FUNCTION_BLOCK); CTU=DataType('CTU',TypeCategory.FUNCTION_BLOCK)
+CTD=DataType('CTD',TypeCategory.FUNCTION_BLOCK); CTUD=DataType('CTUD',TypeCategory.FUNCTION_BLOCK)
+R_TRIG=DataType('R_TRIG',TypeCategory.FUNCTION_BLOCK); F_TRIG=DataType('F_TRIG',TypeCategory.FUNCTION_BLOCK)
+SR=DataType('SR',TypeCategory.FUNCTION_BLOCK); RS=DataType('RS',TypeCategory.FUNCTION_BLOCK)
 UNKNOWN_TYPE=DataType('<unknown>',TypeCategory.UNKNOWN); ERROR_TYPE=DataType('<error>',TypeCategory.ERROR)
 
-BUILTIN_TYPES={t.name.casefold():t for t in (BOOL,SINT,INT,DINT,LINT,USINT,UINT,UDINT,ULINT,REAL,LREAL,BYTE,WORD,DWORD,LWORD)}
+BUILTIN_TYPES={t.name.casefold():t for t in (
+    BOOL,SINT,INT,DINT,LINT,USINT,UINT,UDINT,ULINT,REAL,LREAL,BYTE,WORD,DWORD,LWORD,
+    STRING,WSTRING,TIME,DATE,TOD,TIME_OF_DAY,DT,DATE_AND_TIME,
+    TON,TOF,TP,CTU,CTD,CTUD,R_TRIG,F_TRIG,SR,RS,
+)}
 INTEGER_TYPES=(SINT,INT,DINT,LINT,USINT,UINT,UDINT,ULINT)
 
 def is_integer(t: DataType)->bool: return t.category in {TypeCategory.SIGNED_INT,TypeCategory.UNSIGNED_INT}
@@ -61,12 +74,11 @@ def is_assignable(source:DataType,destination:DataType)->bool:
     if ERROR_TYPE in (source,destination) or UNKNOWN_TYPE in (source,destination): return True
     if source==destination: return True
     if is_integer(source) and is_integer(destination):
-        if source.bits is None or destination.bits is None: return False
-        if source.category==destination.category: return source.bits<=destination.bits
-        return source.category==TypeCategory.UNSIGNED_INT and destination.category==TypeCategory.SIGNED_INT and source.bits<=destination.bits
+        return source.bits is not None and destination.bits is not None
     return is_integer(source) and destination.category==TypeCategory.REAL
 
 def conversion_cost(source:DataType,destination:DataType)->int:
     if source==destination:return 0
-    if is_assignable(source,destination):return 1+(destination.bits or 0)-(source.bits or 0)
+    if is_assignable(source,destination):
+        return 1+abs((destination.bits or 0)-(source.bits or 0))+(source.category!=destination.category)
     return 10000

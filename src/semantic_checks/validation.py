@@ -94,23 +94,53 @@ class CaseInterval:
     after=("constant-folding",),
 )
 class CaseElementsCheck(SemanticCheck):
+    @staticmethod
+    def _own_labels(case_statement):
+        def visit(node, root=False):
+            if not isinstance(node, dict):
+                return
+            if not root and node.get("name") == "case_statement":
+                return
+            if node.get("name") == "case_list_element":
+                yield node
+                return
+            for child in direct_children(node):
+                yield from visit(child)
+        yield from visit(case_statement, root=True)
+
     def run(self, ast):
+        enum_ordinals = {}
+        for declaration in descendants(ast, "enumerated_type_declaration"):
+            for ordinal, value in enumerate(descendants(declaration, "enumerated_value")):
+                name = value.get("value")
+                if isinstance(name, str):
+                    enum_ordinals.setdefault(name.casefold(), ordinal)
+
         for case_statement in descendants(ast, "case_statement"):
             intervals: list[CaseInterval] = []
-            for label in descendants(case_statement, "case_list_element"):
+            for label in self._own_labels(case_statement):
                 constants = [
                     self.context.constant_of(node)
                     for node in walk(label)
                     if self.context.constant_of(node) is not None
                 ]
-                if not constants:
+                if constants:
+                    raw_value = constants[-1].value
+                else:
+                    enum_name = next(
+                        (node.get("value") for node in walk(label)
+                         if node.get("name") == "enumerated_value"),
+                        None,
+                    )
+                    raw_value = enum_ordinals.get(enum_name.casefold()) if isinstance(enum_name, str) else None
+                if raw_value is None:
                     self.error(
                         "non-constant-case-label",
                         "CASE label must be constant.",
                         label,
                     )
                     continue
-                value = int(constants[-1].value)
+                value = int(raw_value)
                 intervals.append(CaseInterval(value, value, label))
 
             intervals.sort(key=lambda interval: (interval.lower, interval.upper))

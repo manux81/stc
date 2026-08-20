@@ -76,6 +76,63 @@ END_FUNCTION
         self.assertIn("match value", result.output)
         self.assertIn("1 | 2 =>", result.output)
 
+    def test_c_torture_constructs_compile_and_link(self):
+        compiler = shutil.which("cc")
+        if compiler is None:
+            self.skipTest("A C compiler is not installed")
+        source = """\
+TYPE
+    Small : INT;
+    Mode : (IDLE, RUN);
+    Values : ARRAY[0..2] OF INT := [3(0)];
+    Point : STRUCT
+        X : INT;
+    END_STRUCT;
+END_TYPE
+FUNCTION exercise : Small
+VAR_INPUT
+    CurrentMode : Mode;
+END_VAR
+VAR
+    Data : Values := [1, 2, 3];
+    P : Point := (X := 1);
+    Text : STRING[8];
+    Delay : TIME;
+END_VAR
+    Text := 'ok';
+    Delay := T#1s;
+    CASE CurrentMode OF
+        IDLE: exercise := Data[0] + P.X;
+        RUN: exercise := LEN(Text);
+    END_CASE;
+END_FUNCTION
+PROGRAM MainProgram
+VAR
+    Result : Small;
+END_VAR
+    Result := exercise(Mode#IDLE);
+END_PROGRAM
+CONFIGURATION MainConfiguration
+    RESOURCE MainResource ON PLC
+        TASK MainTask(INTERVAL := T#20ms, PRIORITY := 0);
+        PROGRAM MainInstance WITH MainTask : MainProgram;
+    END_RESOURCE
+END_CONFIGURATION
+"""
+        result = compile_source(source, "c")
+        self.assertTrue(result.success, result.diagnostics)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source_path = Path(temporary_directory) / "torture.c"
+            executable = Path(temporary_directory) / "torture"
+            source_path.write_text(result.output, encoding="utf-8")
+            subprocess.run(
+                [compiler, "-std=c11", str(source_path), "-o", str(executable)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run([str(executable)], check=True)
+
 
 if __name__ == "__main__":
     unittest.main()

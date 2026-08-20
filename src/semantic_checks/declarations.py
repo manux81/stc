@@ -42,12 +42,15 @@ class EnumDeclarationCheck(SemanticCheck):
 class TypeDeclarationCollector(SemanticCheck):
     DECLARATION_NODES = {
         "simple_type_declaration",
+        "subrange_type_declaration",
         "array_type_declaration",
         "structure_type_declaration",
         "enumerated_type_declaration",
     }
     NAME_NODES = {
         "simple_type_name",
+        "subrange_type_name",
+        "enumerated_type_name",
         "derived_type_name",
         "array_type_name",
         "structure_type_name",
@@ -73,10 +76,29 @@ class TypeDeclarationCollector(SemanticCheck):
                 continue
 
             key = normalize_identifier(name_node["value"])
-            self.context.declared_types.setdefault(
-                key,
-                DataType(name_node["value"], TypeCategory.UNKNOWN),
-            )
+            if declaration.get("name") == "enumerated_type_declaration":
+                datatype = DataType(name_node["value"], TypeCategory.ENUM)
+            elif declaration.get("name") == "array_type_declaration":
+                datatype = DataType(name_node["value"], TypeCategory.ARRAY)
+            elif declaration.get("name") == "structure_type_declaration":
+                datatype = DataType(name_node["value"], TypeCategory.STRUCT)
+            else:
+                underlying = next(
+                    (
+                        BUILTIN_TYPES[normalize_identifier(node["value"])]
+                        for node in walk(declaration)
+                        if node is not name_node
+                        and isinstance(node.get("value"), str)
+                        and normalize_identifier(node["value"]) in BUILTIN_TYPES
+                    ),
+                    None,
+                )
+                datatype = (
+                    DataType(name_node["value"], underlying.category, underlying.bits)
+                    if underlying is not None
+                    else DataType(name_node["value"], TypeCategory.UNKNOWN)
+                )
+            self.context.declared_types.setdefault(key, datatype)
             self.context.declaration_order.append(key)
 
         for symbol in self.context.symbols.iter_symbols():

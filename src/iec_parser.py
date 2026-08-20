@@ -437,12 +437,20 @@ class IECParser(Parser):
 
     @_('IDENTIFIER ":" simple_spec_init',
        'IDENTIFIER ":" subrange_spec_init',
-       'IDENTIFIER ":" enumerated_spec_init')
+       'IDENTIFIER ":" enumerated_spec_init',
+       'IDENTIFIER ":" array_spec_init',
+       'IDENTIFIER ":" structure_specification')
     def single_element_type_declaration(self, p):
         spec = p[2]
         spec_name = spec.get("name")
 
-        if spec_name == "enumerated_spec_init":
+        if spec_name == "array_spec_init":
+            declaration_name = "array_type_declaration"
+            type_name = "array_type_name"
+        elif spec_name == "structure_specification":
+            declaration_name = "structure_type_declaration"
+            type_name = "structure_type_name"
+        elif spec_name == "enumerated_spec_init":
             declaration_name = "enumerated_type_declaration"
             type_name = "enumerated_type_name"
         elif spec_name == "subrange_spec_init":
@@ -473,9 +481,7 @@ class IECParser(Parser):
 
 
     @_('elementary_type_name',
-       'simple_type_name',
-       'array_specification',
-       'structure_declaration')
+       'simple_type_name')
     def simple_specification(self, p):
         return {"name": self.production.name, "children": [ p[0] ]}
 
@@ -531,6 +537,16 @@ class IECParser(Parser):
             ],
         }
 
+    @_('IDENTIFIER SHARP IDENTIFIER')
+    def qualified_enumerated_value(self, p):
+        return {
+            "name": "enumerated_value",
+            "value": p[2],
+            "children": [
+                {"name": "enumerated_type_name", "value": p[0], "children": []}
+            ],
+        }
+
     @_('array_type_name ":" array_spec_init')
     def array_type_declaration(self, p):
         return self._node_from_production(p)
@@ -552,8 +568,17 @@ class IECParser(Parser):
     def array_initialization_list(self, p):
         return self._node_from_production(p)
 
-    @_('array_initial_element')
+    @_('array_initial_element',
+       'ARRAY_REPEAT_COUNT "(" array_initial_element ")"')
     def array_initial_elements(self, p):
+        if len(p) == 4:
+            return {
+                "name": self.production.name,
+                "children": [
+                    {"name": "integer", "value": p[0], "children": []},
+                    p[2],
+                ],
+            }
         return self._node_from_production(p)
 
     @_('constant', 'enumerated_value', 'structure_initialization', 'array_initialization')
@@ -587,7 +612,7 @@ class IECParser(Parser):
     def structure_element_declaration(self, p):
         return self._node_from_production(p)
 
-    @_('IDENTIFIER')
+    @_('IDENTIFIER', 'PARAMETER_IDENTIFIER')
     def structure_element_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
@@ -702,7 +727,8 @@ class IECParser(Parser):
         return self._node_from_production(p)
 
     @_('var1_init_decl', 'array_var_init_decl',
-        'structured_var_init_decl', 'fb_name_decl', 'string_var_declaration')
+        'structured_var_init_decl', 'fb_name_decl', 'string_var_declaration',
+        'located_var_decl')
     def var_init_decl(self, p):
         return { "name": self.production.name, "children": [ p[0] ] }
 
@@ -720,16 +746,65 @@ class IECParser(Parser):
 
         return { "name": self.production.name, "children": items }
 
-    @_('var1_list ":" array_spec_init')
+    @_('var1_list ":" array_spec_init',
+       'var1_list ":" IDENTIFIER ASSIGN array_initialization')
     def array_var_init_decl(self, p):
+        if len(p) == 5:
+            return {
+                "name": self.production.name,
+                "children": [
+                    p[0],
+                    {
+                        "name": "array_spec_init",
+                        "children": [
+                            {
+                                "name": "array_specification",
+                                "children": [
+                                    {"name": "array_type_name", "value": p[2], "children": []}
+                                ],
+                            },
+                            p[4],
+                        ],
+                    },
+                ],
+            }
         return self._node_from_production(p)
 
-    @_('var1_list ":" initialized_structure')
+    @_('var1_list ":" initialized_structure',
+       'var1_list ":" IDENTIFIER ASSIGN structure_initialization')
     def structured_var_init_decl(self, p):
+        if len(p) == 5:
+            return {
+                "name": self.production.name,
+                "children": [
+                    p[0],
+                    {
+                        "name": "initialized_structure",
+                        "children": [
+                            {"name": "structure_type_name", "value": p[2], "children": []},
+                            p[4],
+                        ],
+                    },
+                ],
+            }
         return self._node_from_production(p)
 
-    @_('fb_name_list ":" function_block_type_name [ ASSIGN structure_initialization ]')
+    @_('fb_name_list ":" function_block_type_name [ ASSIGN structure_initialization ]',
+       'var1_list ":" STANDARD_FUNCTION_BLOCK_NAME')
     def fb_name_decl(self, p):
+        if len(p) == 3 and isinstance(p[0], dict) and p[0].get("name") == "var1_list":
+            return {
+                "name": self.production.name,
+                "children": [
+                    p[0],
+                    {
+                        "name": "function_block_type_name",
+                        "children": [
+                            {"name": "standard_function_block_name", "value": p[2], "children": []}
+                        ],
+                    },
+                ],
+            }
         return self._node_from_production(p)
 
     @_('fb_name { "," fb_name }')
@@ -907,8 +982,12 @@ class IECParser(Parser):
     def derived_function_name(self, p):
         return { "name": self.production.name, "value": p[0], "children": [ ] }
 
-    @_('FUNCTION derived_function_name ":" elementary_type_name io_OR_function_var_declarations_list function_body END_FUNCTION',
-       'FUNCTION derived_function_name ":" derived_type_name io_OR_function_var_declarations_list function_body END_FUNCTION')
+    @_('elementary_type_name', 'derived_type_name',
+       'single_byte_string_spec', 'double_byte_string_spec')
+    def function_return_type(self, p):
+        return self._node_from_production(p)
+
+    @_('FUNCTION derived_function_name ":" function_return_type io_OR_function_var_declarations_list function_body END_FUNCTION')
     def function_declaration(self, p):
         return { "name": self.production.name, "value": "derived_function_name", "children": [ p[1], p[3], p[4], p[5] ] }
 
@@ -1436,7 +1515,7 @@ class IECParser(Parser):
     def unary_operator(self, p):
         return { "name": self.production.name, "value": p[0], "children": [ ] }
 
-    @_('constant', 'enumerated_value', 'variable', '"(" expression ")"',
+    @_('constant', 'qualified_enumerated_value', 'variable', '"(" expression ")"',
        'function_name "(" [ param_assignment { "," param_assignment } ] ")"')
     def primary_expression(self, p):
         if len(p) == 1:
@@ -1480,7 +1559,8 @@ class IECParser(Parser):
     def subprogram_control_statement(self, p):
         return self._node_from_production(p)
 
-    @_('fb_name "(" [ param_assignment { "," param_assignment } ] ")"')
+    @_('fb_name "(" [ param_assignment { "," param_assignment } ] ")"',
+       'array_variable "(" [ param_assignment { "," param_assignment } ] ")"')
     def fb_invocation(self, p):
         return self._node_from_production(p)
 
@@ -1492,7 +1572,7 @@ class IECParser(Parser):
     def param_assignment(self, p):
         return self._node_from_production(p)
 
-    @_('IN', 'PT', 'CLK', 'CU', 'CD', 'PV',
+    @_('IN', 'PT', 'CLK', 'CU', 'CD', 'PV', 'LD',
        'S', 'R', 'S1', 'R1')
     def parameter_name(self, p):
         return self._node_from_production(p)

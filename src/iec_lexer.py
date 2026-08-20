@@ -20,11 +20,13 @@ from lex import Lexer
 def generate_standard_function_name():
     simple_type = {
         r'SINT', r'INT', r'DINT', r'LINT',
-        r'USINT', r'UINT', r'UDINT', r'ULINT'
+        r'USINT', r'UINT', r'UDINT', r'ULINT',
+        r'REAL', r'LREAL', r'BOOL', r'BYTE', r'WORD', r'DWORD', r'LWORD',
+        r'TIME', r'DATE', r'TOD', r'DT', r'STRING', r'WSTRING',
     }
 
     standard_functions = {
-        r'ABS', r'SQRT', r'LN', r'LOG', r'EXP',
+        r'ABS', r'SQRT', r'LN', r'LOG', r'EXP', r'TRUNC',
         r'SIN', r'COS', r'TAN', r'ASIN', r'ACOS', r'ATAN',
 
         # ADD/SUB/MUL/DIV/MOD are lexer keywords/operators.
@@ -78,6 +80,7 @@ class IECLexer(Lexer):
 
     # IEC 61131-3 block comments may appear anywhere whitespace is allowed.
     ignore_block_comment = r'\(\*[\s\S]*?\*\)'
+    ignore_line_comment = r'//[^\n]*'
 
     def __init__(self):
         super().__init__()
@@ -108,6 +111,7 @@ class IECLexer(Lexer):
         SINGLE_BYTE_STRING_LITERAL, DOUBLE_BYTE_STRING_LITERAL,
         MINUS, PLUS, UNDERSCORE,
         BIT, BINARY_INTEGER, OCTAL_INTEGER, HEX_INTEGER, REAL_VALUE, INTEGER,
+        ARRAY_REPEAT_COUNT,
         TRUE,FALSE,
 
         DOLLAR_APC, DOLLAR_QOT, PRINTABLE_CHAR, DOLLAR_DOLLAR, DOLLAR_L, DOLLAR_N, DOLLAR_P,
@@ -152,6 +156,14 @@ class IECLexer(Lexer):
     STANDARD_FUNCTION_BLOCK_NAME = generate_standard_function_block_name()
     IDENTIFIER = r'[a-zA-Z_][a-zA-Z0-9_]*'
     LETTER = r'[a-zA-Z]'
+
+    def STANDARD_FUNCTION_NAME(self, token):
+        # Standard function names are not reserved words in IEC 61131-3.  Only
+        # classify one as a function when it is used as a call; otherwise it
+        # remains a legal (case-insensitive) user identifier.
+        if re.match(r'\s*\(', self.text[self.index:]) is None:
+            token.type = 'IDENTIFIER'
+        return token
  
 ############################
 # B.1.2.1 Numeric literals #
@@ -162,8 +174,8 @@ class IECLexer(Lexer):
 ##############################
 #  B.1.2.2 Character strings #
 ##############################
-    SINGLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r"'([^'$]|(\$\$)|(\$')|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{2}))*'")
-    DOUBLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r'"([^"$]|(\$\$)|(\$")|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{4}))*"')
+    SINGLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r"'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{2}))*'")
+    DOUBLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r'"([^"$]|(\$\$)|(\$"")|("")|(\$")|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{4}))*"')
     DOLLAR_APC = r'\$\''
     DOLLAR_QOT = r'\$"'
     PRINTABLE_CHAR = r'ppppppp'
@@ -202,11 +214,14 @@ class IECLexer(Lexer):
     def _duration_unit_or_identifier(self, t):
         if not self._inside_duration_literal(t.index):
             t.type = 'IDENTIFIER'
+            tail = re.match(r'[a-zA-Z0-9_]*', self.text[self.index:]).group(0)
+            t.value += tail
+            self.index += len(tail)
         return t
 
     def T(self, t):
         if re.match(r'\s*#', self.text[self.index:]) is None:
-            t.type = 'IDENTIFIER'
+            return self._duration_unit_or_identifier(t)
         return t
 
     def D(self, t):
@@ -386,12 +401,22 @@ class IECLexer(Lexer):
 
     def S(self, t):
         if self.language != 'IL':
-            t.type = 'IDENTIFIER'
+            prefix = self.text[:t.index].rstrip()
+            t.type = (
+                'PARAMETER_IDENTIFIER'
+                if re.match(r'\s*:=', self.text[self.index:]) and prefix.endswith(('(', ','))
+                else 'IDENTIFIER'
+            )
         return t
 
     def R(self, t):
         if self.language != 'IL':
-            t.type = 'IDENTIFIER'
+            prefix = self.text[:t.index].rstrip()
+            t.type = (
+                'PARAMETER_IDENTIFIER'
+                if re.match(r'\s*:=', self.text[self.index:]) and prefix.endswith(('(', ','))
+                else 'IDENTIFIER'
+            )
         return t
 
     IDENTIFIER['LD'] = LD
@@ -482,7 +507,8 @@ class IECLexer(Lexer):
 
     def IDENTIFIER(self, token):
         rest = self.text[self.index:]
-        if re.match(r'\s*:=', rest):
+        prefix = self.text[:token.index].rstrip()
+        if re.match(r'\s*:=', rest) and prefix.endswith(('(', ',')):
             token.type = 'PARAMETER_IDENTIFIER'
         elif getattr(self, '_case_depth', 0) > 0 and re.match(r'\s*:(?!=)', rest):
             token.type = 'CASE_LABEL_IDENTIFIER'
@@ -493,6 +519,7 @@ class IECLexer(Lexer):
 
     UNDERSCORE = r'\_'
     REAL_VALUE = r'[+-]?\d(_?\d)*\.\d(_?\d)*(E[+-]?\d(_?\d)*)?'
+    ARRAY_REPEAT_COUNT = before("INTEGER", r'[0-9](([_]?[0-9])*)(?=\s*\()')
     INTEGER = r'[0-9](([_]?[0-9])*)'
     BIT = r'(1|0)'
     BINARY_INTEGER = before("INTEGER", r'2[#][0-1](([_]?[0-1])*)')

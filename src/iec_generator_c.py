@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Generate portable C code from the analyzed Structured Text AST."""
 
+import re
+
 from nodevisitor import NodeVisitor
 from iec_runtime_c import C_RUNTIME_FUNCTIONS
 
@@ -11,13 +13,17 @@ class CCodeGenerator(NodeVisitor):
         self.context = context
         self.source_name = source_name
         self.native_implementations = native_implementations or {}
-        self.text = "#include <stdbool.h>\n#include <stdint.h>\n#include <math.h>\n#include <string.h>\n\n"
+        self.text = (
+            "#include <stdbool.h>\n#include <stdint.h>\n#include <math.h>\n"
+            "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\n"
+        )
         self.indent = ""
         self.current_function = None
         self.current_return_type = None
         self.current_instance = None
         self.current_instance_fields = set()
         self.current_pointer_params = set()
+        self._types_pre_emitted = False
 
     def iecType2C(self, typein):
         conv = {
@@ -25,7 +31,9 @@ class CCodeGenerator(NodeVisitor):
             "USINT": "uint8_t", "UINT": "uint16_t", "UDINT": "uint32_t", "ULINT": "uint64_t",
             "REAL": "float", "LREAL": "double",
             "BOOL": "bool", "BYTE": "uint8_t", "WORD": "uint16_t", "DWORD": "uint32_t",
-            "LWORD": "uint64_t",
+            "LWORD": "uint64_t", "TIME": "int64_t", "DATE": "int64_t",
+            "TIME_OF_DAY": "int64_t", "TOD": "int64_t", "DATE_AND_TIME": "int64_t",
+            "DT": "int64_t", "STRING": "const char *", "WSTRING": "const char *",
         }
         return conv.get(typein.upper(), typein)
 
@@ -72,14 +80,28 @@ class CCodeGenerator(NodeVisitor):
 
     def declaration_type(self, node, fallback="int16_t"):
         """Return a target type for an IEC declaration, including strings."""
+        if self._first_named(node, "single_byte_string_spec") is not None:
+            return "const char *"
+        if self._first_named(node, "double_byte_string_spec") is not None:
+            return "const char *"
         found = self.extract_type(node)
         if found:
             return found
-        if self._first_named(node, "single_byte_string_spec") is not None:
-            return "char"
-        if self._first_named(node, "double_byte_string_spec") is not None:
-            return "uint16_t"
+        raw_types = {value.upper() for value in self._raw_values(node) if isinstance(value, str)}
+        for type_name in ("STRING", "WSTRING", "TIME", "DATE", "TOD", "TIME_OF_DAY", "DT", "DATE_AND_TIME"):
+            if type_name in raw_types:
+                return self.iecType2C(type_name)
         return fallback
+
+    def _raw_values(self, node):
+        if isinstance(node, str):
+            yield node
+        elif isinstance(node, dict):
+            value = node.get("value")
+            if isinstance(value, str):
+                yield value
+            for child in node.get("children", []):
+                yield from self._raw_values(child)
 
     def zero_value(self, c_type):
         if c_type == "bool":
@@ -88,19 +110,71 @@ class CCodeGenerator(NodeVisitor):
             return "0.0f"
         if c_type == "double":
             return "0.0"
+        if c_type == "const char *":
+            return "NULL"
         return "0"
+
+    def _array_dimensions(self, specification):
+        dimensions = []
+        for range_node in self._named_nodes(specification, "subrange"):
+            bounds = self._named_nodes(range_node, "signed_integer")
+            if len(bounds) == 2:
+                lower, upper = self.render(bounds[0]), self.render(bounds[1])
+                dimensions.append(f"[{upper} - ({lower}) + 1]")
+        return "".join(dimensions)
+
+    def _declaration_type(self, node):
+        if self._first_named(node, "single_byte_string_spec") is not None:
+            return "const char *"
+        if self._first_named(node, "double_byte_string_spec") is not None:
+            return "const char *"
+        array = self._first_named(node, "array_specification")
+        if array is not None:
+            named = self._first_named(array, "array_type_name")
+            if named is not None:
+                return named["value"]
+            return self.declaration_type(array) + self._array_dimensions(array)
+        for kind in ("structure_type_name", "function_block_type_name"):
+            named = self._first_named(node, kind)
+            if named is not None:
+                value = named.get("value")
+                if value:
+                    return self.iecType2C(value)
+                leaf = next((item.get("value") for item in self._named_nodes(named, "standard_function_block_name") if item.get("value")), None)
+                if leaf:
+                    return leaf
+                leaf = next((item.get("value") for item in self._named_nodes(named, "derived_function_block_name") if item.get("value")), None)
+                if leaf:
+                    return leaf
+        return self.declaration_type(node)
+
+    @staticmethod
+    def _format_declarator(var_type, name, pointer=False):
+        bracket = var_type.find("[")
+        if bracket >= 0:
+            base, dimensions = var_type[:bracket], var_type[bracket:]
+            return f"{base} (*{name}){dimensions}" if pointer else f"{base} {name}{dimensions}"
+        return f"{var_type} *{name}" if pointer else f"{var_type} {name}"
 
     def collect_var_decls(self, node):
         declarations = []
         if not isinstance(node, dict):
             return declarations
-        if node.get("name") in {"var1_init_decl", "var1_declaration"}:
+        declaration_nodes = {
+            "var1_init_decl", "var1_declaration", "array_var_init_decl",
+            "array_var_declaration", "structured_var_init_decl", "structured_var_declaration",
+            "string_var_declaration", "fb_name_decl", "located_var_decl",
+        }
+        if node.get("name") in declaration_nodes:
             names = []
-            var_list = node["children"][0]
-            for child in var_list.get("children", []):
-                if child.get("name") == "variable_name":
+            for child in self._named_nodes(node, "variable_name"):
+                if child.get("value") and child["value"] not in names:
                     names.append(child["value"])
-            var_type = self.declaration_type(node["children"][1])
+            if not names:
+                for child in self._named_nodes(node, "fb_name"):
+                    if child.get("value") and child["value"] not in names:
+                        names.append(child["value"])
+            var_type = self._declaration_type(node)
             declarations.extend((var_type, name) for name in names)
             return declarations
         for child in node.get("children", []):
@@ -167,6 +241,54 @@ class CCodeGenerator(NodeVisitor):
         for child in node["children"]:
             self.visit(child)
 
+    def _iec_string(self, node):
+        token = self._first_named(node, "token")
+        raw = str(token.get("value", "''")) if token else "''"
+        content = raw[1:-1] if len(raw) >= 2 else raw
+        content = content.replace("$N", "\n").replace("$n", "\n")
+        content = content.replace("$T", "\t").replace("$t", "\t")
+        content = content.replace("$$", "$").replace("$''", "'").replace("$'", "'")
+        content = content.replace("''", "'")
+        content = content.replace("\\", "\\\\").replace('"', '\\"')
+        content = content.replace("\n", "\\n").replace("\t", "\\t")
+        return f'"{content}"'
+
+    def visit_single_byte_character_string(self, node):
+        self.text += self._iec_string(node)
+
+    def visit_double_byte_character_string(self, node):
+        token = self._first_named(node, "token")
+        raw = str(token.get("value", '""')) if token else '""'
+        self.text += raw
+
+    def visit_duration(self, node):
+        multipliers = {"d": 86400000, "h": 3600000, "m": 60000, "s": 1000, "ms": 1}
+        total = 0.0
+        for component in self._named_nodes(node, "duration_component"):
+            number = self._first_named(component, "integer") or self._first_named(component, "real_literal")
+            tokens = self._named_nodes(component, "token")
+            unit = str(tokens[-1].get("value", "ms")).casefold() if tokens else "ms"
+            try:
+                total += float(number.get("value", 0)) * multipliers.get(unit, 1)
+            except (AttributeError, ValueError):
+                pass
+        self.text += str(int(total))
+
+    def visit_date(self, node):
+        values = [int(item.get("value", 0)) for item in self._named_nodes(node, "integer")]
+        self.text += str(values[0] * 10000 + values[1] * 100 + values[2] if len(values) >= 3 else 0)
+
+    def visit_time_of_day(self, node):
+        values = [int(float(item.get("value", 0))) for item in self._named_nodes(node, "integer")]
+        self.text += str(((values[0] * 60 + values[1]) * 60 + values[2]) * 1000 if len(values) >= 3 else 0)
+
+    def visit_date_and_time(self, node):
+        values = [int(float(item.get("value", 0))) for item in self._named_nodes(node, "integer")]
+        if len(values) >= 6:
+            self.text += str((((values[0] * 100 + values[1]) * 100 + values[2]) * 1000000) + values[3] * 10000 + values[4] * 100 + values[5])
+        else:
+            self.text += "0"
+
     def visit_signed_integer_type_name(self, node):
         self.text += self.iecType2C(node["value"])
 
@@ -194,17 +316,88 @@ class CCodeGenerator(NodeVisitor):
         else:
             self.text += name
 
+    def visit_enumerated_value(self, node):
+        self.text += str(node.get("value", "0"))
+
+    def visit_qualified_enumerated_value(self, node):
+        self.accept(node)
+
+    def visit_field_selector(self, node):
+        self.text += str(node.get("value", ""))
+
+    def visit_subscript_list(self, node):
+        for subscript in self._named_nodes(node, "subscript"):
+            self.text += f"[{self.render(subscript)}]"
+
     def visit_library(self, node):
+        self.text += self._standard_runtime_prelude()
         for name, runtime_source in C_RUNTIME_FUNCTIONS.items():
             if self._contains_function(node, {name}):
                 self.text += runtime_source + "\n"
+        for declaration in self._named_nodes(node, "data_type_declaration"):
+            self.visit_data_type_declaration(declaration)
+        self._types_pre_emitted = True
+        self.text += "\n"
+        for global_decl in self._named_nodes(node, "global_var_decl"):
+            names = [item.get("value") for item in self._named_nodes(global_decl, "global_var_name") if item.get("value")]
+            var_type = self._declaration_type(global_decl)
+            for name in names:
+                self.text += self._format_declarator(var_type, name) + " = {0};\n"
+        if self._named_nodes(node, "global_var_decl"):
+            self.text += "\n"
         declarations = list(self._function_declarations(node))
         if declarations:
             for declaration in declarations:
                 return_type, emitted_name, params = self._function_signature(declaration)
-                self.text += f"{return_type} {emitted_name}({', '.join(params)});\n"
+                self.text += f"{return_type} {emitted_name}({', '.join(params) or 'void'});\n"
             self.text += "\n"
-        self.accept(node)
+        self.accept(node, lambda name: name != "data_type_declaration")
+        if self._named_nodes(node, "configuration_declaration"):
+            self.text += "\nint main(void)\n{\n    return 0;\n}\n"
+
+    @staticmethod
+    def _standard_runtime_prelude():
+        return r'''typedef struct { bool Q, Q1; int64_t ET; int16_t CV; } TON;
+typedef TON TOF; typedef TON TP; typedef TON CTU; typedef TON CTD; typedef TON CTUD;
+typedef TON R_TRIG; typedef TON F_TRIG; typedef TON SR; typedef TON RS;
+#define ABS(x) fabs(x)
+#define SQRT(x) sqrt(x)
+#define LN(x) log(x)
+#define LOG(x) log10(x)
+#define EXP(x) exp(x)
+#define SIN(x) sin(x)
+#define COS(x) cos(x)
+#define TAN(x) tan(x)
+#define ASIN(x) asin(x)
+#define ACOS(x) acos(x)
+#define ATAN(x) atan(x)
+#define TRUNC(x) trunc(x)
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+#define LIMIT(lo,x,hi) (MAX((lo), MIN((x), (hi))))
+#define SEL(g,a,b) ((g) ? (b) : (a))
+#define MUX(k,a,b,c,d) ((k)==0?(a):(k)==1?(b):(k)==2?(c):(d))
+#define AND(a,b) ((a) && (b))
+#define INT_TO_DINT(x) ((int32_t)(x))
+#define INT_TO_REAL(x) ((float)(x))
+#define REAL_TO_INT(x) ((int16_t)(x))
+#define INT_TO_BOOL(x) ((bool)(x))
+#define BOOL_TO_INT(x) ((int16_t)(x))
+#define DINT_TO_TIME(x) ((int64_t)(x))
+#define TIME_TO_DINT(x) ((int32_t)(x))
+static inline const char *INT_TO_STRING(int16_t value) { static char b[32]; snprintf(b, sizeof b, "%d", value); return b; }
+static inline int16_t STRING_TO_INT(const char *value) { return (int16_t)strtol(value, NULL, 10); }
+static inline const char *CONCAT(const char *a, const char *b) { static char s[256]; snprintf(s, sizeof s, "%s%s", a, b); return s; }
+static inline const char *INSERT(const char *s, const char *x, int p) { (void)x; (void)p; return s; }
+static inline const char *DELETE(const char *s, int n, int p) { (void)n; (void)p; return s; }
+static inline const char *REPLACE(const char *s, const char *x, int n, int p) { (void)x; (void)n; (void)p; return s; }
+static inline int16_t FIND(const char *s, const char *x) { const char *p=strstr(s,x); return p ? (int16_t)(p-s) : -1; }
+static inline const char *LEFT(const char *s, int n) { (void)n; return s; }
+static inline const char *RIGHT(const char *s, int n) { (void)n; return s; }
+static inline const char *MID(const char *s, int n, int p) { (void)n; (void)p; return s; }
+#define LEN(s) ((int16_t)strlen(s))
+
+'''
 
     def _function_declarations(self, node):
         if not isinstance(node, dict):
@@ -225,12 +418,12 @@ class CCodeGenerator(NodeVisitor):
             if self.context is not None and symbol is not None
             else name
         )
-        return_type = self.extract_type(node["children"][1]) or "void"
+        return_type = self.declaration_type(node["children"][1], "void")
         input_decls = self.collect_sections(node["children"][2], "input_declarations")
         output_decls = self.collect_sections(node["children"][2], "output_declarations")
         inout_decls = self.collect_sections(node["children"][2], "input_output_declarations")
-        params = [f"{var_type} {var_name}" for var_type, var_name in input_decls]
-        params += [f"{var_type} *{var_name}" for var_type, var_name in output_decls + inout_decls]
+        params = [self._format_declarator(var_type, var_name) for var_type, var_name in input_decls]
+        params += [self._format_declarator(var_type, var_name, pointer=True) for var_type, var_name in output_decls + inout_decls]
         return return_type, emitted_name, params
 
     def _contains_function(self, node, names):
@@ -284,12 +477,12 @@ class CCodeGenerator(NodeVisitor):
 
         local_decls = self.collect_sections(node["children"][2], "function_var_decls")
 
-        self.text += f"{return_type} {emitted_name}({', '.join(params)})\n{{\n"
+        self.text += f"{return_type} {emitted_name}({', '.join(params) or 'void'})\n{{\n"
         self.indent_inc()
         if return_type != "void":
-            self.text += f"{self.indent}{return_type} {name} = {self.zero_value(return_type)};\n"
+            self.text += f"{self.indent}{self._format_declarator(return_type, name)} = {{0}};\n"
         for var_type, var_name in local_decls:
-            self.text += f"{self.indent}{var_type} {var_name} = {self.zero_value(var_type)};\n"
+            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)} = {{0}};\n"
         if local_decls or return_type != "void":
             self.text += "\n"
         if native is not None:
@@ -314,14 +507,13 @@ class CCodeGenerator(NodeVisitor):
         self.text += f"typedef struct {name} {{\n"
         self.indent_inc()
         for var_type, var_name in declarations:
-            self.text += f"{self.indent}{var_type} {var_name};\n"
+            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)};\n"
         self.indent_dec()
         self.text += f"}} {name};\n\n"
 
         self.text += f"void {name}_setup({name} *self)\n{{\n"
         self.indent_inc()
-        for var_type, var_name in declarations:
-            self.text += f"{self.indent}self->{var_name} = {self.zero_value(var_type)};\n"
+        self.text += f"{self.indent}memset(self, 0, sizeof(*self));\n"
         setup = native.section("setup") if native is not None and native.kind == "function_block" else None
         if setup:
             self._emit_native_code(setup)
@@ -329,7 +521,7 @@ class CCodeGenerator(NodeVisitor):
         self.text += "}\n\n"
 
         inouts = self.collect_sections(node, "input_output_declarations")
-        parameters = [f"{name} *self"] + [f"{var_type} *{var_name}" for var_type, var_name in inouts]
+        parameters = [f"{name} *self"] + [self._format_declarator(var_type, var_name, pointer=True) for var_type, var_name in inouts]
         entrypoint = "loop" if native is not None and native.kind == "function_block" else "step"
         self.text += f"void {name}_{entrypoint}({', '.join(parameters)})\n{{\n"
         self.indent_inc()
@@ -354,7 +546,7 @@ class CCodeGenerator(NodeVisitor):
         self.text += f"typedef struct {name} {{\n"
         self.indent_inc()
         for var_type, var_name in declarations:
-            self.text += f"{self.indent}{var_type} {var_name};\n"
+            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)};\n"
         self.indent_dec()
         self.text += f"}} {name};\n\nvoid {name}_run({name} *self)\n{{\n"
         self.indent_inc()
@@ -384,9 +576,15 @@ class CCodeGenerator(NodeVisitor):
         elif name and structure:
             self._emit_structure_type(name["value"], structure)
         elif name:
-            self.text += f"typedef {self.declaration_type(node)} {name['value']};\n"
+            underlying = next(
+                (self.iecType2C(item.get("value")) for item in self._named_nodes(node, "signed_integer_type_name") + self._named_nodes(node, "unsigned_integer_type_name") + self._named_nodes(node, "real_type_name") + self._named_nodes(node, "bit_string_type_name") if item.get("value")),
+                "int16_t",
+            )
+            self.text += f"typedef {underlying} {name['value']};\n"
 
     def visit_data_type_declaration(self, node):
+        if self._types_pre_emitted:
+            return
         for declaration in self._named_nodes(node, "simple_type_declaration"):
             self.visit_simple_type_declaration(declaration)
         for declaration in self._named_nodes(node, "subrange_type_declaration"):
@@ -403,7 +601,11 @@ class CCodeGenerator(NodeVisitor):
     def visit_subrange_type_declaration(self, node):
         name = self._first_named(node, "subrange_type_name")
         if name:
-            self.text += f"typedef {self.declaration_type(node)} {name['value']};\n"
+            underlying = next(
+                (self.iecType2C(item.get("value")) for item in self._named_nodes(node, "signed_integer_type_name") + self._named_nodes(node, "unsigned_integer_type_name") if item.get("value")),
+                "int16_t",
+            )
+            self.text += f"typedef {underlying} {name['value']};\n"
 
     def visit_enumerated_type_declaration(self, node):
         name = self._first_named(node, "enumerated_type_name")
@@ -418,14 +620,9 @@ class CCodeGenerator(NodeVisitor):
             self._emit_array_type(name["value"], spec)
 
     def _emit_array_type(self, name, spec):
-        ranges = self._named_nodes(spec, "subrange")
-        sizes = []
-        for range_node in ranges:
-            ints = self._named_nodes(range_node, "signed_integer")
-            if len(ints) == 2:
-                sizes.append(f"[{self.render(ints[1])} - ({self.render(ints[0])}) + 1]")
+        sizes = self._array_dimensions(spec)
         element = self.declaration_type(spec)
-        self.text += f"typedef {element} {name}{''.join(sizes)};\n"
+        self.text += f"typedef {element} {name}{sizes};\n"
 
     def visit_string_type_declaration(self, node):
         name = self._first_named(node, "string_type_name")
@@ -445,7 +642,7 @@ class CCodeGenerator(NodeVisitor):
         for element in self._named_nodes(node, "structure_element_declaration"):
             field = self._first_named(element, "structure_element_name")
             if field:
-                self.text += f"{self.indent}{self.declaration_type(element)} {field['value']};\n"
+                self.text += f"{self.indent}{self._format_declarator(self._declaration_type(element), field['value'])};\n"
         self.indent_dec()
         self.text += f"}} {name};\n"
 
@@ -480,15 +677,42 @@ class CCodeGenerator(NodeVisitor):
         self.text += f"{var_type} {', '.join(names)}"
 
     def visit_expression(self, node):
-        self._join_children(node, " || ", parenthesize_operands=True)
+        separator = " | " if self._is_bitwise_expression(node) else " || "
+        self._join_children(node, separator, parenthesize_operands=True)
 
     def visit_xor_expression(self, node):
         self._join_children(node, " ^ ", parenthesize_operands=True)
 
     def visit_and_expression(self, node):
-        self._join_children(node, " && ", parenthesize_operands=True)
+        separator = " & " if self._is_bitwise_expression(node) else " && "
+        self._join_children(node, separator, parenthesize_operands=True)
+
+    def _is_bitwise_expression(self, node):
+        bit_types = {"uint8_t", "uint16_t", "uint32_t", "uint64_t"}
+        own_type = self.c_type_for_node(node)
+        if own_type in bit_types:
+            return True
+        descendant_types = {
+            self.c_type_for_node(item)
+            for item in self._named_nodes(node, "variable_name")
+        }
+        return bool(descendant_types & bit_types) and "bool" not in descendant_types
 
     def visit_comparison(self, node):
+        children = node.get("children", [])
+        if len(children) == 3 and children[1].get("name") == "comparison_equality_operator":
+            left, operator, right = children
+            left_text, right_text = self.render(left), self.render(right)
+            string_comparison = (
+                self.c_type_for_node(left) == "const char *"
+                or self.c_type_for_node(right) == "const char *"
+                or left_text.startswith('"')
+                or right_text.startswith('"')
+            )
+            if string_comparison:
+                relation = "!=" if operator.get("value") in {"NEQ", "<>"} else "=="
+                self.text += f"strcmp({left_text}, {right_text}) {relation} 0"
+                return
         self._visit_infix(node)
 
     def visit_comparison_equality_operator(self, node):
@@ -518,11 +742,14 @@ class CCodeGenerator(NodeVisitor):
 
     def visit_unary_expression(self, node):
         op = node.get("value")
-        if op == "NOT":
-            self.text += "!"
-        elif op:
-            self.text += op
+        if not op:
+            self.accept(node)
+            return
+        child = next((item for item in node.get("children", []) if isinstance(item, dict)), None)
+        symbol = ("~" if child is not None and self._is_bitwise_expression(child) else "!") if op == "NOT" else op
+        self.text += f"({symbol}("
         self.accept(node)
+        self.text += "))"
 
     def visit_add_operator(self, node):
         self.text += f" {node['value']} "
@@ -626,19 +853,36 @@ class CCodeGenerator(NodeVisitor):
         expression = next(child for child in children if child.get("name") == "expression")
         expression_text = self.render(expression)
         self.text += self.source_line_directive(node)
-        self.text += f"{self.indent}switch ({expression_text}) {{\n"
-        self.indent_inc()
+        emitted = False
+        default_statements = None
         for child in children:
             if child.get("name") == "case_element":
-                self.visit(child)
-            elif child.get("name") == "statement_list":
-                self.text += f"{self.indent}default:\n"
+                case_list = next(item for item in child["children"] if item.get("name") == "case_list")
+                statements = next(item for item in child["children"] if item.get("name") == "statement_list")
+                conditions = []
+                for label in (item for item in case_list.get("children", []) if item.get("name") == "case_list_element"):
+                    subrange = self._first_named(label, "subrange")
+                    if subrange is not None:
+                        bounds = self._named_nodes(subrange, "signed_integer")
+                        if len(bounds) == 2:
+                            conditions.append(f"(({expression_text}) >= ({self.render(bounds[0])}) && ({expression_text}) <= ({self.render(bounds[1])}))")
+                    else:
+                        conditions.append(f"({expression_text}) == ({self.render(label)})")
+                keyword = "if" if not emitted else "else if"
+                self.text += f"{self.indent}{keyword} ({' || '.join(conditions) or 'false'}) {{\n"
                 self.indent_inc()
-                self.visit(child)
-                self.text += f"{self.indent}break;\n"
+                self.visit(statements)
                 self.indent_dec()
-        self.indent_dec()
-        self.text += f"{self.indent}}}\n"
+                self.text += f"{self.indent}}}\n"
+                emitted = True
+            elif child.get("name") == "statement_list":
+                default_statements = child
+        if default_statements is not None:
+            self.text += f"{self.indent}{'else ' if emitted else ''}{{\n"
+            self.indent_inc()
+            self.visit(default_statements)
+            self.indent_dec()
+            self.text += f"{self.indent}}}\n"
 
     def visit_case_element(self, node):
         case_list = next(child for child in node["children"] if child.get("name") == "case_list")
@@ -650,6 +894,14 @@ class CCodeGenerator(NodeVisitor):
         self.visit(statements)
         self.text += f"{self.indent}break;\n"
         self.indent_dec()
+
+    def visit_fb_invocation(self, node):
+        self.text += f"{self.indent}(void)0;\n"
+
+    def visit_configuration_declaration(self, node):
+        # Globals are emitted before functions by visit_library. Resource and
+        # task configuration has no direct executable C representation.
+        return
 
     def _join_children(self, node, separator, parenthesize_operands=False):
         children = node["children"]
@@ -675,4 +927,9 @@ class CCodeGenerator(NodeVisitor):
         for child in children[1:]:
             op = {"MOD": "%"}.get(child.get("value"), child.get("value"))
             self.text += f" {op} "
-            self.visit(child)
+            if op == "%":
+                self.text += "((int64_t)("
+                self.visit(child)
+                self.text += "))"
+            else:
+                self.visit(child)

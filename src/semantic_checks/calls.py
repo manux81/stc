@@ -205,4 +205,23 @@ class NarrowCallCandidates(SemanticCheck):
                 self.context.resolved_arguments[id(call)] = [argument.expression for argument in ordered]
             datatype = function.attributes.get("datatype", UNKNOWN_TYPE)
             self.context.set_type(call, datatype)
+
+        # Propagate the selected overload's return type through the chain of
+        # single-child expression wrappers.  Candidate propagation happens
+        # before overload narrowing, so those wrappers may still carry the
+        # union of every overload's return type here.
+        nodes = list(walk(ast))
+        changed = True
+        while changed:
+            changed = False
+            for node in nodes:
+                children = direct_children(node)
+                if len(children) != 1:
+                    continue
+                child_type = self.context.type_of(children[0])
+                if child_type is None or self.context.type_of(node) == child_type:
+                    continue
+                if child_type in self.context.candidates(node):
+                    self.context.set_type(node, child_type)
+                    changed = True
         return self.context
