@@ -7,11 +7,11 @@ import json
 import sys
 from time import perf_counter
 
-from compiler import compile_source
-from diagnostics import DiagnosticRenderer, DiagnosticStyle, should_use_color
-from iec_parser import ParsingError
-from library import LibraryError
-from native import NativePragmaError
+from .compiler import compile_source
+from .diagnostics import DiagnosticRenderer, DiagnosticStyle, should_use_color
+from .frontend.parser import ParsingError
+from .libraries import LibraryError
+from .native import NativePragmaError
 
 
 VERSION = "0.2.0"

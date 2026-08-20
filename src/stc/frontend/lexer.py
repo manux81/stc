@@ -15,7 +15,7 @@ __version__ = "0.0.1"
 
 import re
 from typing import SupportsInt
-from lex import Lexer
+from ..vendor.lex import Lexer
 
 def generate_standard_function_name():
     simple_type = {

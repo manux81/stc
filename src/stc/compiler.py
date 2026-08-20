@@ -8,23 +8,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from ast_builder import AstBuilder, ParseNode
-from enum_conversions import inject_enum_conversion_functions
-from iec_generator_c import CCodeGenerator
-from iec_generator_rust import RustCodeGenerator
-from iec_lexer import IECLexer
-from iec_parser import IECParser, ParsingError
-from library import LibraryError, LibraryResolver, ResolvedLibraries
-from native import extract_native_pragmas
-from semantic import SemanticAnalyzer, SemanticError
-from semantic_context import Diagnostic, SemanticContext
-from source_map import SourceMap, build_source_map
+from .frontend.ast_builder import AstBuilder, ParseNode
+from .semantic.enum_conversions import inject_enum_conversion_functions
+from .codegen.c import CCodeGenerator
+from .codegen.rust import RustCodeGenerator
+from .frontend.lexer import IECLexer
+from .frontend.parser import IECParser, ParsingError
+from .libraries import LibraryError, LibraryResolver, ResolvedLibraries
+from .native import extract_native_pragmas
+from .semantic.analyzer import SemanticAnalyzer, SemanticError
+from .semantic.context import Diagnostic, SemanticContext
+from .source_map import SourceMap, build_source_map
 
 
 AstNode = dict[str, Any]
 CompilationTarget = Literal["c", "rust", "ast", "tree"]
 SUPPORTED_TARGETS = frozenset(("c", "rust", "ast", "tree"))
-BUNDLED_LIBRARY_DIRECTORY = Path(__file__).resolve().parent.parent / "library"
+BUNDLED_LIBRARY_DIRECTORY = Path(__file__).resolve().parent / "stdlib"
 
 
 def normalize_standard_edition(standard: str | int) -> int:

@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Verify semantic-check registration and dependency ordering."""
 
-from semantic_checks import SemanticCheck, SemanticPhase, SemanticPipeline, register_check
-from semantic_context import SemanticContext
-from symbol_table import SymbolTableBuilder
+from stc.semantic.checks import SemanticCheck, SemanticPhase, SemanticPipeline, register_check
+from stc.semantic.context import SemanticContext
+from stc.semantic.symbol_table import SymbolTableBuilder
 
 
 def test_registered_pipeline_has_stable_dependency_order():

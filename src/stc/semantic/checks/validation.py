@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from symbol_table import SymbolKind
+from ..symbol_table import SymbolKind
 from .base import SemanticCheck, SemanticPhase, direct_children, descendants, register_check, walk
 
 

@@ -6,16 +6,16 @@ Summary: Explains how to implement, register, order, and test semantic checks.
 
 # Adding a semantic check
 
-Each rule lives in one small class under `src/semantic_checks/`. A check does not
+Each rule lives in one small class under `src/stc/semantic/checks/`. A check does not
 modify the AST: it reads shared information from `SemanticContext` and emits
 errors with `self.error(...)`.
 
 ## Minimal example
 
-Create `src/semantic_checks/boolean_conditions.py`:
+Create `src/stc/semantic/checks/boolean_conditions.py`:
 
 ```python
-from semantic_types import BOOL
+from ..types import BOOL
 from .base import SemanticCheck, SemanticPhase, direct_children, register_check
 
 
@@ -37,13 +37,13 @@ class BooleanConditionsCheck(SemanticCheck):
         self.generic_visit(node)
 ```
 
-Then import the module in `src/semantic_checks/__init__.py` so its decorator runs:
+Then import the module in `src/stc/semantic/checks/__init__.py` so its decorator runs:
 
 ```python
 from .boolean_conditions import BooleanConditionsCheck
 ```
 
-No change to `SemanticAnalyzer` or `main.py` is needed.
+No change to `SemanticAnalyzer` or `stc.cli` is needed.
 
 ## Available context
 

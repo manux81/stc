@@ -1,9 +1,9 @@
 # Copyright (C) 2021-2026 Manuele Conti
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Build semantic context and execute the registered analysis pipeline."""
-from semantic_checks import SemanticPipeline
-from semantic_context import SemanticContext
-from symbol_table import SymbolTableBuilder
+from .checks import SemanticPipeline
+from .context import SemanticContext
+from .symbol_table import SymbolTableBuilder
 
 
 class SemanticError(Exception):

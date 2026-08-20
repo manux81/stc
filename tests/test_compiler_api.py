@@ -7,8 +7,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from ast_builder import AstBuilder
-from compiler import CompilationResult, compile_source, parse_tree
+from stc.frontend.ast_builder import AstBuilder
+from stc.compiler import CompilationResult, compile_source, parse_tree
 
 
 VALID_SOURCE = """\

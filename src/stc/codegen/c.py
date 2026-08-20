@@ -4,8 +4,8 @@
 
 import re
 
-from nodevisitor import NodeVisitor
-from primitive_runtime import render_primitives
+from .visitor import NodeVisitor
+from ..runtime.loader import render_primitives
 
 
 class CCodeGenerator(NodeVisitor):

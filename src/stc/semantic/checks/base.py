@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, ClassVar
 
-from semantic_context import SemanticContext
+from ..context import SemanticContext
 
 AstNode = dict[str, Any]
 

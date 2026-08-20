@@ -3,6 +3,7 @@
 """Exercise command-line parsing, diagnostics, and code-generation workflows."""
 
 import json
+import os
 import tempfile
 import subprocess
 import sys
@@ -11,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIN = ROOT / "src" / "main.py"
+STDLIB = ROOT / "src" / "stc" / "stdlib"
 SAMPLE = ROOT / "examples" / "inter.st"
 FIXTURES = ROOT / "tests" / "fixtures"
 AST_COVERAGE = ROOT / "tools" / "ast_coverage.py"
@@ -20,24 +21,30 @@ ANNEX_B = ROOT / "tmp" / "pdfs" / "annex_b.txt"
 
 
 def run_stc(*args):
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(ROOT / "src")
     return subprocess.run(
-        [sys.executable, str(MAIN), *args],
+        [sys.executable, "-m", "stc", *args],
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=environment,
         check=True,
     )
 
 
 def run_stc_input(source, *args, check=True):
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(ROOT / "src")
     return subprocess.run(
-        [sys.executable, str(MAIN), "-", *args],
+        [sys.executable, "-m", "stc", "-", *args],
         cwd=ROOT,
         input=source,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=environment,
         check=check,
     )
 
@@ -228,20 +235,20 @@ END_FUNCTION (* trailing comment *)
         self.assertEqual(ast["name"], "library")
 
     def test_weigh_library_emits_nested_bcd_calls(self):
-        result = run_stc(str(ROOT / "library" / "weigh.st"), "-g", "c")
+        result = run_stc(str(STDLIB / "weigh.st"), "-g", "c")
 
         self.assertIn(
             "WEIGH = INT_TO_BCD(BCD_TO_INT(gross_weight) - tare_weight);",
             result.stdout,
         )
-        self.assertIn("static inline int16_t BCD_TO_INT", result.stdout)
-        self.assertIn("static inline uint16_t INT_TO_BCD", result.stdout)
+        self.assertIn("inline int16_t BCD_TO_INT", result.stdout)
+        self.assertIn("inline uint16_t INT_TO_BCD", result.stdout)
 
     def test_cli_selectively_imports_a_library_export(self):
         result = run_stc_input(
             "",
             "-g", "c",
-            "-L", str(ROOT / "library"),
+            "-L", str(STDLIB),
             "--import", "standard:WEIGH",
         )
 
@@ -403,11 +410,12 @@ END_FUNCTION_BLOCK
         for fixture in fixtures:
             with self.subTest(fixture=fixture.name):
                 result = subprocess.run(
-                    [sys.executable, str(MAIN), str(fixture), "-g", "c"],
+                    [sys.executable, "-m", "stc", str(fixture), "-g", "c"],
                     cwd=ROOT,
                     text=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
                     check=False,
                 )
                 self.assertEqual(result.returncode, 1)

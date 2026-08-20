@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from compiler import compile_source
-from primitive_runtime import render_primitives
+from stc.compiler import compile_source
+from stc.runtime.loader import render_primitives
 
 
 class PrimitiveRuntimeTests(unittest.TestCase):

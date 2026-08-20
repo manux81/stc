@@ -7,8 +7,8 @@ import os
 import sys
 from dataclasses import dataclass
 
-from semantic_context import Diagnostic
-from source_map import SourceMap
+from .semantic.context import Diagnostic
+from .source_map import SourceMap
 
 
 @dataclass(frozen=True, slots=True)

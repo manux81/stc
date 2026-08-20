@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Portable C primitives embedded into generated translation units by STC.
- * Blocks are selected by primitive_runtime.py; keep marker names stable.
+ * Blocks are selected by runtime/loader.py; keep marker names stable.
  */
 
 // STC_PRIMITIVE_BEGIN CORE

@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from compiler import compile_source
+from stc.compiler import compile_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -252,7 +252,7 @@ END_CONFIGURATION
         result = compile_source(
             self.FIND_SOURCE,
             "c",
-            library_paths=[str(ROOT / "library")],
+            library_paths=[str(ROOT / "src" / "stc" / "stdlib")],
             imports=["standard:FIND"],
         )
 
@@ -290,7 +290,7 @@ END_CONFIGURATION
         result = compile_source(
             self.FIND_SOURCE,
             "rust",
-            library_paths=[str(ROOT / "library")],
+            library_paths=[str(ROOT / "src" / "stc" / "stdlib")],
             imports=["standard:FIND"],
         )
 

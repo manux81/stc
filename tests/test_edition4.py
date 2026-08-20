@@ -4,7 +4,7 @@
 
 import unittest
 
-from compiler import compile_source, normalize_standard_edition
+from stc.compiler import compile_source, normalize_standard_edition
 
 
 class Edition4Tests(unittest.TestCase):

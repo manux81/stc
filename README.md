@@ -41,14 +41,14 @@ the supported subset.
 ## Usage
 
 ```sh
-python3 src/main.py examples/inter.st -g ast
-python3 src/main.py examples/inter.st -g c
-python3 src/main.py examples/inter.st -g rust
-python3 src/main.py examples/inter.st -g c -o build/inter.c
-python3 src/main.py examples/inter.st -g c --no-semantic-check
+python3 -m stc examples/inter.st -g ast
+python3 -m stc examples/inter.st -g c
+python3 -m stc examples/inter.st -g rust
+python3 -m stc examples/inter.st -g c -o build/inter.c
+python3 -m stc examples/inter.st -g c --no-semantic-check
 ```
 
-`src/main.py` is the compiler CLI entry point: `-g c` selects
+`stc.cli` is the compiler CLI entry point: `-g c` selects
 `CCodeGenerator`, while `-g rust` selects `RustCodeGenerator` through the
 shared `compile_source()` pipeline. The generated files contain IEC functions
 as reusable C/Rust functions; they intentionally do not synthesize an
@@ -62,7 +62,7 @@ Use `-` or omit the source path to read from stdin.
 Library clients can use the same result-based pipeline as the CLI:
 
 ```python
-from compiler import compile_source
+from stc import compile_source
 
 result = compile_source(source, "c", source_name="example.st")
 if result.success:
@@ -87,8 +87,8 @@ Add library search directories with `-L` and import either every export or one
 selected symbol:
 
 ```sh
-python3 src/main.py application.st -g c -L ./libraries --import math
-python3 src/main.py application.st -g c -L ./libraries --import math:NativeAdd
+python3 -m stc application.st -g c -L ./libraries --import math
+python3 -m stc application.st -g c -L ./libraries --import math:NativeAdd
 ```
 
 Each library is described by `stc-library.json`:
@@ -156,9 +156,9 @@ Interesting Structured Text examples live under `tests/fixtures/`:
 For example:
 
 ```sh
-python3 src/main.py tests/fixtures/valid_ast/case_and_for.st -g ast
-python3 src/main.py tests/fixtures/valid_codegen/typed_literals.st -g c
-python3 src/main.py tests/fixtures/invalid_semantic/undeclared_variable.st -g c
+python3 -m stc tests/fixtures/valid_ast/case_and_for.st -g ast
+python3 -m stc tests/fixtures/valid_codegen/typed_literals.st -g c
+python3 -m stc tests/fixtures/invalid_semantic/undeclared_variable.st -g c
 ```
 
 ## Positioning
@@ -228,7 +228,7 @@ grammar construction errors remain enabled.
 To enable the complete grammar audit and generate `parser.out`:
 
 ```bash
-STC_PARSER_DIAGNOSTICS=1 python3 src/main.py input.st -g c
+STC_PARSER_DIAGNOSTICS=1 python3 -m stc input.st -g c
 ```
 
 ## Clang-style diagnostics
@@ -247,8 +247,8 @@ Color is enabled automatically on interactive terminals and can be controlled
 explicitly:
 
 ```bash
-python3 src/main.py input.st -g c --diagnostic-color=always
-python3 src/main.py input.st -g c --diagnostic-color=never
+python3 -m stc input.st -g c --diagnostic-color=always
+python3 -m stc input.st -g c --diagnostic-color=never
 ```
 
 The C generator receives the semantic context and emits `FOR` loops and `#line`
@@ -257,7 +257,7 @@ source.
 
 ## Extending semantic analysis
 
-Semantic checks are organized under `src/semantic_checks/`. Each check is a
+Semantic checks are organized under `src/stc/semantic/checks/`. Each check is a
 small registered class with explicit phase and dependencies. See
 [`docs/ADDING_SEMANTIC_CHECKS.md`](docs/ADDING_SEMANTIC_CHECKS.md) for a complete
 example.

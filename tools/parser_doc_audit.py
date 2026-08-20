@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PARSER = ROOT / "src" / "iec_parser.py"
+PARSER = ROOT / "src" / "stc" / "frontend" / "parser.py"
 ANNEX_B = ROOT / "tmp" / "pdfs" / "annex_b.txt"
 
 

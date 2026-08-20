@@ -6,8 +6,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from semantic_types import UNKNOWN_TYPE, conversion_cost, is_assignable
-from symbol_table import StorageClass, Symbol, SymbolKind, normalize_identifier
+from ..types import UNKNOWN_TYPE, conversion_cost, is_assignable
+from ..symbol_table import StorageClass, Symbol, SymbolKind, normalize_identifier
 from .base import SemanticCheck, SemanticPhase, direct_children, register_check, walk
 
 

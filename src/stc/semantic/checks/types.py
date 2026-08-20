@@ -3,7 +3,7 @@
 """Infer candidate types, narrow them, and report type errors."""
 from __future__ import annotations
 
-from semantic_types import ERROR_TYPE, TypeCategory, UNKNOWN_TYPE, conversion_cost, is_assignable
+from ..types import ERROR_TYPE, TypeCategory, UNKNOWN_TYPE, conversion_cost, is_assignable
 from .base import SemanticCheck, SemanticPhase, direct_children, register_check, walk
 
 

@@ -4,7 +4,7 @@
 
 import unittest
 
-from compiler import compile_source
+from stc.compiler import compile_source
 
 
 SOURCE = """

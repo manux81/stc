@@ -3,7 +3,7 @@
 // Portable Rust primitives embedded into generated crates by STC.
 
 // STC_PRIMITIVE_BEGIN CORE
-// Target-independent algorithms remain in library/standard-functions.st.
+// Target-independent algorithms remain in stdlib/standard-functions.st.
 // STC_PRIMITIVE_END CORE
 
 // STC_PRIMITIVE_BEGIN AND

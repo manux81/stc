@@ -4,9 +4,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
-from semantic_types import ConstantValue, DataType
-from symbol_table import Symbol, SymbolTable
-from source_map import SourceMap
+from .types import ConstantValue, DataType
+from .symbol_table import Symbol, SymbolTable
+from ..source_map import SourceMap
 AstNode=dict[str,Any]
 
 @dataclass(frozen=True,slots=True)

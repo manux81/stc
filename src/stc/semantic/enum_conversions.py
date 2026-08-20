@@ -10,9 +10,9 @@ therefore process them without enum-specific call handling.
 """
 from __future__ import annotations
 
-from ast_builder import AstBuilder
-from iec_lexer import IECLexer
-from iec_parser import IECParser
+from ..frontend.ast_builder import AstBuilder
+from ..frontend.lexer import IECLexer
+from ..frontend.parser import IECParser
 
 
 INTEGER_TYPES = ("SINT", "INT", "DINT", "LINT", "USINT", "UINT", "UDINT", "ULINT")

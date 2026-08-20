@@ -3,7 +3,7 @@
 """Collect declaration dependencies and compute stable topological order."""
 from __future__ import annotations
 
-from symbol_table import normalize_identifier
+from ..symbol_table import normalize_identifier
 from .base import SemanticCheck, SemanticPhase, register_check, walk
 
 

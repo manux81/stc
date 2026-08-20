@@ -3,8 +3,8 @@
 """Validate declarations, type names, and identifier resolution."""
 from __future__ import annotations
 
-from semantic_types import BUILTIN_TYPES, DataType, EnumType, TypeCategory, UNKNOWN_TYPE
-from symbol_table import StorageClass, normalize_identifier
+from ..types import BUILTIN_TYPES, DataType, EnumType, TypeCategory, UNKNOWN_TYPE
+from ..symbol_table import StorageClass, normalize_identifier
 from .base import SemanticCheck, SemanticPhase, descendants, register_check, walk
 
 

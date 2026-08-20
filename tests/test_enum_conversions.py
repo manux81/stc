@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from compiler import compile_source
-from semantic_types import EnumType
+from stc.compiler import compile_source
+from stc.semantic.types import EnumType
 
 
 ENUM_SOURCE = """\

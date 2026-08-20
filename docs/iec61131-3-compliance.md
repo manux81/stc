@@ -36,12 +36,12 @@ are not yet claimed as implemented.
 
 ## Target primitive boundary
 
-Portable algorithms are defined in `library/standard-functions.st`. Operations
+Portable algorithms are defined in `src/stc/stdlib/standard-functions.st`. Operations
 that depend on target string or machine representation are declared as compiler
 intrinsics and implemented in:
 
-- `src/stc_runtime/primitives.c`
-- `src/stc_runtime/primitives.rs`
+- `src/stc/runtime/primitives.c`
+- `src/stc/runtime/primitives.rs`
 
 Generated files embed only referenced primitives and their declared
 dependencies. The Python generators contain lowering logic, not runtime

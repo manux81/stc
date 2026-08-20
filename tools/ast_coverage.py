@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PARSER = ROOT / "src" / "iec_parser.py"
+PARSER = ROOT / "src" / "stc" / "frontend" / "parser.py"
 
 
 def parser_methods(source_path):
@@ -41,7 +41,7 @@ def main(argv=None):
         "--parser",
         type=Path,
         default=PARSER,
-        help="Path to iec_parser.py.",
+        help="Path to the IEC parser module.",
     )
     parser.add_argument(
         "--list",

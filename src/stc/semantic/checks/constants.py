@@ -3,7 +3,7 @@
 """Evaluate and type compile-time constant expressions."""
 from __future__ import annotations
 
-from semantic_types import (
+from ..types import (
     BOOL,
     BUILTIN_TYPES,
     INTEGER_TYPES,
@@ -13,7 +13,7 @@ from semantic_types import (
     ConstantValue,
     value_fits,
 )
-from symbol_table import normalize_identifier
+from ..symbol_table import normalize_identifier
 from .base import SemanticCheck, SemanticPhase, direct_children, register_check, walk
 
 

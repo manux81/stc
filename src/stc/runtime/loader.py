@@ -21,7 +21,7 @@ def _load_primitives(target: str) -> tuple[Primitive, ...]:
     extension = {"c": "c", "rust": "rs"}.get(target)
     if extension is None:
         raise ValueError(f"Unsupported primitive target: {target}")
-    source = files("stc_runtime").joinpath(f"primitives.{extension}").read_text(encoding="utf-8")
+    source = files("stc.runtime").joinpath(f"primitives.{extension}").read_text(encoding="utf-8")
     primitives: list[Primitive] = []
     current_name: str | None = None
     dependencies: tuple[str, ...] = ()

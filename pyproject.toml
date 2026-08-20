@@ -15,39 +15,17 @@ license = { text = "GPL-2.0-or-later" }
 requires-python = ">=3.10"
 
 [project.scripts]
-stc = "main:main"
+stc = "stc.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-py-modules = [
-    "ast_builder",
-    "compiler",
-    "diagnostics",
-    "iec_generator_c",
-    "iec_generator_rust",
-    "iec_lexer",
-    "iec_parser",
-    "lex",
-    "library",
-    "main",
-    "native",
-    "nodevisitor",
-    "primitive_runtime",
-    "semantic",
-    "semantic_context",
-    "semantic_passes",
-    "semantic_types",
-    "source_map",
-    "symbol_table",
-    "yacc",
-]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["semantic_checks*", "stc_runtime*"]
+include = ["stc*"]
 
 [tool.setuptools.package-data]
-stc_runtime = ["*.c", "*.rs"]
+stc = ["runtime/*.c", "runtime/*.rs", "stdlib/*.st", "stdlib/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

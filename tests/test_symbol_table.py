@@ -10,8 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from compiler import parse_source
-from symbol_table import ScopeKind, StorageClass, SymbolKind, SymbolTableBuilder
+from stc.compiler import parse_source
+from stc.semantic.symbol_table import ScopeKind, StorageClass, SymbolKind, SymbolTableBuilder
 
 
 class SymbolTableTests(unittest.TestCase):

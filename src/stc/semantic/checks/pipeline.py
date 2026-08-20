@@ -3,7 +3,7 @@
 """Order registered semantic checks and execute their dependency pipeline."""
 from __future__ import annotations
 
-from semantic_context import SemanticContext
+from ..context import SemanticContext
 from .base import SemanticCheck, registered_checks
 
 

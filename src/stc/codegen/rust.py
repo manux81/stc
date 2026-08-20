@@ -4,9 +4,9 @@
 
 import re
 
-from nodevisitor import NodeVisitor
-from primitive_runtime import render_primitives
-from semantic_types import EnumType
+from .visitor import NodeVisitor
+from ..runtime.loader import render_primitives
+from ..semantic.types import EnumType
 
 
 class RustCodeGenerator(NodeVisitor):
