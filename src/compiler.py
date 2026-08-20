@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ast_builder import AstBuilder, ParseNode
+from enum_conversions import inject_enum_conversion_functions
 from iec_generator_c import CCodeGenerator
 from iec_generator_rust import RustCodeGenerator
 from iec_lexer import IECLexer
@@ -138,6 +139,7 @@ def compile_source(
 
     diagnostic_name = "<stdin>" if source_name == "-" else source_name
     source_map = build_source_map(ast, parser_source, diagnostic_name, IECLexer)
+    inject_enum_conversion_functions(ast)
     context = None
     if check_semantics:
         try:

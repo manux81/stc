@@ -4,6 +4,7 @@
 
 from nodevisitor import NodeVisitor
 from iec_runtime_rust import RUST_RUNTIME_FUNCTIONS
+from semantic_types import EnumType
 
 
 class RustCodeGenerator(NodeVisitor):
@@ -17,6 +18,7 @@ class RustCodeGenerator(NodeVisitor):
         self.current_instance = False
         self.current_instance_fields = set()
         self.current_reference_params = set()
+        self.current_synthetic_enum = None
 
     def render(self, node):
         previous = self.text
@@ -32,6 +34,7 @@ class RustCodeGenerator(NodeVisitor):
             "USINT": "u8", "UINT": "u16", "UDINT": "u32", "ULINT": "u64",
             "REAL": "f32", "LREAL": "f64",
             "BOOL": "bool", "BYTE": "u8", "WORD": "u16", "DWORD": "u32", "LWORD": "u64",
+            "STRING": "&'static str", "WSTRING": "&'static str",
         }
         return conv.get(typein.upper(), typein)
 
@@ -73,6 +76,8 @@ class RustCodeGenerator(NodeVisitor):
         self.indent = self.indent[:-4]
 
     def extract_type(self, node):
+        if isinstance(node, str):
+            return self.iecType2Rust(node)
         if isinstance(node, dict):
             if node.get("name", "").endswith("_type_name") and node.get("value"):
                 return self.iecType2Rust(node["value"])
@@ -87,7 +92,7 @@ class RustCodeGenerator(NodeVisitor):
         if found:
             return found
         if self._first_named(node, "single_byte_string_spec") is not None:
-            return "String"
+            return "&'static str"
         if self._first_named(node, "double_byte_string_spec") is not None:
             return "Vec<u16>"
         return fallback
@@ -97,11 +102,36 @@ class RustCodeGenerator(NodeVisitor):
             return "false"
         if rust_type in ("f32", "f64"):
             return "0.0"
-        if rust_type == "String":
-            return "String::new()"
+        if rust_type in {"String", "&'static str"}:
+            return '""'
         if rust_type.startswith("Vec<"):
             return "Vec::new()"
+        if self.context is not None:
+            datatype = self.context.declared_types.get(rust_type.casefold())
+            if isinstance(datatype, EnumType) and datatype.elements:
+                return f"{rust_type}::{datatype.elements[0]}"
         return "0"
+
+    def visit_enumerated_value(self, node):
+        value = str(node.get("value", ""))
+        if self.current_synthetic_enum:
+            self.text += f"{self.current_synthetic_enum}::{value}"
+        else:
+            self.text += value
+
+    def visit_qualified_enumerated_value(self, node):
+        enum_type = next(
+            (item.get("value") for item in self._named_nodes(node, "enumerated_type_name") if item.get("value")),
+            None,
+        )
+        value = next(
+            (item.get("value") for item in self._named_nodes(node, "enumerated_value") if item.get("value")),
+            None,
+        )
+        if enum_type and value:
+            self.text += f"{enum_type}::{value}"
+        elif value:
+            self.text += value
 
     def collect_var_decls(self, node):
         declarations = []
@@ -160,6 +190,12 @@ class RustCodeGenerator(NodeVisitor):
         return_type = self.extract_type(node["children"][1]) or "()"
         self.current_function = name
         self.current_return_type = return_type
+        previous_synthetic_enum = self.current_synthetic_enum
+        self.current_synthetic_enum = (
+            node.get("enum_type")
+            if node.get("synthetic") and node.get("generated_by") == "enum-conversions"
+            else None
+        )
 
         input_decls = self.collect_sections(node["children"][2], "input_declarations")
         output_decls = self.collect_sections(node["children"][2], "output_declarations")
@@ -172,7 +208,12 @@ class RustCodeGenerator(NodeVisitor):
         # even when a particular control-flow path overwrites them before the
         # first read. These are meaningful PLC semantics, but rustc reports
         # them as dead-store/unused-variable warnings in generated code.
-        self.text += "#[allow(unused_assignments, unused_mut, unused_variables)]\n"
+        if node.get("synthetic") and node.get("generated_by") == "enum-conversions":
+            self.text += f"// Automatically generated conversion for enum {node.get('enum_type')}.\n"
+        allowed_lints = ["non_snake_case", "unused_assignments", "unused_mut", "unused_variables"]
+        if node.get("synthetic") and node.get("generated_by") == "enum-conversions":
+            allowed_lints.append("unreachable_patterns")
+        self.text += f"#[allow({', '.join(allowed_lints)})]\n"
         self.text += f"pub fn {emitted_name}({', '.join(params)}) -> {return_type}\n{{\n"
         self.indent_inc()
         if return_type != "()":
@@ -191,6 +232,7 @@ class RustCodeGenerator(NodeVisitor):
         self.text += "}\n"
         self.current_function = None
         self.current_return_type = None
+        self.current_synthetic_enum = previous_synthetic_enum
 
     def _emit_native_code(self, source):
         for line in source.splitlines():
@@ -299,6 +341,7 @@ class RustCodeGenerator(NodeVisitor):
         name = self._first_named(node, "enumerated_type_name")
         values = [item["value"] for item in self._named_nodes(node, "enumerated_value") if item.get("value")]
         if name and values:
+            self.text += "#[allow(non_camel_case_types)]\n"
             self.text += f"#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum {name['value']} {{ {', '.join(values)} }}\n"
 
     def visit_array_type_declaration(self, node):
@@ -402,6 +445,24 @@ class RustCodeGenerator(NodeVisitor):
     def visit_boolean_literal(self, node):
         self.text += node["value"].lower()
 
+    def _iec_string(self, node):
+        token = self._first_named(node, "token")
+        raw = str(token.get("value", "''")) if token else "''"
+        content = raw[1:-1] if len(raw) >= 2 else raw
+        content = content.replace("$N", "\n").replace("$n", "\n")
+        content = content.replace("$T", "\t").replace("$t", "\t")
+        content = content.replace("$$", "$").replace("$''", "'").replace("$'", "'")
+        content = content.replace("''", "'")
+        content = content.replace("\\", "\\\\").replace('"', '\\"')
+        content = content.replace("\n", "\\n").replace("\t", "\\t")
+        return f'"{content}"'
+
+    def visit_single_byte_character_string(self, node):
+        self.text += self._iec_string(node)
+
+    def visit_double_byte_character_string(self, node):
+        self.text += self._iec_string(node)
+
     def visit_bit_string_literal(self, node):
         for child in node["children"]:
             self.visit(child)
@@ -489,9 +550,15 @@ class RustCodeGenerator(NodeVisitor):
         target_type = self.rust_type_for_node(variable)
         rendered = self.render(expression)
         expression_type = self.rust_type_for_node(expression)
-        if target_type is not None and expression_type is not None and target_type != expression_type:
+        target_datatype = (
+            self.context.declared_types.get(target_type.casefold())
+            if self.context is not None and target_type is not None
+            else None
+        )
+        enum_value = isinstance(target_datatype, EnumType) and "::" in rendered
+        if target_type is not None and expression_type is not None and target_type != expression_type and not enum_value:
             rendered = f"({rendered}) as {target_type}"
-        elif target_type is not None and expression_type is None and target_type != "bool":
+        elif target_type is not None and expression_type is None and target_type != "bool" and not enum_value:
             rendered = f"({rendered}) as {target_type}"
         self.text += f"{self.indent}{self.render(variable)} = {rendered};\n"
 

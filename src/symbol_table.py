@@ -411,7 +411,20 @@ class SymbolTableBuilder:
                 leaf = self._first_value_descendant(candidate)
                 if leaf is not None:
                     return TypeRef(leaf.get("value"), candidate)
+        for value in self._raw_strings(node):
+            if value.upper() in {"STRING", "WSTRING"}:
+                return TypeRef(value.upper(), node)
         return None
+
+    @classmethod
+    def _raw_strings(cls, node: Any) -> Iterator[str]:
+        if isinstance(node, str):
+            yield node
+            return
+        if not isinstance(node, dict):
+            return
+        for child in node.get("children", []):
+            yield from cls._raw_strings(child)
 
     @staticmethod
     def _node_value(node: AstNode | None) -> str | None:

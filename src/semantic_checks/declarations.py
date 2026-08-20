@@ -3,8 +3,8 @@
 """Validate declarations, type names, and identifier resolution."""
 from __future__ import annotations
 
-from semantic_types import BUILTIN_TYPES, DataType, TypeCategory, UNKNOWN_TYPE
-from symbol_table import normalize_identifier
+from semantic_types import BUILTIN_TYPES, DataType, EnumType, TypeCategory, UNKNOWN_TYPE
+from symbol_table import StorageClass, normalize_identifier
 from .base import SemanticCheck, SemanticPhase, descendants, register_check, walk
 
 
@@ -77,7 +77,13 @@ class TypeDeclarationCollector(SemanticCheck):
 
             key = normalize_identifier(name_node["value"])
             if declaration.get("name") == "enumerated_type_declaration":
-                datatype = DataType(name_node["value"], TypeCategory.ENUM)
+                elements = tuple(
+                    node["value"]
+                    for node in walk(declaration)
+                    if node.get("name") == "enumerated_value"
+                    and isinstance(node.get("value"), str)
+                )
+                datatype = EnumType(name_node["value"], TypeCategory.ENUM, elements=elements)
             elif declaration.get("name") == "array_type_declaration":
                 datatype = DataType(name_node["value"], TypeCategory.ARRAY)
             elif declaration.get("name") == "structure_type_declaration":
@@ -113,9 +119,80 @@ class TypeDeclarationCollector(SemanticCheck):
 
 
 @register_check(
-    name="declarations",
+    name="external-bindings",
     phase=SemanticPhase.VALIDATION,
     after=("collect-types",),
+)
+class ExternalBindingCheck(SemanticCheck):
+    """Bind each VAR_EXTERNAL declaration to a matching VAR_GLOBAL symbol."""
+
+    @staticmethod
+    def _section_is_constant(section):
+        return any(
+            str(node.get("value", "")).upper() == "CONSTANT"
+            for node in walk(section)
+        )
+
+    def run(self, ast):
+        constant_declarations = set()
+        for section in descendants(ast, "global_var_declarations"):
+            if self._section_is_constant(section):
+                constant_declarations.update(
+                    id(node) for node in descendants(section, "global_var_name")
+                )
+        for section in descendants(ast, "external_var_declarations"):
+            if self._section_is_constant(section):
+                constant_declarations.update(
+                    id(node) for node in descendants(section, "global_var_name")
+                )
+
+        globals_by_name = {}
+        externals = []
+        for symbol in self.context.symbols.iter_symbols():
+            if id(symbol.declaration) in constant_declarations:
+                symbol.attributes["constant"] = True
+            if symbol.storage == StorageClass.GLOBAL:
+                globals_by_name.setdefault(symbol.key, []).append(symbol)
+            elif symbol.storage == StorageClass.EXTERNAL:
+                externals.append(symbol)
+
+        for external in externals:
+            candidates = globals_by_name.get(external.key, [])
+            if not candidates:
+                self.error(
+                    "unbound-external",
+                    f"External variable '{external.name}' has no matching VAR_GLOBAL declaration.",
+                    external.declaration,
+                )
+                continue
+            external_type = external.attributes.get("datatype")
+            compatible = [
+                candidate for candidate in candidates
+                if external_type is UNKNOWN_TYPE
+                or candidate.attributes.get("datatype") is UNKNOWN_TYPE
+                or (
+                    candidate.attributes.get("datatype").category == external_type.category
+                    and candidate.attributes.get("datatype").bits == external_type.bits
+                )
+            ]
+            if not compatible:
+                self.error(
+                    "external-type-mismatch",
+                    f"External variable '{external.name}' does not match the type of its VAR_GLOBAL declaration.",
+                    external.declaration,
+                )
+                continue
+            target = compatible[0]
+            external.attributes["global"] = target
+            if target.attributes.get("constant"):
+                external.attributes["constant"] = True
+        return self.context
+
+
+@register_check(
+    name="declarations",
+    phase=SemanticPhase.VALIDATION,
+    after=("external-bindings",),
 )
 class DeclarationCheck(SemanticCheck):
     def run(self, ast):
