@@ -277,7 +277,7 @@ class IECParser(Parser):
     def interval(self, p):
         return self._node_from_production(p)
 
-    @_('fixed_point D', 'fixed_point H', 'fixed_point M', 'fixed_point S', 'fixed_point MS')
+    @_('fixed_point D', 'fixed_point H', 'fixed_point M', 'fixed_point SEC', 'fixed_point MS')
     def duration_component(self, p):
         return self._node_from_production(p)
 

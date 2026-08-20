@@ -79,6 +79,16 @@ class IECLexer(Lexer):
     # IEC 61131-3 block comments may appear anywhere whitespace is allowed.
     ignore_block_comment = r'\(\*[\s\S]*?\*\)'
 
+    def __init__(self):
+        super().__init__()
+        self.language = 'ST'
+
+    def set_language(self, language):
+        language = language.upper()
+        if language not in ('ST', 'IL'):
+            raise ValueError(f"Unsupported IEC language: {language}")
+        self.language = language
+
     def ignore_block_comment(self, t):
         self.lineno += t.value.count('\n')
 
@@ -102,7 +112,7 @@ class IECLexer(Lexer):
 
         DOLLAR_APC, DOLLAR_QOT, PRINTABLE_CHAR, DOLLAR_DOLLAR, DOLLAR_L, DOLLAR_N, DOLLAR_P,
 
-        MS, TIME, T, D, H, M,
+        MS, SEC, TIME, T, D, H, M,
     
         SINT, INT, DINT, LINT, USINT,
         UINT, UDINT, ULINT, REAL, LREAL, DATE, TIME_OF_DAY, TOD, DATE_AND_TIME,
@@ -173,6 +183,7 @@ class IECLexer(Lexer):
     D = before("IDENTIFIER", r'D(?![a-zA-Z])')
     H = before("IDENTIFIER", r'H(?![a-zA-Z])')
     M = before("IDENTIFIER", r'M(?![a-zA-Z])')
+    SEC = before("IDENTIFIER", r'S(?![a-zA-Z])')
     MS = before("IDENTIFIER", r'MS(?![a-zA-Z])')
 
     def _inside_duration_literal(self, index):
@@ -199,6 +210,9 @@ class IECLexer(Lexer):
         return t
 
     def D(self, t):
+        # D# is the IEC abbreviated DATE literal prefix.
+        if re.match(r'\s*#', self.text[self.index]) is not None:
+            return t
         return self._duration_unit_or_identifier(t)
 
     def H(self, t):
@@ -206,6 +220,14 @@ class IECLexer(Lexer):
 
     def M(self, t):
         return self._duration_unit_or_identifier(t)
+
+    def SEC(self, t):
+        if not self._inside_duration_literal(t.index):
+            if self.language == 'IL':
+                t.type = 'S'
+            else:
+                t.type = 'IDENTIFIER'
+        return t
 
     def MS(self, t):
         return self._duration_unit_or_identifier(t)
@@ -359,13 +381,24 @@ class IECLexer(Lexer):
 # B.2.2 Operators #
 ###################
 
+    S = before("IDENTIFIER", r'S(?![a-zA-Z0-9_])')
+    R = before("IDENTIFIER", r'R(?![a-zA-Z0-9_])')
+
+    def S(self, t):
+        if self.language != 'IL':
+            t.type = 'IDENTIFIER'
+        return t
+
+    def R(self, t):
+        if self.language != 'IL':
+            t.type = 'IDENTIFIER'
+        return t
+
     IDENTIFIER['LD'] = LD
     IDENTIFIER['LDN'] = LDN
     IDENTIFIER['ST'] = ST
     IDENTIFIER['STN'] = STN
     IDENTIFIER['NOT'] = NOT
-    IDENTIFIER['S'] = S
-    IDENTIFIER['R'] = R
     IDENTIFIER['S1'] = S1
     IDENTIFIER['R1'] = R1
     IDENTIFIER['CLK'] = CLK
