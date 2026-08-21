@@ -28,20 +28,66 @@ class FillCandidateDatatypes(SemanticCheck):
                 constant = self.context.constants[id(node)]
                 self.context.candidate_types.setdefault(id(node), {constant.datatype})
 
-        self._propagate_wrapper_types(nodes)
+        self._propagate_expression_types(nodes)
         return self.context
 
-    def _propagate_wrapper_types(self, nodes) -> None:
+    @staticmethod
+    def _operator_operands(node):
+        return [
+            child
+            for child in direct_children(node)
+            if not child.get("name", "").endswith("_operator")
+            and child.get("name") != "comparison_operator"
+        ]
+
+    def _propagate_expression_types(self, nodes) -> None:
         changed = True
         while changed:
             changed = False
-            for node in nodes:
+            for node in reversed(nodes):
                 node_children = direct_children(node)
+                if node.get("name") == "unary_expression" and len(node_children) == 1:
+                    child_candidates = self.context.candidates(node_children[0])
+                    if node.get("value") == "-":
+                        child_candidates = {
+                            datatype
+                            for datatype in child_candidates
+                            if datatype.category in {TypeCategory.SIGNED_INT, TypeCategory.REAL}
+                        }
+                    if child_candidates != self.context.candidates(node):
+                        self.context.candidate_types[id(node)] = set(child_candidates)
+                        changed = True
+                    continue
+
+                if node.get("name") in {"add_expression", "term"}:
+                    operands = self._operator_operands(node)
+                    if len(operands) >= 2 and all(self.context.candidates(item) for item in operands):
+                        first_candidates = self.context.candidates(operands[0])
+                        compatible = {
+                            candidate
+                            for candidate in first_candidates
+                            if all(
+                                any(
+                                    is_assignable(other, candidate)
+                                    and is_assignable(candidate, other)
+                                    for other in self.context.candidates(operand)
+                                )
+                                for operand in operands[1:]
+                            )
+                        }
+                        if compatible != self.context.candidates(node):
+                            self.context.candidate_types[id(node)] = compatible
+                            changed = True
+                        continue
+
                 if len(node_children) != 1:
                     continue
                 child_candidates = self.context.candidates(node_children[0])
-                if child_candidates and not self.context.candidates(node):
-                    self.context.candidate_types[id(node)] = set(child_candidates)
+                node_candidates = self.context.candidates(node)
+                if child_candidates and not child_candidates.issubset(node_candidates):
+                    self.context.candidate_types[id(node)] = (
+                        set(node_candidates) | set(child_candidates)
+                    )
                     changed = True
 
 

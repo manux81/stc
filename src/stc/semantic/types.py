@@ -79,11 +79,19 @@ def is_assignable(source:DataType,destination:DataType)->bool:
     if ERROR_TYPE in (source,destination) or UNKNOWN_TYPE in (source,destination): return True
     if source==destination: return True
     if source.category==TypeCategory.STRING and destination.category==TypeCategory.STRING: return True
-    if source.category==TypeCategory.CHAR and destination.category==TypeCategory.CHAR: return True
-    if (is_integer(source) and destination.category==TypeCategory.CHAR) or (source.category==TypeCategory.CHAR and is_integer(destination)): return True
-    if is_integer(source) and is_integer(destination):
-        return source.bits is not None and destination.bits is not None
-    return is_integer(source) and destination.category==TypeCategory.REAL
+    # A derived elementary type is compatible with its base representation.
+    # Different numeric representations require an explicit IEC conversion.
+    return (
+        source.category == destination.category
+        and source.category in {
+            TypeCategory.SIGNED_INT,
+            TypeCategory.UNSIGNED_INT,
+            TypeCategory.REAL,
+            TypeCategory.BIT_STRING,
+            TypeCategory.CHAR,
+        }
+        and source.bits == destination.bits
+    )
 
 def conversion_cost(source:DataType,destination:DataType)->int:
     if source==destination:return 0

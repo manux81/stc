@@ -61,6 +61,12 @@ class ConstantFolder(SemanticCheck):
         datatype = BUILTIN_TYPES[type_key]
         current = self.context.constant_of(node)
         if current is not None:
+            if not value_fits(current.value, datatype):
+                self.error(
+                    "integer-literal-out-of-range",
+                    f"Integer literal {current.value} is outside the range of {datatype.name}.",
+                    node,
+                )
             self.context.constants[id(node)] = ConstantValue(datatype, current.value)
             self.context.candidate_types[id(node)] = {datatype}
 
@@ -96,22 +102,21 @@ class ConstantFolder(SemanticCheck):
         return raw.split("#", 1)[1] if "#" in raw else raw
 
     def _fold_binary_expression(self, node, node_children) -> None:
-        operators = [
-            child.get("value")
+        operator_nodes = [
+            child
             for child in node_children
             if child.get("name", "").endswith("_operator")
             or child.get("name") == "comparison_operator"
         ]
-        values = [
-            self.context.constant_of(child)
-            for child in node_children
-            if self.context.constant_of(child) is not None
-        ]
-        if len(values) != 2 or not operators:
+        operands = [child for child in node_children if child not in operator_nodes]
+        if len(operands) != 2 or len(operator_nodes) != 1:
+            return
+        values = [self.context.constant_of(child) for child in operands]
+        if any(value is None for value in values):
             return
 
         left, right = values
-        operator = str(operators[0]).upper()
+        operator = str(operator_nodes[0].get("value")).upper()
         operations = {
             "+": lambda: left.value + right.value,
             "-": lambda: left.value - right.value,
