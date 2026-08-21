@@ -132,6 +132,7 @@ class EditionCompatibilityCheck(SemanticCheck):
         name = str(node.get("value", "")).upper()
         edition4_only = {
             "LEN_CODE_UNIT",
+            "LEN_MAX",
             "USINT_TO_CHAR",
             "UINT_TO_WCHAR",
             "WCHAR_TO_UINT",

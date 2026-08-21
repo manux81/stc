@@ -121,6 +121,28 @@ class CCodeGenerator(NodeVisitor):
             for child in node.get("children", []):
                 yield from self._raw_values(child)
 
+    def _string_max_length(self, expression):
+        """Return the declared maximum length of an IEC string expression."""
+        if expression is None or self.context is None:
+            return None
+        variable = self._first_named(expression, "variable_name")
+        if variable is None:
+            return None
+        symbol = self.context.symbols.symbol_for_reference(variable)
+        if symbol is None or symbol.type_ref.name is None:
+            return None
+        type_name = str(symbol.type_ref.name or "").upper()
+        if type_name not in {"STRING", "WSTRING", "USTRING"}:
+            return None
+        # For STRING[n], WSTRING[n] and USTRING[n], TypeRef.node still
+        # contains the original declaration AST, including integer n.
+        declaration = symbol.type_ref.node
+        size = self._first_named(declaration, "integer")
+        if size is not None and size.get("value") is not None:
+            return int(str(size["value"]).replace("_", ""))
+        # IEC default maximum length when no explicit [n] is supplied.
+        return 80
+
     def zero_value(self, c_type):
         if c_type == "bool":
             return "false"
@@ -581,9 +603,22 @@ class CCodeGenerator(NodeVisitor):
             return
 
         standard_name = self._first_named(children[0], "standard_function_name")
+        standard_name_value = (
+            str(standard_name.get("value", "")).upper()
+            if standard_name
+            else ""
+        )
+
+        if standard_name_value == "LEN_MAX":
+            argument = self._first_named(node, "expression")
+            length = self._string_max_length(argument)
+            if length is not None:
+                self.text += str(length)
+                return
+
         trunc_match = re.fullmatch(
             r"(?:(?:REAL|LREAL)_)?TRUNC_(SINT|INT|DINT|LINT|USINT|UINT|UDINT|ULINT)",
-            str(standard_name.get("value", "")).upper() if standard_name else "",
+            standard_name_value,
         )
         if trunc_match:
             argument = self._first_named(node, "expression")

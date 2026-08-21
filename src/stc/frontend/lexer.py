@@ -39,7 +39,7 @@ def generate_standard_function_name():
 
         r'SEL', r'MAX', r'MIN', r'LIMIT', r'MUX',
         r'CONCAT', r'INSERT', r'DELETE', r'REPLACE', r'FIND',
-        r'LEN', r'LEN_CODE_UNIT', r'LEFT', r'RIGHT', r'MID',
+        r'LEN', r'LEN_MAX', r'LEN_CODE_UNIT', r'LEFT', r'RIGHT', r'MID',
 
         r'ASSERT',
 
