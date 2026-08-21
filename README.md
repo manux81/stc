@@ -132,6 +132,49 @@ variable by their IEC names. Function-block code accesses state through
 `self->field_name`. A valid ST body remains in the declaration as a portable
 fallback for targets without a matching native pragma.
 
+## Adding a primitive function
+
+Primitive functions are target-specific operations that the code generator
+embeds only when they are referenced by the input program. Prefer a portable
+Structured Text implementation in `src/stc/stdlib/standard-functions.st` when
+the operation can be expressed in ST; use a primitive for target intrinsics or
+runtime support that ST cannot provide.
+
+To add a primitive:
+
+1. If the function name is not already recognized as an IEC standard function,
+   add it to `standard_functions` in `src/stc/frontend/lexer.py`.
+2. Add an implementation to each supported target file,
+   `src/stc/runtime/primitives.c` and `src/stc/runtime/primitives.rs`. Enclose
+   each implementation in matching marker comments (primitive names are
+   normalized to uppercase):
+
+   ```c
+   // STC_PRIMITIVE_BEGIN CLAMP MIN MAX
+   #define CLAMP(lo, value, hi) (MAX((lo), MIN((value), (hi))))
+   // STC_PRIMITIVE_END CLAMP
+   ```
+
+   The names after `CLAMP` on the begin marker are dependencies. The loader
+   includes them recursively, while the `CORE` block is always included. Keep
+   the begin and end names identical and keep the marker name equal to the
+   Structured Text function name.
+3. Add coverage to `tests/test_primitives.py`. Verify that requesting the new
+   primitive includes its implementation and dependencies, omits unrelated
+   blocks, and that generated C or Rust containing a call compiles when a
+   compiler is available.
+4. Run the primitive tests, followed by the complete suite:
+
+   ```sh
+   python3 -m unittest tests.test_primitives
+   python3 -m unittest discover -s tests
+   ```
+
+The C generator already emits the common standard headers. If a primitive
+needs additional target imports or a new shared helper, add them to the
+backend preamble or to a dependency block rather than duplicating them in
+every primitive.
+
 Syntax errors include the unexpected token, line/column, source line, and a
 caret:
 
@@ -160,20 +203,6 @@ python3 -m stc tests/fixtures/valid_ast/case_and_for.st -g ast
 python3 -m stc tests/fixtures/valid_codegen/typed_literals.st -g c
 python3 -m stc tests/fixtures/invalid_semantic/undeclared_variable.st -g c
 ```
-
-## Positioning
-
-The long-term target is to grow toward the practical compiler quality of
-STruC++ and matiec:
-
-- STruC++: readable generated C++17, reusable libraries, integrated testing, and
-  debugging/REPL workflows.
-- matiec: broad IEC 61131-3 compiler coverage and mature PLC-oriented code
-  generation.
-
-This repository is not at that level yet. The next steps are deliberately
-foundation-first so compatibility can be expanded without repeatedly rewriting
-the frontend.
 
 ## AST status
 
