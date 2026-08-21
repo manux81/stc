@@ -54,6 +54,94 @@ END_FUNCTION
         SemanticAnalyzer().analyze(ast)
 
 
+def test_integer_variable_requires_explicit_conversion_before_real_assignment():
+    source = '''
+FUNCTION torture_assignment : REAL
+VAR
+    Big : DINT;
+    Real1 : REAL;
+END_VAR
+    Real1 := Big;
+    torture_assignment := Real1;
+END_FUNCTION
+'''
+    ast = parse_source(source)
+    with pytest.raises(SemanticError, match=r"Cannot assign \['DINT'\] to \['REAL'\]"):
+        SemanticAnalyzer().analyze(ast)
+
+
+def test_untyped_integer_literal_remains_assignable_to_wider_integer():
+    source = '''
+FUNCTION literal_assignment : DINT
+VAR
+    Big : DINT;
+END_VAR
+    Big := 42;
+    literal_assignment := Big;
+END_FUNCTION
+'''
+    ast = parse_source(source)
+    SemanticAnalyzer().analyze(ast)
+
+
+def test_typed_integer_literal_does_not_change_type_to_match_destination():
+    source = '''
+FUNCTION typed_literal_assignment : INT
+VAR
+    Value : INT;
+END_VAR
+    Value := USINT#12;
+    typed_literal_assignment := Value;
+END_FUNCTION
+'''
+    ast = parse_source(source)
+    with pytest.raises(SemanticError, match=r"Cannot assign \['USINT'\] to \['INT'\]"):
+        SemanticAnalyzer().analyze(ast)
+
+
+def test_untyped_integer_literal_must_fit_destination_type():
+    source = '''
+FUNCTION oversized_literal_assignment : INT
+VAR
+    Value : INT;
+END_VAR
+    Value := 40000;
+    oversized_literal_assignment := Value;
+END_FUNCTION
+'''
+    ast = parse_source(source)
+    with pytest.raises(SemanticError, match=r"Cannot assign .* to \['INT'\]"):
+        SemanticAnalyzer().analyze(ast)
+
+
+def test_typed_integer_literal_must_fit_its_declared_type():
+    source = '''
+FUNCTION invalid_typed_literal : USINT
+VAR
+    Value : USINT;
+END_VAR
+    Value := USINT#300;
+    invalid_typed_literal := Value;
+END_FUNCTION
+'''
+    ast = parse_source(source)
+    with pytest.raises(SemanticError, match=r"outside the range of USINT"):
+        SemanticAnalyzer().analyze(ast)
+
+
+def test_untyped_literals_follow_int_operand_in_unary_expression():
+    source = '''
+FUNCTION TestUnary : INT
+VAR_INPUT
+    A : INT;
+END_VAR
+    TestUnary := -A + -1 - -(-A) + -(-(-1));
+END_FUNCTION
+'''
+    ast = parse_source(source)
+    SemanticAnalyzer().analyze(ast)
+
+
 def test_underscored_integer_literal_is_valid():
     source = '''
 FUNCTION inter : INT
