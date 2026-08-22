@@ -9,7 +9,8 @@ from typing import Any
 class TypeCategory(str, Enum):
     BOOL='bool'; SIGNED_INT='signed_int'; UNSIGNED_INT='unsigned_int'; REAL='real'
     BIT_STRING='bit_string'; STRING='string'; CHAR='char'; TIME='time'; DATE='date'; ENUM='enum'
-    ARRAY='array'; STRUCT='struct'; FUNCTION_BLOCK='function_block'; UNKNOWN='unknown'; ERROR='error'
+    ARRAY='array'; STRUCT='struct'; FUNCTION_BLOCK='function_block'
+    CLASS='class'; INTERFACE='interface'; UNKNOWN='unknown'; ERROR='error'
 
 @dataclass(frozen=True, slots=True)
 class DataType:

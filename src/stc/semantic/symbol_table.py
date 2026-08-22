@@ -23,6 +23,9 @@ class SymbolKind(str, Enum):
     FUNCTION_BLOCK = "function_block"
     PROGRAM = "program"
     CONFIGURATION = "configuration"
+    CLASS = "class"
+    INTERFACE = "interface"
+    METHOD = "method"
     VARIABLE = "variable"
     PARAMETER = "parameter"
     RETURN_VALUE = "return_value"
@@ -36,6 +39,9 @@ class ScopeKind(str, Enum):
     FUNCTION_BLOCK = "function_block"
     PROGRAM = "program"
     CONFIGURATION = "configuration"
+    CLASS = "class"
+    INTERFACE = "interface"
+    METHOD = "method"
     RESOURCE = "resource"
 
 
@@ -206,6 +212,8 @@ class SymbolTableBuilder:
             "derived_function_block_name",
         ),
         "program_declaration": (ScopeKind.PROGRAM, SymbolKind.PROGRAM, "program_type_name"),
+        "class_declaration": (ScopeKind.CLASS, SymbolKind.CLASS, "class_type_name"),
+        "interface_declaration": (ScopeKind.INTERFACE, SymbolKind.INTERFACE, "interface_type_name"),
         "configuration_declaration": (
             ScopeKind.CONFIGURATION,
             SymbolKind.CONFIGURATION,
@@ -250,6 +258,9 @@ class SymbolTableBuilder:
         "function_block_type_name",
         "program_type_name",
         "non_generic_type_name",
+        "simple_type_name",
+        "class_type_name",
+        "interface_type_name",
     }
 
     def __init__(self) -> None:
@@ -277,6 +288,10 @@ class SymbolTableBuilder:
 
         if name in self._POU_NODES:
             self._visit_pou(node, scope)
+            return
+
+        if name in {"method_declaration", "method_prototype"}:
+            self._visit_method(node, scope)
             return
 
         if name in self._SECTION_STORAGE:
@@ -348,6 +363,49 @@ class SymbolTableBuilder:
                 self._table._node_scopes[id(child)] = child_scope
                 continue
             self._walk(child, child_scope, StorageClass.UNKNOWN, declaration_context=False)
+
+    def _visit_method(self, node: AstNode, parent: Scope) -> None:
+        name_node = self._first_descendant(node, "method_name")
+        method_name = self._node_value(name_node) or "<method>"
+        return_node = self._first_descendant(node, "function_return_type")
+        return_type = self._extract_type(return_node) if return_node is not None else None
+
+        method_symbol = Symbol(
+            method_name,
+            SymbolKind.METHOD,
+            node,
+            parent,
+            return_type,
+        )
+        self._define(method_symbol)
+        if name_node is not None:
+            self._table._declarations[id(name_node)] = method_symbol
+
+        child_scope = Scope(method_name, ScopeKind.METHOD, node, parent)
+        parent.children.append(child_scope)
+        self._table._node_scopes[id(node)] = child_scope
+
+        if return_type is not None:
+            return_symbol = Symbol(
+                method_name,
+                SymbolKind.RETURN_VALUE,
+                name_node or node,
+                child_scope,
+                return_type,
+                StorageClass.RETURN,
+            )
+            self._define(return_symbol)
+
+        for child in node.get("children", []):
+            if child is name_node:
+                self._table._node_scopes[id(child)] = child_scope
+                continue
+            self._walk(
+                child,
+                child_scope,
+                StorageClass.UNKNOWN,
+                declaration_context=False,
+            )
 
     def _declare_variables(self, node: AstNode, scope: Scope, storage: StorageClass) -> None:
         names_container = self._first_descendant(node, "var1_list")

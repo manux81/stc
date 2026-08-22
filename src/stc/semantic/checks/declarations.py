@@ -46,6 +46,8 @@ class TypeDeclarationCollector(SemanticCheck):
         "array_type_declaration",
         "structure_type_declaration",
         "enumerated_type_declaration",
+        "class_declaration",
+        "interface_declaration",
     }
     NAME_NODES = {
         "simple_type_name",
@@ -54,6 +56,8 @@ class TypeDeclarationCollector(SemanticCheck):
         "derived_type_name",
         "array_type_name",
         "structure_type_name",
+        "class_type_name",
+        "interface_type_name",
     }
 
     def run(self, ast):
@@ -88,6 +92,10 @@ class TypeDeclarationCollector(SemanticCheck):
                 datatype = DataType(name_node["value"], TypeCategory.ARRAY)
             elif declaration.get("name") == "structure_type_declaration":
                 datatype = DataType(name_node["value"], TypeCategory.STRUCT)
+            elif declaration.get("name") == "class_declaration":
+                datatype = DataType(name_node["value"], TypeCategory.CLASS)
+            elif declaration.get("name") == "interface_declaration":
+                datatype = DataType(name_node["value"], TypeCategory.INTERFACE)
             else:
                 underlying = next(
                     (

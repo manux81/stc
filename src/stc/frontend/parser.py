@@ -77,7 +77,7 @@ class IECParser(Parser):
     def last_item_on_stack(self):
         return self.stack[-1] if len (self.stack) > 0 else None
 
-    def method_name():
+    def _python_method_name():
         return sys._getframe.f_code.co_name
 
     def _node_from_production(self, p):
@@ -136,13 +136,15 @@ class IECParser(Parser):
 
     @_('data_type_name', 'function_name',
        'function_block_type_name', 'program_type_name',
-       'resource_type_name', 'configuration_name')
+       'resource_type_name', 'configuration_name',
+       'class_type_name', 'interface_type_name')
     def library_element_name(self, p):
         return self._node_from_production(p)
 
     @_('data_type_declaration',
        'function_declaration', 'function_block_declaration',
-       'program_declaration', 'configuration_declaration')
+       'program_declaration', 'configuration_declaration',
+       'class_declaration', 'interface_declaration')
     def library_element_declaration(self, p):
         return { "name": self.production.name, "children": [ p[0] ] }
 
@@ -1101,6 +1103,105 @@ class IECParser(Parser):
     def program_declaration(self, p):
         return self._node_from_production(p)
 
+#########################################
+# B.1.5 / Table 48 - Edition 3 OOP     #
+#########################################
+
+    @_('IDENTIFIER')
+    def class_type_name(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
+
+    @_('IDENTIFIER')
+    def interface_type_name(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
+
+    @_('IDENTIFIER')
+    def method_name(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
+
+    @_('PUBLIC', 'PRIVATE', 'INTERNAL', 'PROTECTED')
+    def access_spec(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
+
+    @_('FINAL', 'ABSTRACT')
+    def class_modifier(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
+
+    @_('FINAL', 'ABSTRACT')
+    def method_modifier(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
+
+    @_('interface_type_name { "," interface_type_name }')
+    def interface_name_list(self, p):
+        items = [p[0]]
+        for obj in p[1]:
+            items.append(obj[1])
+        return {"name": self.production.name, "children": items}
+
+    @_('', 'class_var_declarations_list other_var_declarations')
+    def class_var_declarations_list(self, p):
+        if not p:
+            return {"name": self.production.name, "children": []}
+        children = list(p[0].get("children", []))
+        children.append(p[1])
+        return {"name": self.production.name, "children": children}
+
+    @_('', 'method_var_declarations_list method_var_declarations')
+    def method_var_declarations_list(self, p):
+        if not p:
+            return {"name": self.production.name, "children": []}
+        children = list(p[0].get("children", []))
+        children.append(p[1])
+        return {"name": self.production.name, "children": children}
+
+    @_('io_var_declarations', 'function_var_decls', 'temp_var_decls')
+    def method_var_declarations(self, p):
+        return {"name": self.production.name, "children": [p[0]]}
+
+    @_('', 'method_declaration_list method_declaration')
+    def method_declaration_list(self, p):
+        if not p:
+            return {"name": self.production.name, "children": []}
+        children = list(p[0].get("children", []))
+        children.append(p[1])
+        return {"name": self.production.name, "children": children}
+
+    @_('METHOD [ access_spec ] [ method_modifier ] [ OVERRIDE ] method_name '
+       '[ ":" function_return_type ] method_var_declarations_list [ function_body ] END_METHOD')
+    def method_declaration(self, p):
+        return self._node_from_production(p)
+
+    @_('', 'method_prototype_list method_prototype')
+    def method_prototype_list(self, p):
+        if not p:
+            return {"name": self.production.name, "children": []}
+        children = list(p[0].get("children", []))
+        children.append(p[1])
+        return {"name": self.production.name, "children": children}
+
+    @_('METHOD method_name [ ":" function_return_type ] method_interface_var_declarations_list END_METHOD')
+    def method_prototype(self, p):
+        return self._node_from_production(p)
+
+    @_('', 'method_interface_var_declarations_list io_var_declarations')
+    def method_interface_var_declarations_list(self, p):
+        if not p:
+            return {"name": self.production.name, "children": []}
+        children = list(p[0].get("children", []))
+        children.append(p[1])
+        return {"name": self.production.name, "children": children}
+
+    @_('CLASS [ class_modifier ] class_type_name [ EXTENDS class_type_name ] '
+       '[ IMPLEMENTS interface_name_list ] class_var_declarations_list '
+       'method_declaration_list END_CLASS')
+    def class_declaration(self, p):
+        return self._node_from_production(p)
+
+    @_('INTERFACE interface_type_name [ EXTENDS interface_name_list ] '
+       'method_prototype_list END_INTERFACE')
+    def interface_declaration(self, p):
+        return self._node_from_production(p)
+
     @_('VAR_ACCESS program_access_decl ";" { program_access_decl ";" } END_VAR')
     def program_access_decls(self, p):
         return self._node_from_production(p)
@@ -1525,7 +1626,7 @@ class IECParser(Parser):
     def unary_operator(self, p):
         return { "name": self.production.name, "value": p[0], "children": [ ] }
 
-    @_('constant', 'qualified_enumerated_value', 'variable', '"(" expression ")"',
+    @_('constant', 'qualified_enumerated_value', 'variable', 'method_invocation', '"(" expression ")"',
        'function_name "(" [ param_assignment { "," param_assignment } ] ")"')
     def primary_expression(self, p):
         if len(p) == 1:
@@ -1565,7 +1666,7 @@ class IECParser(Parser):
 #########################################
 # B.3.2.2 Subprogram control statements #
 #########################################
-    @_('fb_invocation', 'assert_statement', 'RETURN')
+    @_('fb_invocation', 'method_call_statement', 'assert_statement', 'RETURN')
     def subprogram_control_statement(self, p):
         return self._node_from_production(p)
 
@@ -1577,6 +1678,36 @@ class IECParser(Parser):
        'array_variable "(" [ param_assignment { "," param_assignment } ] ")"')
     def fb_invocation(self, p):
         return self._node_from_production(p)
+
+    @_('method_invocation')
+    def method_call_statement(self, p):
+        return {"name": self.production.name, "children": [p[0]]}
+
+    @_('variable_name "." method_name "(" [ param_assignment { "," param_assignment } ] ")"',
+       'THIS "." method_name "(" [ param_assignment { "," param_assignment } ] ")"',
+       'SUPER "." method_name "(" [ param_assignment { "," param_assignment } ] ")"')
+    def method_invocation(self, p):
+        # Keep receiver kind explicit. This prevents codegen and semantic
+        # analysis from having to infer THIS/SUPER from generic token nodes.
+        if isinstance(p[0], dict):
+            receiver = {
+                "name": "method_receiver",
+                "value": "variable",
+                "children": [p[0]],
+            }
+        else:
+            receiver = {
+                "name": "method_receiver",
+                "value": str(p[0]).upper(),
+                "children": [],
+            }
+        args = []
+        optional = p[4]
+        if optional[0] is not None:
+            args.append(optional[0])
+            for obj in optional[1]:
+                args.append(obj[1])
+        return {"name": self.production.name, "children": [receiver, p[2], *args]}
 
     @_('expression',
        'PARAMETER_IDENTIFIER ASSIGN expression',

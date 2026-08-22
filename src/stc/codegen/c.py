@@ -5,6 +5,7 @@
 import re
 
 from .visitor import NodeVisitor
+from .oop_c import OOPCEmitter
 from ..runtime.loader import render_primitives
 
 
@@ -37,8 +38,10 @@ class CCodeGenerator(NodeVisitor):
         self.current_return_type = None
         self.current_instance = None
         self.current_instance_fields = set()
+        self.current_instance_field_paths = {}
         self.current_pointer_params = set()
         self._types_pre_emitted = False
+        self.oop = OOPCEmitter(self)
 
     def iecType2C(self, typein):
         conv = {
@@ -294,6 +297,8 @@ class CCodeGenerator(NodeVisitor):
         retained_names = {field.casefold() for _, field in retained}
         self.text += "/* Reset all instance state for a cold start. */\n"
         self.text += f"void {name}_cold_init({name} *self)\n{{\n    memset(self, 0, sizeof(*self));\n"
+        for var_type, field in declarations:
+            self.oop.emit_field_initializer(var_type, f"&self->{field}", self.text_append)
         for _, field in declarations:
             if field.casefold() in initializers:
                 self.text += f"    self->{field} = {initializers[field.casefold()]};\n"
@@ -305,9 +310,13 @@ class CCodeGenerator(NodeVisitor):
         for _, field in declarations:
             if field.casefold() not in retained_names:
                 self.text += f"    memset(&self->{field}, 0, sizeof(self->{field}));\n"
+                self.oop.emit_field_initializer(_, f"&self->{field}", self.text_append, indent="    ")
                 if field.casefold() in initializers:
                     self.text += f"    self->{field} = {initializers[field.casefold()]};\n"
         self.text += "}\n\n"
+
+    def text_append(self, value):
+        self.text += value
 
     def collect_sections(self, node, section_name):
         if not isinstance(node, dict):
@@ -476,7 +485,8 @@ class CCodeGenerator(NodeVisitor):
     def visit_variable_name(self, node):
         name = node["value"]
         if self.current_instance is not None and name.casefold() in self.current_instance_fields:
-            self.text += f"{self.current_instance}->{name}"
+            path = self.current_instance_field_paths.get(name.casefold(), name)
+            self.text += f"{self.current_instance}->{path}"
         elif name.casefold() in self.current_pointer_params:
             self.text += f"(*{name})"
         elif self.context is not None:
@@ -503,6 +513,7 @@ class CCodeGenerator(NodeVisitor):
 
     def visit_library(self, node):
         self._emit_section("IEC 61131-3 runtime support")
+        self.oop.prepare(node)
         requested = {
             str(item.get("value", "")).upper()
             for item in self._named_nodes(node, "standard_function_name")
@@ -540,8 +551,16 @@ class CCodeGenerator(NodeVisitor):
                 return_type, emitted_name, params = self._function_signature(declaration)
                 self.text += f"{return_type} {emitted_name}({', '.join(params) or 'void'});\n"
             self.text += "\n"
+        if self.oop.has_oop:
+            self._emit_section("IEC 61131-3 Edition 3 object-oriented types")
+            self.oop.emit_declarations(node)
         self._emit_section("Program organization unit implementations")
-        self.accept(node, lambda name: name != "data_type_declaration")
+        self.accept(
+            node,
+            lambda name: name not in {
+                "data_type_declaration", "class_declaration", "interface_declaration"
+            },
+        )
         configurations = self._named_nodes(node, "configuration_declaration")
         if configurations:
             self.text += "\n/* Standalone entry point. Define STC_NO_MAIN when embedding this file. */\n"
@@ -980,6 +999,8 @@ class CCodeGenerator(NodeVisitor):
         self.text += f" {op} "
 
     def visit_assignment_statement(self, node):
+        if self.oop.emit_assignment(node):
+            return
         self.text += self.indent
         self.accept(node, lambda name: name == "variable")
         self.text += " = "
@@ -1122,6 +1143,29 @@ class CCodeGenerator(NodeVisitor):
 
     def visit_fb_invocation(self, node):
         self.text += f"{self.indent}(void)0;\n"
+
+    def visit_method_invocation(self, node):
+        self.text += self.oop.render_invocation(node)
+
+    def visit_method_call_statement(self, node):
+        invocation = self._first_named(node, "method_invocation")
+        self.text += f"{self.indent}{self.oop.render_invocation(invocation)};\n"
+
+    def visit_class_declaration(self, node):
+        # Edition 3 classes are emitted by OOPCEmitter in visit_library().
+        return
+
+    def visit_interface_declaration(self, node):
+        # Edition 3 interfaces are emitted by OOPCEmitter in visit_library().
+        return
+
+    def visit_method_declaration(self, node):
+        # Methods are emitted as part of their owning class.
+        return
+
+    def visit_method_prototype(self, node):
+        # Interface method prototypes are emitted in the interface vtable.
+        return
 
     def visit_configuration_declaration(self, node):
         name_node = self._first_named(node, "configuration_name")

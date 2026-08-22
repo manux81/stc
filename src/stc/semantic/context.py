@@ -23,6 +23,10 @@ class SemanticContext:
     candidate_functions:dict[int,list[Symbol]]=field(default_factory=dict)
     resolved_calls:dict[int,Symbol]=field(default_factory=dict)
     resolved_arguments:dict[int,list[AstNode]]=field(default_factory=dict)
+    # Edition 3 object-oriented semantic products.
+    oop_types:dict[str,Any]=field(default_factory=dict)
+    resolved_methods:dict[int,dict[str,Any]]=field(default_factory=dict)
+    oop_assignments:dict[int,dict[str,Any]]=field(default_factory=dict)
     generated_names:dict[int,str]=field(default_factory=dict)
     constants:dict[int,ConstantValue]=field(default_factory=dict)
     lvalues:dict[int,bool]=field(default_factory=dict)

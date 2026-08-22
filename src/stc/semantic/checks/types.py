@@ -133,6 +133,8 @@ class PrintDatatypesError(SemanticCheck):
         for assignment in (
             node for node in walk(ast) if node.get("name") == "assignment_statement"
         ):
+            if id(assignment) in self.context.oop_assignments:
+                continue
             node_children = direct_children(assignment)
             if len(node_children) < 2:
                 continue
