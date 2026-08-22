@@ -1195,25 +1195,94 @@ class CCodeGenerator(NodeVisitor):
         base_interval = min((task["interval"] for task in tasks.values()), default=1)
         self.text += f"    return UINT64_C({base_interval});\n}}\n\n"
 
-        self.text += "/* Advance the scheduler and execute every task that became due. */\n"
+        self.text += "/* Advance the scheduler while preserving chronological task order. */\n"
         self.text += f"void {name}_cycle(uint64_t elapsed_ms)\n{{\n"
         for program in programs:
             if program["task"] is None:
                 self.text += f"    {program['type']}_run(&{name}_{program['instance']});\n"
-        for task in sorted(tasks.values(), key=lambda item: (item["priority"], item["name"].casefold())):
-            assigned = [program for program in programs if program["task"] == task["name"].casefold()]
-            self.text += (
-                f"    /* Task {task['name']}: interval {task['interval']} ms, "
-                f"priority {task['priority']}. */\n"
-            )
-            self.text += f"    {name}_{task['name']}_elapsed_ms += elapsed_ms;\n"
-            self.text += f"    while ({name}_{task['name']}_elapsed_ms >= UINT64_C({task['interval']})) {{\n"
-            self.text += f"        {name}_{task['name']}_elapsed_ms -= UINT64_C({task['interval']});\n"
-            for program in assigned:
-                self.text += f"        {program['type']}_run(&{name}_{program['instance']});\n"
-            if task["single"]:
-                self.text += f"        {name}_{task['name']}_elapsed_ms = 0;\n        break;\n"
+
+        scheduled_tasks = sorted(
+            tasks.values(),
+            key=lambda item: (item["priority"], item["name"].casefold()),
+        )
+
+        if scheduled_tasks:
+            self.text += "    uint64_t remaining_ms = elapsed_ms;\n"
+
+            for task in scheduled_tasks:
+                if task["single"]:
+                    self.text += f"    bool {name}_{task['name']}_fired = false;\n"
+
+            self.text += "    while (remaining_ms > 0) {\n"
+            self.text += "        uint64_t next_due_ms = UINT64_MAX;\n"
+
+            for task in tasks.values():
+                elapsed_name = f"{name}_{task['name']}_elapsed_ms"
+                interval = task["interval"]
+                if task["single"]:
+                    self.text += f"        if (!{name}_{task['name']}_fired) {{\n"
+                    indent = "            "
+                else:
+                    indent = "        "
+                self.text += (
+                    f"{indent}uint64_t until_due_ms = "
+                    f"UINT64_C({interval}) - {elapsed_name};\n"
+                )
+                self.text += (
+                    f"{indent}if (until_due_ms < next_due_ms) "
+                    "next_due_ms = until_due_ms;\n"
+                )
+                if task["single"]:
+                    self.text += "        }\n"
+
+            self.text += "        if (next_due_ms > remaining_ms) {\n"
+            for task in tasks.values():
+                elapsed_name = f"{name}_{task['name']}_elapsed_ms"
+                if task["single"]:
+                    self.text += (
+                        f"            if (!{name}_{task['name']}_fired) "
+                        f"{elapsed_name} += remaining_ms;\n"
+                    )
+                else:
+                    self.text += f"            {elapsed_name} += remaining_ms;\n"
+            self.text += "            break;\n"
+            self.text += "        }\n"
+
+            for task in tasks.values():
+                elapsed_name = f"{name}_{task['name']}_elapsed_ms"
+                if task["single"]:
+                    self.text += (
+                        f"        if (!{name}_{task['name']}_fired) "
+                        f"{elapsed_name} += next_due_ms;\n"
+                    )
+                else:
+                    self.text += f"        {elapsed_name} += next_due_ms;\n"
+            self.text += "        remaining_ms -= next_due_ms;\n"
+
+            for task in scheduled_tasks:
+                assigned = [
+                    program for program in programs
+                    if program["task"] == task["name"].casefold()
+                ]
+                elapsed_name = f"{name}_{task['name']}_elapsed_ms"
+                interval = task["interval"]
+                condition = f"{elapsed_name} >= UINT64_C({interval})"
+                if task["single"]:
+                    condition = f"!{name}_{task['name']}_fired && ({condition})"
+                self.text += f"        if ({condition}) {{\n"
+                self.text += f"            {elapsed_name} -= UINT64_C({interval});\n"
+                for program in assigned:
+                    self.text += (
+                        f"            {program['type']}_run("
+                        f"&{name}_{program['instance']});\n"
+                    )
+                if task["single"]:
+                    self.text += f"            {elapsed_name} = 0;\n"
+                    self.text += f"            {name}_{task['name']}_fired = true;\n"
+                self.text += "        }\n"
+
             self.text += "    }\n"
+
         self.text += "}\n\n"
 
     def _join_children(self, node, separator, parenthesize_operands=False):
