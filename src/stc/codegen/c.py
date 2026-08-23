@@ -507,6 +507,106 @@ class CCodeGenerator(NodeVisitor):
     def visit_field_selector(self, node):
         self.text += str(node.get("value", ""))
 
+    def _array_lower_bounds(self, variable_name):
+        """Return the IEC lower bounds for an array variable reference."""
+        if self.context is None or variable_name is None:
+            return ()
+
+        symbol = self.context.symbols.symbol_for_reference(variable_name)
+        if symbol is None:
+            return ()
+
+        specification = None
+
+        # Inline declaration:
+        #     A : ARRAY[5..7] OF INT;
+        declaration_nodes = {
+            "var1_init_decl",
+            "var1_declaration",
+            "array_var_init_decl",
+            "array_var_declaration",
+            "structured_var_init_decl",
+            "structured_var_declaration",
+            "string_var_declaration",
+            "fb_name_decl",
+            "located_var_decl",
+        }
+        for declaration in self._iter_named_set(
+            symbol.scope.node, declaration_nodes
+        ):
+            names = self._named_nodes(declaration, "variable_name")
+            if any(item is symbol.declaration for item in names):
+                specification = self._first_named(
+                    declaration, "array_specification"
+                )
+                break
+
+        # Named array type:
+        #     TYPE Values : ARRAY[5..7] OF INT; END_TYPE
+        #     A : Values;
+        if (
+            specification is None
+            and symbol.type_ref is not None
+            and symbol.type_ref.name
+        ):
+            type_name = symbol.type_ref.name.casefold()
+            root = self.context.symbols.global_scope.node
+            for declaration in self._named_nodes(
+                root, "array_type_declaration"
+            ):
+                name = self._first_named(declaration, "array_type_name")
+                if (
+                    name is not None
+                    and str(name.get("value", "")).casefold() == type_name
+                ):
+                    specification = self._first_named(
+                        declaration, "array_specification"
+                    )
+                    break
+
+        if specification is None:
+            return ()
+
+        lower_bounds = []
+        for subrange in self._named_nodes(specification, "subrange"):
+            bounds = self._named_nodes(subrange, "signed_integer")
+            if len(bounds) == 2:
+                lower_bounds.append(self.render(bounds[0]))
+
+        return tuple(lower_bounds)
+
+    def visit_array_variable(self, node):
+        """Translate IEC array indexes to zero-based C indexes."""
+        subscripted = self._first_named(node, "subscripted_variable")
+        subscript_list = self._first_named(node, "subscript_list")
+
+        if subscripted is None or subscript_list is None:
+            self.accept(node)
+            return
+
+        variable_name = self._first_named(subscripted, "variable_name")
+        lower_bounds = self._array_lower_bounds(variable_name)
+
+        self.visit(subscripted)
+
+        subscripts = [
+            child
+            for child in subscript_list.get("children", [])
+            if isinstance(child, dict) and child.get("name") == "subscript"
+        ]
+
+        for dimension, subscript in enumerate(subscripts):
+            index = self.render(subscript)
+            lower = (
+                lower_bounds[dimension]
+                if dimension < len(lower_bounds)
+                else "0"
+            )
+            if lower == "0":
+                self.text += f"[{index}]"
+            else:
+                self.text += f"[({index}) - ({lower})]"
+
     def visit_subscript_list(self, node):
         for subscript in self._named_nodes(node, "subscript"):
             self.text += f"[{self.render(subscript)}]"
