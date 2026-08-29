@@ -11,6 +11,9 @@ from pathlib import Path
 from stc.compiler import compile_source
 
 
+ROOT = Path(__file__).resolve().parents[1]
+EMPLOYEE_EXAMPLE = ROOT / "examples" / "employee_oop.st"
+
 SIMPLE_CLASS = """
 CLASS Counter
 VAR
@@ -170,6 +173,29 @@ class Edition3OopTests(unittest.TestCase):
         self.assertIn("self.__base.Count", inherited.output)
         self.assertIn("instance: *mut ()", interface.output)
         self.assertIn("impl From<&mut Counter> for IResettable", interface.output)
+
+    def test_abstract_employee_example_compiles_for_c_and_rust(self):
+        source = EMPLOYEE_EXAMPLE.read_text(encoding="utf-8")
+        rust = self._assert_rust_compiles(source)
+        c = compile_source(source, "c", source_name=str(EMPLOYEE_EXAMPLE))
+        self.assertTrue(c.success, c.diagnostics)
+        self.assertNotIn("EmployeeBase__as_IEmployee", c.output)
+        self.assertIn("FullTimeEmployee__as_IEmployee", c.output)
+        self.assertIn("impl From<&mut FullTimeEmployee> for IEmployee", rust.output)
+        compiler = shutil.which("cc")
+        if compiler is not None:
+            with tempfile.TemporaryDirectory() as directory:
+                generated = Path(directory, "employee.c")
+                generated.write_text(c.output, encoding="utf-8")
+                completed = subprocess.run(
+                    [
+                        compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                        "-c", str(generated), "-o", str(Path(directory, "employee.o")),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_final_method_cannot_be_overridden(self):
         result = compile_source(INVALID_OVERRIDE, "c", generate_code=False)

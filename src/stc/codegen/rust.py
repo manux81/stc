@@ -787,6 +787,24 @@ class RustCodeGenerator(NodeVisitor):
             result[field.casefold()] = field
         return result
 
+    def _rust_implemented_interfaces(self, cls):
+        interfaces = self.context.oop_types.get("interfaces", {}) if self.context is not None else {}
+        result = {}
+        base = self._rust_class(cls.get("base"))
+        if base is not None:
+            for interface in self._rust_implemented_interfaces(base):
+                result[interface["key"]] = interface
+        for interface_name in cls.get("interfaces", []):
+            interface = interfaces.get(interface_name.casefold())
+            if interface is None:
+                continue
+            result[interface["key"]] = interface
+            for parent_name in interface.get("extends", []):
+                parent = interfaces.get(parent_name.casefold())
+                if parent is not None:
+                    result[parent["key"]] = parent
+        return list(result.values())
+
     def _rust_method_signature(self, node):
         return_node = self._first_named(node, "function_return_type")
         result = self.declaration_type(return_node, "()") if return_node is not None else "()"
@@ -879,11 +897,7 @@ class RustCodeGenerator(NodeVisitor):
             self.indent = ""
             self.text += "    }\n"
         self.text += "}\n"
-        interfaces = self.context.oop_types.get("interfaces", {})
-        for interface_name in cls.get("interfaces", []):
-            iface = interfaces.get(interface_name.casefold())
-            if iface is None:
-                continue
+        for iface in ([] if cls["abstract"] else self._rust_implemented_interfaces(cls)):
             self.text += f"impl From<&mut {name}> for {iface['name']} {{\n    fn from(value: &mut {name}) -> Self {{ Self {{\n        instance: value as *mut {name} as *mut (),\n"
             for method in iface["methods"]:
                 result, params = self._rust_method_signature(method["node"])

@@ -127,7 +127,7 @@ class OOPCEmitter:
             self.g.text += "    ._stc_empty = 0,\n"
         self.g.text += "};\n\n"
 
-        for iface in self._implemented_interfaces(cls):
+        for iface in ([] if cls["abstract"] else self._implemented_interfaces(cls)):
             methods = self._all_interface_methods(iface)
             self.g.text += (
                 f"static const {iface['name']}__vtable "
