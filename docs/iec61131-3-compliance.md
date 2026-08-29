@@ -37,6 +37,20 @@ The Edition 4 profile rejects IL before code generation.
 | Tables 28-33 - Numerical, arithmetic, bit, selection, comparison | Partial | Common arithmetic, comparison, selection, and mathematical operations are generated. Extensible arity and every generic overload are not yet claimed. |
 | Table 34 - Character string functions | Partial | C primitives implement `LEN`, `LEFT`, `RIGHT`, `MID`, two-input `CONCAT`, `INSERT`, `DELETE`, and `REPLACE`; `FIND` is implemented in portable ST. Rust currently provides `LEN` and `MID`; the allocating string operations await the owned-string ABI. |
 
+## Sequential Function Charts
+
+Textual SFC is supported in the Edition 2, Edition 3, and Edition 4 profiles
+for programs and function blocks. The implemented subset includes multiple
+networks, simple and simultaneous step branches, named/prioritized
+transitions with ST conditions, textual actions, indicators, and the standard
+`N`, `R`, `S`, `P`, `P0`, `P1`, `L`, `D`, `SD`, `DS`, and `SL` action
+qualifiers. Both backends retain step activation, previous-scan activation,
+elapsed time, and stored-action state in the generated POU instance.
+
+Direct calls to a generated POU count one millisecond per invocation for timed
+qualifiers. Graphical transition conditions (FBD and LD), macro steps, and
+online-change state migration are not currently claimed as supported.
+
 ## Edition 4 extensions
 
 The Edition 4 profile currently adds `USTRING`, `UCHAR`, Unicode `${HEX}`

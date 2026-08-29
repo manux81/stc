@@ -107,9 +107,15 @@ class IECLexer(Lexer):
             "AND", "OR", "XOR", "ANDN", "AN", "ORN", "XORN",
             "ADD", "SUB", "MUL", "DIV", "MOD", "GT", "GE", "EQ", "LT", "LE", "NE",
         }
+        il_only = {
+            "LD", "LDN", "ST", "STN", "S", "R", "S1", "R1", "CAL", "CALC", "CALCN",
+            "RET", "RETC", "RETCN", "JMP", "JMPC", "JMPCN",
+        }
         for token in super().tokenize(text, lineno=lineno, index=index):
             if self.language == "IL" and token.type in il_operators:
                 token.type = "IL_" + token.type
+            elif self.language != "IL" and token.type in il_only:
+                token.type = "IDENTIFIER"
             yield token
 
     def ignore_block_comment(self, t):
@@ -230,12 +236,15 @@ class IECLexer(Lexer):
 
     # T, D, H, M and MS are duration delimiters, not globally reserved
     # keywords. Outside a duration literal they remain legal identifiers.
-    T = before("IDENTIFIER", r'T(?![a-zA-Z])')
-    D = before("IDENTIFIER", r'D(?![a-zA-Z])')
-    H = before("IDENTIFIER", r'H(?![a-zA-Z])')
-    M = before("IDENTIFIER", r'M(?![a-zA-Z])')
-    SEC = before("IDENTIFIER", r'S(?![a-zA-Z])')
-    MS = before("IDENTIFIER", r'MS(?![a-zA-Z])')
+    # Unit tokens must not split legal identifiers such as S0 or T1.  The
+    # surrounding duration grammar supplies the context in which a standalone
+    # unit is meaningful.
+    T = before("IDENTIFIER", r'T(?![a-zA-Z0-9_])')
+    D = before("IDENTIFIER", r'D(?![a-zA-Z0-9_])')
+    H = before("IDENTIFIER", r'H(?![a-zA-Z0-9_])')
+    M = before("IDENTIFIER", r'M(?![a-zA-Z0-9_])')
+    SEC = before("IDENTIFIER", r'S(?![a-zA-Z0-9_])')
+    MS = before("IDENTIFIER", r'MS(?![a-zA-Z0-9_])')
 
     def _inside_duration_literal(self, index):
         before_text = self.text[:index]

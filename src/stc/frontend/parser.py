@@ -1218,10 +1218,12 @@ class IECParser(Parser):
     def sequential_function_chart(self, p):
         return self._node_from_production(p)
 
-    @_('initial_step { step }',
-       'initial_step { transition }',
-       'initial_step { action }')
+    @_('initial_step { sfc_element }')
     def sfc_network(self, p):
+        return self._node_from_production(p)
+
+    @_('step', 'transition', 'action')
+    def sfc_element(self, p):
         return self._node_from_production(p)
 
     @_('INITIAL_STEP step_name ":" { action_association ";" } END_STEP')
@@ -1236,7 +1238,8 @@ class IECParser(Parser):
     def step_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
-    @_('action_name "(" [ action_qualifier ] { "," indicator_name } ")"')
+    @_('action_name "(" ")"',
+       'action_name "(" action_qualifier { "," action_argument } ")"')
     def action_association(self, p):
         return self._node_from_production(p)
 
@@ -1244,16 +1247,12 @@ class IECParser(Parser):
     def action_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
-    @_('"N"', '"R"', '"S"', '"P"', 'timed_qualifier "," action_time')
+    @_('IDENTIFIER', 'SD', 'DS', 'SL')
     def action_qualifier(self, p):
-        return self._node_from_production(p)
-
-    @_('"L"', '"D"', 'SD', 'DS', 'SL')
-    def timed_qualifier(self, p):
-        return self._node_from_production(p)
+        return {"name": self.production.name, "value": p[0], "children": []}
 
     @_('duration', 'variable_name')
-    def action_time(self, p):
+    def action_argument(self, p):
         return self._node_from_production(p)
 
     @_('variable_name')

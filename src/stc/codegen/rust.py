@@ -5,6 +5,7 @@
 import re
 
 from .visitor import NodeVisitor
+from .sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
 from ..runtime.loader import render_primitives
 from ..semantic.types import EnumType
 
@@ -493,7 +494,13 @@ class RustCodeGenerator(NodeVisitor):
         return result
 
     def _emit_state_type(self, name, declarations, retained, initializers, entry_name, body_name, node):
-        declarations = self._unique_declarations(declarations)
+        declarations = self._unique_declarations(
+            declarations + sfc_state_declarations(node, "bool", "i64")
+        )
+        for chart in sfc_charts(node):
+            for step in chart["steps"]:
+                if step["initial"]:
+                    initializers[sfc_field(step["name"], "active").casefold()] = "true"
         retained_names = {field.casefold() for _, field in retained}
         self.text += "#[allow(non_camel_case_types, non_snake_case)]\n"
         self.text += "pub struct " + name + " {\n"
@@ -672,6 +679,138 @@ class RustCodeGenerator(NodeVisitor):
             self.accept(node, lambda child_name: child_name == "function_block_body")
             self.indent_dec()
             self.text += "}\n"
+
+    def _sfc_step_condition(self, step, association):
+        active = f"self.{sfc_field(step['name'], 'active')}"
+        previous = f"self.{sfc_field(step['name'], 'previous')}"
+        elapsed = f"self.{sfc_field(step['name'], 'elapsed_ms')}"
+        qualifier = association["qualifier"]
+        time = self.render(association["time"]) if association["time"] is not None else "0"
+        if qualifier in {"P", "P1"}:
+            return f"{active} && !{previous}"
+        if qualifier == "P0":
+            return f"!{active} && {previous}"
+        if qualifier == "L":
+            return f"{active} && {elapsed} < {time}"
+        if qualifier in {"D", "SD", "DS"}:
+            return f"{active} && {elapsed} >= {time}"
+        if qualifier == "SL":
+            return f"{active} && {elapsed} < {time}"
+        return active
+
+    def _sfc_variable(self, name):
+        return self.render({"name": "variable_name", "value": name, "children": []})
+
+    def visit_sequential_function_chart(self, node):
+        for chart_index, chart in enumerate(sfc_charts(node)):
+            ordered = sorted(enumerate(chart["transitions"]), key=lambda item: (item[1]["priority"], item[0]))
+            earlier_sources = []
+            fire_names = {}
+            for ordinal, transition in ordered:
+                fire = f"__sfc_{chart_index}_fire_{ordinal}"
+                fire_names[ordinal] = fire
+                sources = " && ".join(
+                    f"self.{sfc_field(name, 'active')}" for name in transition["sources"]
+                ) or "false"
+                condition = self.render(transition["condition"]) if transition["condition"] is not None else "false"
+                current_sources = {item.casefold() for item in transition["sources"]}
+                blocked = [
+                    name for name, used in earlier_sources
+                    if {item.casefold() for item in used} & current_sources
+                ]
+                gate = "" if not blocked else " && " + " && ".join(f"!{name}" for name in blocked)
+                self.text += f"{self.indent}let {fire}: bool = ({sources}) && ({condition}){gate};\n"
+                earlier_sources.append((fire, transition["sources"]))
+
+            for ordinal, transition in enumerate(chart["transitions"]):
+                fire = fire_names.get(ordinal)
+                if fire is None:
+                    continue
+                self.text += f"{self.indent}if {fire} {{\n"
+                self.indent_inc()
+                for name in transition["sources"]:
+                    self.text += f"{self.indent}self.{sfc_field(name, 'active')} = false;\n"
+                for name in transition["targets"]:
+                    self.text += f"{self.indent}self.{sfc_field(name, 'active')} = true;\n"
+                self.indent_dec()
+                self.text += f"{self.indent}}}\n"
+
+            for step in chart["steps"]:
+                active = f"self.{sfc_field(step['name'], 'active')}"
+                previous = f"self.{sfc_field(step['name'], 'previous')}"
+                elapsed = f"self.{sfc_field(step['name'], 'elapsed_ms')}"
+                self.text += f"{self.indent}{elapsed} = if {active} {{ if {previous} {{ {elapsed} + 1 }} else {{ 0 }} }} else {{ 0 }};\n"
+
+            variable_conditions = {}
+            indicator_conditions = {}
+            variable_sets = {}
+            variable_resets = {}
+            action_sets = {}
+            action_resets = {}
+            stored_actions = set()
+            for step in chart["steps"]:
+                for association in step["associations"]:
+                    condition = self._sfc_step_condition(step, association)
+                    qualifier = association["qualifier"]
+                    key = association["name"].casefold()
+                    action = chart["actions"].get(key)
+                    if action is not None:
+                        if qualifier == "R":
+                            action_resets.setdefault(key, []).append(condition)
+                        elif qualifier in {"S", "SD", "DS"}:
+                            action_sets.setdefault(key, []).append(condition)
+                            stored_actions.add(key)
+                        else:
+                            self.text += f"{self.indent}if {condition} {{\n"
+                            self.indent_inc()
+                            self.accept(action, lambda child_name: child_name == "function_block_body")
+                            self.indent_dec()
+                            self.text += f"{self.indent}}}\n"
+                    elif qualifier == "R":
+                        variable_resets.setdefault(association["name"], []).append(condition)
+                    elif qualifier in {"S", "SD", "DS"}:
+                        variable_sets.setdefault(association["name"], []).append(condition)
+                    else:
+                        variable_conditions.setdefault(association["name"], []).append(condition)
+                    for indicator in association["indicators"]:
+                        indicator_name = self._first_named(indicator, "variable_name")
+                        if indicator_name is not None:
+                            indicator_conditions.setdefault(indicator_name["value"], []).append(condition)
+
+            combined_conditions = dict(variable_conditions)
+            for name, conditions in indicator_conditions.items():
+                combined_conditions.setdefault(name, []).extend(conditions)
+            for name, conditions in combined_conditions.items():
+                enabled = conditions[0] if len(conditions) == 1 else " || ".join(f"({item})" for item in conditions)
+                if name in variable_sets or name in variable_resets:
+                    self.text += f"{self.indent}if {enabled} {{ {self._sfc_variable(name)} = true; }}\n"
+                else:
+                    self.text += f"{self.indent}{self._sfc_variable(name)} = {enabled};\n"
+            for name, conditions in variable_sets.items():
+                enabled = conditions[0] if len(conditions) == 1 else " || ".join(f"({item})" for item in conditions)
+                self.text += f"{self.indent}if {enabled} {{ {self._sfc_variable(name)} = true; }}\n"
+            for name, conditions in variable_resets.items():
+                enabled = conditions[0] if len(conditions) == 1 else " || ".join(f"({item})" for item in conditions)
+                self.text += f"{self.indent}if {enabled} {{ {self._sfc_variable(name)} = false; }}\n"
+            for key, conditions in action_sets.items():
+                enabled = conditions[0] if len(conditions) == 1 else " || ".join(f"({item})" for item in conditions)
+                self.text += f"{self.indent}if {enabled} {{ self.{sfc_field('action_' + key, 'stored')} = true; }}\n"
+            for key, conditions in action_resets.items():
+                enabled = conditions[0] if len(conditions) == 1 else " || ".join(f"({item})" for item in conditions)
+                self.text += f"{self.indent}if {enabled} {{ self.{sfc_field('action_' + key, 'stored')} = false; }}\n"
+            for key in sorted(stored_actions):
+                action = chart["actions"][key]
+                state = f"self.{sfc_field('action_' + key, 'stored')}"
+                self.text += f"{self.indent}if {state} {{\n"
+                self.indent_inc()
+                self.accept(action, lambda child_name: child_name == "function_block_body")
+                self.indent_dec()
+                self.text += f"{self.indent}}}\n"
+            for step in chart["steps"]:
+                self.text += (
+                    f"{self.indent}self.{sfc_field(step['name'], 'previous')} = "
+                    f"self.{sfc_field(step['name'], 'active')};\n"
+                )
 
     def visit_configuration_declaration(self, node):
         name_node = self._first_named(node, "configuration_name")

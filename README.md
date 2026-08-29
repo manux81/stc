@@ -19,6 +19,9 @@ the supported subset.
 - Instruction List (IL) parsing and shared C/Rust lowering: supported by the
   Edition 2 profile, diagnosed as deprecated in Edition 3, and rejected by the
   Edition 4 profile.
+- Textual Sequential Function Charts (SFC) for the Edition 2, Edition 3, and
+  Edition 4 profiles, including parallel branches, prioritized transitions,
+  actions, indicators, and standard action qualifiers in both backends.
 - `VAR_INPUT` and function-local `VAR` declarations.
 - Elementary types including `BOOL`, signed/unsigned integers, `REAL`, `LREAL`,
   and bit-string integer families.

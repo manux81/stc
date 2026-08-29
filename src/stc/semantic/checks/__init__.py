@@ -24,6 +24,7 @@ from .validation import ArrayRangeCheck, CaseElementsCheck, FlowControlAnalysis,
 from .dependencies import DependencyAnalysis, topological_declaration_order
 from .edition import EditionCompatibilityCheck
 from .oop import Edition3ObjectOrientedCheck
+from .sfc import SequentialFunctionChartCheck
 from .pipeline import SemanticPipeline
 
 __all__ = [
@@ -54,4 +55,5 @@ __all__ = [
     "topological_declaration_order",
     "EditionCompatibilityCheck",
     "Edition3ObjectOrientedCheck",
+    "SequentialFunctionChartCheck",
 ]
