@@ -54,13 +54,13 @@ def read_source(path):
 def build_arg_parser():
     parser = argparse.ArgumentParser(
         prog="stc",
-        description="IEC 61131-3 Structured Text compiler front-end.",
+        description="IEC 61131-3 Structured Text and Instruction List compiler front-end.",
     )
     parser.add_argument(
         "source",
         nargs="?",
         default="-",
-        help="Structured Text source file. Use '-' or omit to read stdin.",
+        help="ST or IL source file. Use '-' or omit to read stdin.",
     )
     parser.add_argument(
         "-g",
@@ -79,7 +79,13 @@ def build_arg_parser():
         "--std",
         default="iec61131-3:ed3",
         metavar="EDITION",
-        help="IEC standard profile (iec61131-3:ed3 or iec61131-3:ed4).",
+        help="IEC standard profile (iec61131-3:ed2, iec61131-3:ed3 or iec61131-3:ed4).",
+    )
+    parser.add_argument(
+        "--language",
+        choices=("auto", "st", "il"),
+        default="auto",
+        help="Source textual language; auto detects IL POU bodies (default: auto).",
     )
     parser.add_argument(
         "-v",
@@ -216,6 +222,7 @@ def main(argv=None):
             imports=args.imports,
             generate_code=not args.fskip_code_gen,
             standard=args.std,
+            language=args.language,
         )
         elapsed_ms = (perf_counter() - started_at) * 1000.0
     except (OSError, ValueError, LibraryError, NativePragmaError) as exc:

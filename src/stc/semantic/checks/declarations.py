@@ -46,6 +46,7 @@ class TypeDeclarationCollector(SemanticCheck):
         "array_type_declaration",
         "structure_type_declaration",
         "enumerated_type_declaration",
+        "function_block_declaration",
         "class_declaration",
         "interface_declaration",
     }
@@ -56,6 +57,7 @@ class TypeDeclarationCollector(SemanticCheck):
         "derived_type_name",
         "array_type_name",
         "structure_type_name",
+        "derived_function_block_name",
         "class_type_name",
         "interface_type_name",
     }
@@ -92,6 +94,8 @@ class TypeDeclarationCollector(SemanticCheck):
                 datatype = DataType(name_node["value"], TypeCategory.ARRAY)
             elif declaration.get("name") == "structure_type_declaration":
                 datatype = DataType(name_node["value"], TypeCategory.STRUCT)
+            elif declaration.get("name") == "function_block_declaration":
+                datatype = DataType(name_node["value"], TypeCategory.FUNCTION_BLOCK)
             elif declaration.get("name") == "class_declaration":
                 datatype = DataType(name_node["value"], TypeCategory.CLASS)
             elif declaration.get("name") == "interface_declaration":

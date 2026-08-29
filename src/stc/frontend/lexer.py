@@ -101,6 +101,17 @@ class IECLexer(Lexer):
             raise ValueError(f"Unsupported IEC language: {language}")
         self.language = language
 
+    def tokenize(self, text, lineno=1, index=0):
+        """Use distinct operator tokens in IL to avoid ST-call ambiguities."""
+        il_operators = {
+            "AND", "OR", "XOR", "ANDN", "AN", "ORN", "XORN",
+            "ADD", "SUB", "MUL", "DIV", "MOD", "GT", "GE", "EQ", "LT", "LE", "NE",
+        }
+        for token in super().tokenize(text, lineno=lineno, index=index):
+            if self.language == "IL" and token.type in il_operators:
+                token.type = "IL_" + token.type
+            yield token
+
     def ignore_block_comment(self, t):
         self.lineno += t.value.count('\n')
 
@@ -156,6 +167,8 @@ class IECLexer(Lexer):
         EOL,
 
         LD, LDN, ST, STN, NOT, S, R, S1, R1, CLK, CU, CD, PV, IN, PT, AND, OR, XOR, ANDN, AN, ORN, XORN, ADD, SUB, MUL, DIV, MOD, GT, GE, EQ, LT, LE, NE, CAL, CALC, CALCN, RET, RETC, RETCN, JMP, JMPC, JMPCN,
+        IL_AND, IL_OR, IL_XOR, IL_ANDN, IL_AN, IL_ORN, IL_XORN,
+        IL_ADD, IL_SUB, IL_MUL, IL_DIV, IL_MOD, IL_GT, IL_GE, IL_EQ, IL_LT, IL_LE, IL_NE,
 
         GE_EQ, LE_EQ, NEQ, DOUBLESTAR,
 
@@ -444,7 +457,11 @@ class IECLexer(Lexer):
 ###################################
 # B.2.1 Instructions and operands #
 ###################################
-    EOL = r'\u2029'
+    EOL = r'\u2029+'
+
+    def EOL(self, token):
+        self.lineno += len(token.value)
+        return token
 
 ###################
 # B.2.2 Operators #

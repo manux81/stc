@@ -5,11 +5,581 @@
 import re
 
 from .visitor import NodeVisitor
-from .oop_c import OOPCEmitter
 from ..runtime.loader import render_primitives
 
 
+def _key(value):
+    return str(value or "").casefold()
+
+
+class OOPCEmitter:
+    """Lower IEC Ed.3 OOP to C structs, vtables and interface fat pointers."""
+
+    def __init__(self, generator):
+        self.g = generator
+        self.classes = {}
+        self.interfaces = {}
+
+    @property
+    def has_oop(self):
+        return bool(self.classes or self.interfaces)
+
+    def prepare(self, library):
+        if self.g.context is not None and self.g.context.oop_types:
+            self.classes = self.g.context.oop_types.get("classes", {})
+            self.interfaces = self.g.context.oop_types.get("interfaces", {})
+        else:
+            # Code generation normally runs after semantic analysis. Keep an
+            # empty model rather than guessing a hierarchy when --no-check is
+            # used.
+            self.classes = {}
+            self.interfaces = {}
+
+    def emit_declarations(self, library):
+        if not self.has_oop:
+            return
+
+        # Forward declarations break the class/interface naming cycle while
+        # keeping by-value class instances strongly typed.
+        for cls in self.classes.values():
+            self.g.text += f"typedef struct {cls['name']} {cls['name']};\n"
+        for iface in self.interfaces.values():
+            self.g.text += f"typedef struct {iface['name']} {iface['name']};\n"
+            self.g.text += (
+                f"typedef struct {iface['name']}__vtable "
+                f"{iface['name']}__vtable;\n"
+            )
+        self.g.text += "\n"
+
+        for iface in self.interfaces.values():
+            self._emit_interface(iface)
+        for cls in self._class_order():
+            self._emit_class(cls)
+
+    def _emit_interface(self, iface):
+        methods = self._all_interface_methods(iface)
+        self.g.text += f"struct {iface['name']}__vtable {{\n"
+        for method in methods:
+            ret, params = self._method_signature(method["node"])
+            suffix = ", " + ", ".join(params) if params else ""
+            self.g.text += (
+                f"    {ret} (*{method['name']})(void *instance{suffix});\n"
+            )
+        if not methods:
+            self.g.text += "    uint8_t _stc_empty;\n"
+        self.g.text += "};\n"
+        self.g.text += f"struct {iface['name']} {{\n"
+        self.g.text += "    void *instance;\n"
+        self.g.text += f"    const {iface['name']}__vtable *vtable;\n"
+        self.g.text += "};\n\n"
+
+    def _emit_class(self, cls):
+        name = cls["name"]
+        base = self._class(cls.get("base"))
+        own_fields = self._own_fields(cls)
+
+        # Prototypes must precede vtable initializers.
+        for method in cls["methods"]:
+            if method["abstract"]:
+                continue
+            ret, params = self._method_signature(method["node"])
+            suffix = ", " + ", ".join(params) if params else ""
+            self.g.text += (
+                f"static {ret} {name}__{method['name']}"
+                f"(void *instance{suffix});\n"
+            )
+        if cls["methods"]:
+            self.g.text += "\n"
+
+        self.g.text += f"struct {name} {{\n"
+        if base is None:
+            self.g.text += "    const void *__vptr;\n"
+        else:
+            self.g.text += f"    {base['name']} __base;\n"
+        for var_type, field in own_fields:
+            self.g.text += f"    {self.g._format_declarator(var_type, field)};\n"
+        if base is None and not own_fields:
+            self.g.text += "    uint8_t _stc_empty;\n"
+        self.g.text += "};\n\n"
+
+        all_methods = self._all_class_methods(cls)
+        self.g.text += f"typedef struct {name}__vtable {{\n"
+        for method in all_methods:
+            ret, params = self._method_signature(method["node"])
+            suffix = ", " + ", ".join(params) if params else ""
+            self.g.text += (
+                f"    {ret} (*{method['name']})(void *instance{suffix});\n"
+            )
+        if not all_methods:
+            self.g.text += "    uint8_t _stc_empty;\n"
+        self.g.text += f"}} {name}__vtable;\n"
+
+        self.g.text += f"static const {name}__vtable {name}__dispatch = {{\n"
+        for method in all_methods:
+            impl = self._implementation_for(cls, method["key"])
+            value = (
+                "NULL"
+                if impl is None or impl["abstract"]
+                else f"{impl['owner']}__{impl['name']}"
+            )
+            self.g.text += f"    .{method['name']} = {value},\n"
+        if not all_methods:
+            self.g.text += "    ._stc_empty = 0,\n"
+        self.g.text += "};\n\n"
+
+        for iface in self._implemented_interfaces(cls):
+            methods = self._all_interface_methods(iface)
+            self.g.text += (
+                f"static const {iface['name']}__vtable "
+                f"{name}__{iface['name']}__dispatch = {{\n"
+            )
+            for method in methods:
+                impl = self._implementation_for(cls, method["key"])
+                value = (
+                    "NULL"
+                    if impl is None or impl["abstract"]
+                    else f"{impl['owner']}__{impl['name']}"
+                )
+                self.g.text += f"    .{method['name']} = {value},\n"
+            if not methods:
+                self.g.text += "    ._stc_empty = 0,\n"
+            self.g.text += "};\n"
+            self.g.text += (
+                f"static inline {iface['name']} "
+                f"{name}__as_{iface['name']}({name} *self)\n{{\n"
+                f"    return ({iface['name']}){{ self, "
+                f"&{name}__{iface['name']}__dispatch }};\n"
+                "}\n\n"
+            )
+
+        self._emit_class_initializer(cls, own_fields)
+        for method in cls["methods"]:
+            if not method["abstract"]:
+                self._emit_method(cls, method)
+
+    def _emit_class_initializer(self, cls, own_fields):
+        name = cls["name"]
+        base = self._class(cls.get("base"))
+        self.g.text += f"void {name}__init({name} *self)\n{{\n"
+        if base is None:
+            self.g.text += "    memset(self, 0, sizeof(*self));\n"
+        else:
+            self.g.text += "    memset(self, 0, sizeof(*self));\n"
+            self.g.text += f"    {base['name']}__init(&self->__base);\n"
+        self.g.text += (
+            f"    self->{self._vptr_path(cls)} = &{name}__dispatch;\n"
+        )
+        for var_type, field in own_fields:
+            self.emit_field_initializer(
+                var_type,
+                f"&self->{field}",
+                self.g.text_append,
+                indent="    ",
+            )
+        self.g.text += "}\n\n"
+
+    def _emit_method(self, cls, method):
+        name = cls["name"]
+        ret, params = self._method_signature(method["node"])
+        suffix = ", " + ", ".join(params) if params else ""
+        self.g.text += (
+            f"static {ret} {name}__{method['name']}"
+            f"(void *instance{suffix})\n{{\n"
+        )
+        self.g.text += f"    {name} *self = ({name} *)instance;\n"
+        self.g.text += "    (void)self;\n"
+
+        return_type_node = self.g._first_named(
+            method["node"], "function_return_type"
+        )
+        if return_type_node is not None:
+            self.g.text += (
+                f"    {self.g._format_declarator(ret, method['name'])} = "
+                f"{self.g.zero_value(ret)};\n"
+            )
+        locals_ = self.g.collect_sections(method["node"], "function_var_decls")
+        temps = self.g.collect_sections(method["node"], "temp_var_decls")
+        for var_type, var_name in locals_ + temps:
+            self.g.text += (
+                f"    {self.g._format_declarator(var_type, var_name)} = {{0}};\n"
+            )
+            self.emit_field_initializer(
+                var_type,
+                f"&{var_name}",
+                self.g.text_append,
+                indent="    ",
+            )
+
+        previous_instance = self.g.current_instance
+        previous_fields = self.g.current_instance_fields
+        previous_paths = self.g.current_instance_field_paths
+        previous_pointers = self.g.current_pointer_params
+        self.g.current_instance = "self"
+        field_paths = self._field_paths(cls)
+        self.g.current_instance_fields = set(field_paths)
+        self.g.current_instance_field_paths = field_paths
+        inouts = self.g.collect_sections(
+            method["node"], "input_output_declarations"
+        )
+        outputs = self.g.collect_sections(method["node"], "output_declarations")
+        self.g.current_pointer_params = {
+            item.casefold() for _, item in inouts + outputs
+        }
+
+        body = self.g._first_named(method["node"], "function_body")
+        if body is not None:
+            old_indent = self.g.indent
+            self.g.indent = "    "
+            self.g.visit(body)
+            self.g.indent = old_indent
+
+        self.g.current_instance = previous_instance
+        self.g.current_instance_fields = previous_fields
+        self.g.current_instance_field_paths = previous_paths
+        self.g.current_pointer_params = previous_pointers
+
+        if return_type_node is not None:
+            self.g.text += f"    return {method['name']};\n"
+        self.g.text += "}\n\n"
+
+    def emit_assignment(self, node):
+        if self.g.context is None:
+            return False
+        info = self.g.context.oop_assignments.get(id(node))
+        if info is None:
+            return False
+        children = [
+            child for child in node.get("children", [])
+            if isinstance(child, dict)
+        ]
+        if len(children) < 2:
+            return False
+        target = self.g.render(children[0])
+        source = self.g.render(children[-1])
+        self.g.text += (
+            f"{self.g.indent}{target} = "
+            f"{info['class']}__as_{info['interface']}(&({source}));\n"
+        )
+        return True
+
+    def render_invocation(self, node):
+        if node is None or self.g.context is None:
+            return "/* unresolved method */ (void)0"
+        resolution = self.g.context.resolved_methods.get(id(node))
+        if resolution is None:
+            return "/* unresolved method */ (void)0"
+
+        receiver = self.g._first_named(node, "method_receiver")
+        method = resolution["method"]
+        args = [
+            child for child in node.get("children", [])
+            if isinstance(child, dict) and child.get("name") == "param_assignment"
+        ]
+        arg_text = []
+        for arg in args:
+            expressions = self.g._named_nodes(arg, "expression")
+            if expressions:
+                arg_text.append(self.g.render(expressions[-1]))
+        suffix = ", " + ", ".join(arg_text) if arg_text else ""
+
+        receiver_kind = resolution["receiver_kind"]
+        static_type = resolution["receiver_type"]
+        if receiver_kind == "SUPER":
+            return (
+                f"{static_type}__{method['name']}((void *)self{suffix})"
+            )
+
+        if receiver_kind == "THIS":
+            cls = self._class(static_type)
+            vptr = f"self->{self._vptr_path(cls)}"
+            return (
+                f"((const {static_type}__vtable *)({vptr}))"
+                f"->{method['name']}((void *)self{suffix})"
+            )
+
+        variable = self.g._first_named(receiver, "variable_name")
+        expression = self.g.render(variable) if variable is not None else "0"
+        if resolution["interface"]:
+            return (
+                f"({expression}).vtable->{method['name']}"
+                f"(({expression}).instance{suffix})"
+            )
+
+        cls = self._class(static_type)
+        vptr_path = self._vptr_path(cls)
+        return (
+            f"((const {static_type}__vtable *)"
+            f"(({expression}).{vptr_path}))->{method['name']}"
+            f"((void *)&({expression}){suffix})"
+        )
+
+    def emit_field_initializer(self, var_type, address, append, indent="    "):
+        cls = self._class(var_type)
+        if cls is not None:
+            append(f"{indent}{cls['name']}__init({address});\n")
+
+    def _method_signature(self, node):
+        return_node = self.g._first_named(node, "function_return_type")
+        ret = self.g.declaration_type(return_node, "void") if return_node else "void"
+        inputs = self.g.collect_sections(node, "input_declarations")
+        outputs = self.g.collect_sections(node, "output_declarations")
+        inouts = self.g.collect_sections(node, "input_output_declarations")
+        params = [
+            self.g._format_declarator(var_type, var_name)
+            for var_type, var_name in inputs
+        ]
+        params += [
+            self.g._format_declarator(var_type, var_name, pointer=True)
+            for var_type, var_name in outputs + inouts
+        ]
+        return ret, params
+
+    def _own_fields(self, cls):
+        result = []
+
+        def collect(node):
+            if not isinstance(node, dict):
+                return
+            if node.get("name") in {"method_declaration", "method_prototype"}:
+                return
+            if node.get("name") in {
+                "input_declarations", "output_declarations",
+                "input_output_declarations", "var_declarations",
+                "retentive_var_declarations", "non_retentive_var_decls",
+            }:
+                result.extend(self.g.collect_var_decls(node))
+                return
+            for child in node.get("children", []):
+                collect(child)
+
+        collect(cls["node"])
+        return self.g._unique_declarations(result)
+
+    def _field_paths(self, cls):
+        result = {}
+        base = self._class(cls.get("base"))
+        if base is not None:
+            for key, path in self._field_paths(base).items():
+                result[key] = "__base." + path
+        for _, field in self._own_fields(cls):
+            result[field.casefold()] = field
+        return result
+
+    def _vptr_path(self, cls):
+        base = self._class(cls.get("base")) if cls else None
+        return "__vptr" if base is None else "__base." + self._vptr_path(base)
+
+    def _class(self, value):
+        if isinstance(value, dict):
+            return value
+        return self.classes.get(_key(value))
+
+    def _all_class_methods(self, cls):
+        result = []
+        positions = {}
+        base = self._class(cls.get("base"))
+        if base is not None:
+            for method in self._all_class_methods(base):
+                positions[method["key"]] = len(result)
+                result.append(method)
+        for method in cls["methods"]:
+            item = dict(method)
+            item["owner"] = cls["name"]
+            if item["key"] in positions:
+                result[positions[item["key"]]] = item
+            else:
+                positions[item["key"]] = len(result)
+                result.append(item)
+        return result
+
+    def _implementation_for(self, cls, key):
+        current = cls
+        while current is not None:
+            for method in current["methods"]:
+                if method["key"] == key:
+                    item = dict(method)
+                    item["owner"] = current["name"]
+                    return item
+            current = self._class(current.get("base"))
+        return None
+
+    def _all_interface_methods(self, iface):
+        result = []
+        positions = {}
+        for parent_name in iface.get("extends", []):
+            parent = self.interfaces.get(_key(parent_name))
+            if parent is not None:
+                for method in self._all_interface_methods(parent):
+                    if method["key"] not in positions:
+                        positions[method["key"]] = len(result)
+                        result.append(method)
+        for method in iface["methods"]:
+            if method["key"] in positions:
+                result[positions[method["key"]]] = method
+            else:
+                positions[method["key"]] = len(result)
+                result.append(method)
+        return result
+
+    def _implemented_interfaces(self, cls):
+        result = {}
+        base = self._class(cls.get("base"))
+        if base is not None:
+            for iface in self._implemented_interfaces(base):
+                result[iface["key"]] = iface
+        for name in cls.get("interfaces", []):
+            iface = self.interfaces.get(_key(name))
+            if iface is not None:
+                result[iface["key"]] = iface
+                for parent_name in iface.get("extends", []):
+                    parent = self.interfaces.get(_key(parent_name))
+                    if parent is not None:
+                        result[parent["key"]] = parent
+        return list(result.values())
+
+    def _class_order(self):
+        result = []
+        emitted = set()
+
+        def emit(cls):
+            if cls["key"] in emitted:
+                return
+            base = self._class(cls.get("base"))
+            if base is not None:
+                emit(base)
+            emitted.add(cls["key"])
+            result.append(cls)
+
+        for cls in self.classes.values():
+            emit(cls)
+        return result
+
+
 class CCodeGenerator(NodeVisitor):
+    il_target = "c"
+    def _il_descendants(self, node, name):
+        if not isinstance(node, dict):
+            return []
+        found = [node] if node.get("name") == name else []
+        for child in node.get("children", []):
+            found.extend(self._il_descendants(child, name))
+        return found
+
+    def _il_token(self, node):
+        tokens = self._il_descendants(node, "token")
+        return next((str(item.get("value", "")).upper() for item in tokens if item.get("value") != "\u2029"), "")
+
+    def _il_operand_node(self, operation):
+        operands = self._il_descendants(operation, "il_operand")
+        if not operands:
+            return None
+        children = [item for item in operands[0].get("children", []) if isinstance(item, dict)]
+        return children[0] if children else None
+
+    def _il_render_operand(self, operation):
+        operand = self._il_operand_node(operation)
+        if operand is None:
+            return None
+        # The grammar cannot distinguish an unqualified enumeration element
+        # from a symbolic variable. Prefer a declared/current-instance name;
+        # qualified enum values remain represented by their dedicated node.
+        if operand.get("name") == "enumerated_value":
+            operand = {"name": "variable_name", "value": operand.get("value", ""), "children": []}
+        return self.render(operand)
+
+    def _il_boolean_not(self, expression):
+        return f"!({expression})"
+
+    def _il_assignment(self, target, expression):
+        return f"{target} = {expression};"
+
+    def _il_emit_line(self, statement):
+        self.text += f"{self.indent}{statement}\n"
+
+    def visit_instruction_list(self, node):
+        accumulator = None
+        terminated = False
+        stored_function_result = False
+        binary = {
+            "AND": "&", "&": "&", "OR": "|", "XOR": "^",
+            "ADD": "+", "SUB": "-", "MUL": "*", "DIV": "/", "MOD": "%",
+            "GT": ">", "GE": ">=", "EQ": "==", "LT": "<", "LE": "<=", "NE": "!=",
+        }
+
+        for instruction in self._il_descendants(node, "il_instruction"):
+            labels = [item for item in instruction.get("children", []) if isinstance(item, dict) and item.get("name") == "label"]
+            if labels:
+                label = labels[0].get("value", "")
+                if self.il_target == "c":
+                    self._il_emit_line(f"{label}: ;")
+                else:
+                    self._il_emit_line(f"// IL label {label}")
+
+            operation = next(
+                (child for child in instruction.get("children", []) if isinstance(child, dict) and child.get("name") != "label" and child.get("name") != "token"),
+                None,
+            )
+            if operation is None:
+                continue
+            opcode = self._il_token(operation)
+            operand = self._il_render_operand(operation)
+
+            if opcode in {"LD", "LDN"} and operand is not None:
+                accumulator = self._il_boolean_not(operand) if opcode == "LDN" else operand
+            elif opcode in {"ST", "STN"} and operand is not None and accumulator is not None:
+                value = self._il_boolean_not(accumulator) if opcode == "STN" else accumulator
+                self._il_emit_line(self._il_assignment(operand, value))
+                stored_function_result = bool(self.current_function) and operand.casefold() == self.current_function.casefold()
+            elif opcode == "NOT" and accumulator is not None:
+                accumulator = self._il_boolean_not(accumulator)
+            elif opcode in {"ANDN", "AN", "ORN", "XORN"} and accumulator is not None and operand is not None:
+                base = {"ANDN": "&", "AN": "&", "ORN": "|", "XORN": "^"}[opcode]
+                accumulator = f"({accumulator} {base} {self._il_boolean_not(operand)})"
+            elif opcode in binary and accumulator is not None and operand is not None:
+                accumulator = f"({accumulator} {binary[opcode]} {operand})"
+            elif opcode in {"S", "S1", "R", "R1"} and accumulator is not None and operand is not None:
+                value = "true" if opcode in {"S", "S1"} else "false"
+                self._il_emit_line(f"if ({accumulator}) {{ {self._il_assignment(operand, value)} }}")
+            elif opcode in {"JMP", "JMPC", "JMPCN"}:
+                labels = self._il_descendants(operation, "label")
+                destination = labels[0].get("value", "") if labels else ""
+                if opcode == "JMP":
+                    self._il_emit_line(f"goto {destination};")
+                elif accumulator is not None:
+                    condition = accumulator if opcode == "JMPC" else self._il_boolean_not(accumulator)
+                    self._il_emit_line(f"if ({condition}) goto {destination};")
+            elif opcode in {"RET", "RETC", "RETCN"}:
+                condition = None
+                if opcode == "RETC" and accumulator is not None:
+                    condition = accumulator
+                elif opcode == "RETCN" and accumulator is not None:
+                    condition = self._il_boolean_not(accumulator)
+                if self.current_function and accumulator is not None:
+                    statement = f"return {accumulator};"
+                else:
+                    statement = "return;"
+                self._il_emit_line(statement if condition is None else f"if ({condition}) {{ {statement} }}")
+                terminated = opcode == "RET"
+            else:
+                function_names = self._il_descendants(operation, "il_function_name")
+                if function_names:
+                    name = function_names[0].get("value", "")
+                    arguments = [accumulator] if accumulator is not None else []
+                    for item in self._il_descendants(operation, "il_operand"):
+                        child = next((c for c in item.get("children", []) if isinstance(c, dict)), None)
+                        if child is not None:
+                            if child.get("name") == "enumerated_value":
+                                child = {"name": "variable_name", "value": child.get("value", ""), "children": []}
+                            arguments.append(self.render(child))
+                    accumulator = f"{name}({', '.join(arguments)})"
+
+        # IEC functions return the current result when physical end-of-body is
+        # reached. Assigning the generated return variable preserves the normal
+        # backend epilogue and works for both C and Rust.
+        if self.current_function and accumulator is not None and not terminated and not stored_function_result:
+            target = self.render({"name": "variable_name", "value": self.current_function, "children": []})
+            self._il_emit_line(self._il_assignment(target, accumulator))
+
     def __init__(self, context=None, source_name="<stdin>", native_implementations=None):
         self.context = context
         self.source_name = source_name
@@ -1310,6 +1880,7 @@ class CCodeGenerator(NodeVisitor):
             self.text += "\n/* Elapsed-time accumulators used by cyclic tasks. */\n"
         for task in tasks.values():
             self.text += f"static uint64_t {name}_{task['name']}_elapsed_ms;\n"
+            self.text += f"/* Task {task['name']}: interval {task['interval']} ms, priority {task['priority']}. */\n"
         self.text += "\n"
 
         self.text += "/* Initialize every program instance and scheduler for a cold start. */\n"

@@ -6,7 +6,7 @@ Summary: Documents the compiler architecture, usage, libraries, diagnostics, and
 
 # stc
 
-Structured Text Compiler.
+Structured Text and Instruction List Compiler.
 
 `stc` is an executable IEC 61131-3 Structured Text compiler front-end written in
 Python. The current milestone turns the original grammar prototype into a
@@ -16,6 +16,9 @@ the supported subset.
 ## Current capabilities
 
 - IEC 61131-3 POU parsing for functions, function blocks, and programs.
+- Instruction List (IL) parsing and shared C/Rust lowering: supported by the
+  Edition 2 profile, diagnosed as deprecated in Edition 3, and rejected by the
+  Edition 4 profile.
 - `VAR_INPUT` and function-local `VAR` declarations.
 - Elementary types including `BOOL`, signed/unsigned integers, `REAL`, `LREAL`,
   and bit-string integer families.
@@ -44,6 +47,7 @@ the supported subset.
 python3 -m stc examples/inter.st -g ast
 python3 -m stc examples/inter.st -g c
 python3 -m stc examples/inter.st -g rust
+python3 -m stc examples/legacy.il -g c --std ed2 --language il
 python3 -m stc examples/inter.st -g c -o build/inter.c
 python3 -m stc examples/inter.st -g c --no-semantic-check
 ```
@@ -56,6 +60,11 @@ application `main()`, because a PLC runtime must decide how and when to invoke
 the program cycle.
 
 Use `-` or omit the source path to read from stdin.
+
+`--language auto` (the default) detects IL from the first executable line of
+each POU. Use `--language il` when an IL body begins with a derived function
+name and is therefore intentionally ambiguous with ST. Generated C or Rust is
+always emitted as one self-contained source file.
 
 ## Python compilation API
 

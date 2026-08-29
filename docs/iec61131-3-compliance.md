@@ -2,7 +2,7 @@
 
 STC implements a documented subset of IEC 61131-3. The default language
 profile is Edition 3 (2013); Edition 4 features are enabled explicitly with
-`-s ed4`.
+`-s ed4`, and the legacy Edition 2 profile with `-s ed2`.
 
 Status values used below:
 
@@ -11,6 +11,19 @@ Status values used below:
   claimed as conforming.
 - **Diagnostic only**: recognized to provide an edition or deprecation
   diagnostic, but not generated as an executable operation.
+
+## Edition 2 Instruction List
+
+Instruction List bodies are parsed as line-oriented IEC text and lowered by
+both single-file backends (`codegen/c.py` and `codegen/rust.py`). The supported
+subset covers load/store, Boolean and arithmetic operations, comparisons,
+set/reset, functions, returns, labels, and conditional/unconditional jumps.
+Rust lowers jumps through a program-counter dispatcher because Rust has no
+native `goto`. Parenthesized IL networks and every formal function-block call
+form are not yet claimed as conforming.
+
+The Edition 3 profile accepts the same subset with an IL deprecation warning.
+The Edition 4 profile rejects IL before code generation.
 
 ## Edition 3 feature tables
 

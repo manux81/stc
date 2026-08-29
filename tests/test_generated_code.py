@@ -40,6 +40,23 @@ END_FUNCTION
             self.skipTest("rustc is not installed")
         self._compile_fixtures("rust", compiler)
 
+    def test_derived_function_blocks_are_valid_variable_types(self):
+        source = """\
+FUNCTION_BLOCK CounterFB
+VAR_OUTPUT Count : DINT; END_VAR
+Count := Count + 1;
+END_FUNCTION_BLOCK
+PROGRAM Main
+VAR Counter : CounterFB; Dummy : BOOL; END_VAR
+Dummy := TRUE;
+END_PROGRAM
+"""
+        for target in ("c", "rust"):
+            with self.subTest(target=target):
+                result = compile_source(source, target)
+                self.assertTrue(result.success, result.diagnostics)
+                self.assertNotIn("unknown-type", {item.code for item in result.diagnostics})
+
     def _compile_fixtures(self, target, compiler):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary_root = Path(temporary_directory)
@@ -210,6 +227,50 @@ int main(void) {
             executable = temporary_root / "runtime-test"
             subprocess.run(
                 [compiler, "-std=c11", str(harness_path), "-lm", "-o", str(executable)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run([str(executable)], check=True)
+
+    def test_rust_configuration_scheduler_compiles_and_runs(self):
+        compiler = shutil.which("rustc")
+        if compiler is None:
+            self.skipTest("rustc is not installed")
+        source = """\
+PROGRAM CounterProgram
+VAR Count : DINT; END_VAR
+Count := Count + 1;
+END_PROGRAM
+CONFIGURATION RuntimeConfig
+RESOURCE R ON PLC
+TASK Fast(INTERVAL := T#10ms, PRIORITY := 1);
+PROGRAM Counter WITH Fast : CounterProgram;
+END_RESOURCE
+END_CONFIGURATION
+"""
+        result = compile_source(source, "rust")
+        self.assertTrue(result.success, result.diagnostics)
+        self.assertIn("pub struct RuntimeConfig", result.output)
+        self.assertIn("// Task Fast: interval 10 ms, priority 1.", result.output)
+        harness = """
+fn main() {
+    let mut runtime = RuntimeConfig::default();
+    runtime.cold_start();
+    runtime.cycle(9);
+    assert_eq!(runtime.Counter.Count, 0);
+    runtime.cycle(1);
+    assert_eq!(runtime.Counter.Count, 1);
+    runtime.cycle(20);
+    assert_eq!(runtime.Counter.Count, 3);
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            generated = Path(directory, "runtime.rs")
+            executable = Path(directory, "runtime-test")
+            generated.write_text(result.output + harness, encoding="utf-8")
+            subprocess.run(
+                [compiler, "-D", "warnings", str(generated), "-o", str(executable)],
                 check=True,
                 capture_output=True,
                 text=True,

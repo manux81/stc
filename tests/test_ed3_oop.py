@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """IEC 61131-3 Edition 3 object-oriented regression tests."""
 
+import shutil
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 from stc.compiler import compile_source
 
@@ -113,6 +117,25 @@ END_CLASS
 
 
 class Edition3OopTests(unittest.TestCase):
+    def _assert_rust_compiles(self, source):
+        result = compile_source(source, "rust")
+        self.assertTrue(result.success, result.diagnostics)
+        compiler = shutil.which("rustc")
+        if compiler is not None:
+            with tempfile.TemporaryDirectory() as directory:
+                generated = Path(directory, "generated.rs")
+                generated.write_text(result.output, encoding="utf-8")
+                completed = subprocess.run(
+                    [
+                        compiler, "--crate-type", "lib", "-D", "warnings", str(generated),
+                        "-o", str(Path(directory, "generated.rlib")),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+        return result
+
     def test_class_method_codegen(self):
         result = compile_source(SIMPLE_CLASS, "c")
         self.assertTrue(result.success, result.diagnostics)
@@ -136,6 +159,17 @@ class Edition3OopTests(unittest.TestCase):
         self.assertIn("const IResettable__vtable *vtable;", result.output)
         self.assertIn("Counter__as_IResettable", result.output)
         self.assertIn("R = Counter__as_IResettable", result.output)
+
+    def test_rust_class_inheritance_and_interface_codegen(self):
+        simple = self._assert_rust_compiles(SIMPLE_CLASS)
+        inherited = self._assert_rust_compiles(INHERITANCE)
+        interface = self._assert_rust_compiles(INTERFACE)
+        self.assertIn("pub struct Counter", simple.output)
+        self.assertIn("pub fn Increment", simple.output)
+        self.assertIn("pub __base: BaseCounter", inherited.output)
+        self.assertIn("self.__base.Count", inherited.output)
+        self.assertIn("instance: *mut ()", interface.output)
+        self.assertIn("impl From<&mut Counter> for IResettable", interface.output)
 
     def test_final_method_cannot_be_overridden(self):
         result = compile_source(INVALID_OVERRIDE, "c", generate_code=False)

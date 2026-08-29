@@ -175,11 +175,43 @@ class Edition3ObjectOrientedCheck(SemanticCheck):
         }
         self.context.oop_types = {"classes": classes, "interfaces": interfaces}
 
+        self._bind_inherited_fields(classes)
         self._validate_interfaces(interfaces)
         self._validate_classes(classes, interfaces)
         self._resolve_invocations(ast, classes, interfaces)
         self._resolve_interface_assignments(ast, classes, interfaces)
         return self.context
+
+    def _bind_inherited_fields(self, classes):
+        """Resolve unqualified method references against inherited fields."""
+        scopes = {
+            scope.name.casefold(): scope
+            for scope in self.context.symbols.iter_scopes()
+            if scope.kind == ScopeKind.CLASS
+        }
+        for cls in classes.values():
+            inherited = {}
+            current = self._class(classes, cls.get("base"))
+            while current is not None:
+                scope = scopes.get(current["key"])
+                if scope is not None:
+                    inherited.update(scope.symbols)
+                current = self._class(classes, current.get("base"))
+            if not inherited:
+                continue
+            for node_id, symbol in tuple(self.context.symbols._references.items()):
+                if symbol is not None:
+                    continue
+                node = self.context.symbols._reference_nodes[node_id]
+                scope = self.context.symbols.scope_for(node)
+                owner = scope
+                while owner is not None and owner.kind != ScopeKind.CLASS:
+                    owner = owner.parent
+                if owner is None or owner.name.casefold() != cls["key"]:
+                    continue
+                resolved = inherited.get(str(node.get("value", "")).casefold())
+                if resolved is not None:
+                    self.context.symbols._references[node_id] = resolved
 
     def _validate_interfaces(self, interfaces):
         for interface in interfaces.values():

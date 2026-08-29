@@ -704,12 +704,13 @@ class IECParser(Parser):
     def subscript(self, p):
         return self._node_from_production(p)
 
-    @_('record_variable "." field_selector')
+    # Keep the record chain directly left-recursive.  Routing it through
+    # record_variable -> symbolic_variable creates a reduce cycle in the LALR
+    # table and made otherwise valid reads such as ``P.X`` fail at the token
+    # following the field selector.
+    @_('variable_name "." field_selector',
+       'multi_element_variable "." field_selector')
     def structured_variable(self, p):
-        return self._node_from_production(p)
-
-    @_('symbolic_variable')
-    def record_variable(self, p):
         return self._node_from_production(p)
 
     @_('IDENTIFIER')
@@ -1409,7 +1410,6 @@ class IECParser(Parser):
 
     @_('[ label ":" ] EOL { EOL }',
        '[ label ":" ] il_simple_operation EOL { EOL }',
-       '[ label ":" ] il_expression EOL { EOL }',
        '[ label ":" ] il_jump_operation EOL { EOL }',
        '[ label ":" ] il_fb_call EOL { EOL }',
        '[ label ":" ] il_formal_funct_call EOL { EOL }',
@@ -1422,9 +1422,17 @@ class IECParser(Parser):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
     @_('il_simple_operator [ il_operand ]',
-       'function_name [ il_operand_list ]')
+       'il_function_name [ il_operand_list ]',
+       'il_expr_operator "(" [ il_operand ] EOL { EOL } [ simple_instr_list ] ")"')
     def il_simple_operation(self, p):
         return self._node_from_production(p)
+
+    # Arithmetic/logical operator tokens are also legal ST function names.
+    # Keeping them out of this IL-only nonterminal avoids a reduce/reduce
+    # ambiguity for ordinary instructions such as ``ADD 1``.
+    @_('STANDARD_FUNCTION_NAME', 'IDENTIFIER')
+    def il_function_name(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
 
     @_('il_expr_operator "(" [ il_operand ] EOL { EOL } [ simple_instr_list ] ")"')
     def il_expression(self, p):
@@ -1441,7 +1449,7 @@ class IECParser(Parser):
     def il_fb_call(self, p):
         return self._node_from_production(p)
 
-    @_('function_name "(" EOL { EOL } [ il_param_list ] ')
+    @_('il_function_name "(" EOL { EOL } [ il_param_list ] ")"')
     def il_formal_funct_call(self, p):
         return self._node_from_production(p)
 
@@ -1457,7 +1465,7 @@ class IECParser(Parser):
     def simple_instr_list(self, p):
         return self._node_from_production(p)
 
-    @_('il_simple_operation EOL { EOL }', 'il_expression EOL { EOL }', 'il_formal_funct_call EOL { EOL }')
+    @_('il_simple_operation EOL { EOL }', 'il_formal_funct_call EOL { EOL }')
     def il_simple_instruction(self, p):
         return self._node_from_production(p)
 
@@ -1491,9 +1499,9 @@ class IECParser(Parser):
     def il_simple_operator(self, p):
         return self._node_from_production(p)
 
-    @_('AND', '"&"', 'OR', 'XOR', 'ANDN', 'AN', 'ORN',
-       'XORN', 'ADD', 'SUB', 'MUL', 'DIV', 'MOD', 'GT', 'GE', 'EQ',
-       'LT','LE','NE')
+    @_('IL_AND', '"&"', 'IL_OR', 'IL_XOR', 'IL_ANDN', 'IL_AN', 'IL_ORN',
+       'IL_XORN', 'IL_ADD', 'IL_SUB', 'IL_MUL', 'IL_DIV', 'IL_MOD', 'IL_GT', 'IL_GE', 'IL_EQ',
+       'IL_LT','IL_LE','IL_NE')
     def il_expr_operator(self, p):
         return self._node_from_production(p)
 
@@ -1683,7 +1691,7 @@ class IECParser(Parser):
     def method_call_statement(self, p):
         return {"name": self.production.name, "children": [p[0]]}
 
-    @_('variable_name "." method_name "(" [ param_assignment { "," param_assignment } ] ")"',
+    @_('variable_name "." field_selector "(" [ param_assignment { "," param_assignment } ] ")"',
        'THIS "." method_name "(" [ param_assignment { "," param_assignment } ] ")"',
        'SUPER "." method_name "(" [ param_assignment { "," param_assignment } ] ")"')
     def method_invocation(self, p):
@@ -1707,7 +1715,10 @@ class IECParser(Parser):
             args.append(optional[0])
             for obj in optional[1]:
                 args.append(obj[1])
-        return {"name": self.production.name, "children": [receiver, p[2], *args]}
+        method = p[2]
+        if method.get("name") == "field_selector":
+            method = {"name": "method_name", "value": method.get("value"), "children": []}
+        return {"name": self.production.name, "children": [receiver, method, *args]}
 
     @_('expression',
        'PARAMETER_IDENTIFIER ASSIGN expression',

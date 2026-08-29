@@ -13,6 +13,7 @@ from .semantic.enum_conversions import inject_enum_conversion_functions
 from .codegen.c import CCodeGenerator
 from .codegen.rust import RustCodeGenerator
 from .frontend.lexer import IECLexer
+from .frontend.languages import normalize_source_language, prepare_textual_source
 from .frontend.parser import IECParser, ParsingError
 from .libraries import LibraryError, LibraryResolver, ResolvedLibraries
 from .native import extract_native_pragmas
@@ -31,6 +32,11 @@ def normalize_standard_edition(standard: str | int) -> int:
     """Return the IEC 61131-3 edition selected by a public CLI/API spelling."""
     normalized = str(standard).strip().casefold().replace(" ", "")
     aliases = {
+        "2": 2,
+        "2.0": 2,
+        "2003": 2,
+        "ed2": 2,
+        "iec61131-3:ed2": 2,
         "3": 3,
         "3.0": 3,
         "2013": 3,
@@ -45,7 +51,7 @@ def normalize_standard_edition(standard: str | int) -> int:
     try:
         return aliases[normalized]
     except KeyError as exc:
-        choices = "iec61131-3:ed3 or iec61131-3:ed4"
+        choices = "iec61131-3:ed2, iec61131-3:ed3 or iec61131-3:ed4"
         raise ValueError(f"Unsupported IEC standard {standard!r}; expected {choices}") from exc
 
 
@@ -147,14 +153,17 @@ class CompilationResult:
         )
 
 
-def parse_tree(source: str) -> ParseNode | None:
+def parse_tree(source: str, language: str = "auto") -> ParseNode | None:
+    parser_source, has_il = prepare_textual_source(source, language)
     lexer = IECLexer()
-    parser = IECParser().set_source(source)
-    return parser.parse(lexer.tokenize(source))
+    if has_il:
+        lexer.set_language("IL")
+    parser = IECParser().set_source(parser_source)
+    return parser.parse(lexer.tokenize(parser_source))
 
 
-def parse_source(source: str, ast_builder: AstBuilder | None = None) -> AstNode | None:
-    tree = parse_tree(source)
+def parse_source(source: str, ast_builder: AstBuilder | None = None, language: str = "auto") -> AstNode | None:
+    tree = parse_tree(source, language=language)
     return (ast_builder or AstBuilder()).build(tree) if tree is not None else None
 
 
@@ -170,18 +179,24 @@ def compile_source(
     imports: tuple[str, ...] | list[str] = (),
     generate_code: bool = True,
     standard: str | int = "iec61131-3:ed3",
+    language: str = "auto",
 ) -> CompilationResult:
     """Compile source and return its products and diagnostics."""
     if target not in SUPPORTED_TARGETS:
         supported = ", ".join(sorted(SUPPORTED_TARGETS))
         raise ValueError(f"Unsupported compilation target {target!r}; expected one of: {supported}")
     standard_edition = normalize_standard_edition(standard)
+    source_language = normalize_source_language(language)
 
     libraries = LibraryResolver(library_paths).resolve(imports) if imports else ResolvedLibraries()
     parser_source, native_sections = extract_native_pragmas(source)
+    parser_source, has_il = prepare_textual_source(parser_source, source_language)
     builder = ast_builder or AstBuilder()
     try:
-        tree = parse_tree(parser_source)
+        lexer = IECLexer()
+        if has_il:
+            lexer.set_language("IL")
+        tree = IECParser().set_source(parser_source).parse(lexer.tokenize(parser_source))
     except ParsingError as exc:
         return CompilationResult(
             target=target,
@@ -210,7 +225,7 @@ def compile_source(
                 )
             native_sections[key] = implementation
         try:
-            imported_tree = parse_tree(imported_source)
+            imported_tree = parse_tree(imported_source, language="auto")
         except ParsingError as exc:
             raise LibraryError(
                 f"Cannot parse imported source {imported.source_name}: {exc}"

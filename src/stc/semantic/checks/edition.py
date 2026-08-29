@@ -19,6 +19,22 @@ class EditionCompatibilityCheck(SemanticCheck):
         """Exclude bundled library declarations from the caller's source profile."""
         return not node.get("library_import", False)
 
+    def visit_instruction_list(self, node):
+        if self._belongs_to_compilation_unit(node):
+            if self.context.standard_edition >= 4:
+                self.error(
+                    "edition4-instruction-list",
+                    "Instruction List (IL) is not supported by IEC 61131-3 Edition 4.",
+                    node,
+                )
+            elif self.context.standard_edition == 3:
+                self.warning(
+                    "edition3-deprecated-instruction-list",
+                    "Instruction List (IL) is deprecated in IEC 61131-3 Edition 3.",
+                    node,
+                )
+        self.generic_visit(node)
+
     def visit_octal_integer(self, node):
         if not self._belongs_to_compilation_unit(node):
             self.generic_visit(node)
