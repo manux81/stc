@@ -301,6 +301,7 @@ def compile_source(
     generator = (
         RustCodeGenerator(
             context=context,
+            source_name=source_name,
             native_implementations={
                 name: implementation
                 for (implementation_target, name), implementation in native_sections.items()
@@ -326,7 +327,11 @@ def compile_source(
         parse_tree=tree,
         ast=ast,
         context=context,
-        output=generator.text.rstrip() + "\n",
+        output=(
+            generator.formatted_text()
+            if isinstance(generator, RustCodeGenerator)
+            else generator.text.rstrip() + "\n"
+        ),
         diagnostics=tuple(context.diagnostics) if context is not None else (),
         source_map=source_map,
         libraries=libraries,

@@ -64,6 +64,11 @@ the program cycle.
 
 Use `-` or omit the source path to read from stdin.
 
+Generated Rust includes source provenance, section comments, and Rustdoc for
+translated IEC declarations. When `rustfmt` is installed, STC automatically
+uses it to emit canonical Rust formatting; otherwise it keeps the backend's
+readable built-in layout.
+
 `--language auto` (the default) detects IL from the first executable line of
 each POU. Use `--language il` when an IL body begins with a derived function
 name and is therefore intentionally ambiguous with ST. Generated C or Rust is

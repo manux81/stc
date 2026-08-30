@@ -105,6 +105,28 @@ END_FUNCTION
         self.assertIn("match value", result.output)
         self.assertIn("1 | 2 =>", result.output)
 
+    def test_rust_output_is_documented_and_rustfmt_formatted(self):
+        source = """\
+FUNCTION choose : INT
+VAR_INPUT enabled : BOOL; END_VAR
+IF enabled THEN
+    choose := 1;
+ELSE
+    choose := 0;
+END_IF;
+END_FUNCTION
+"""
+        result = compile_source(source, "rust", source_name="controls.st")
+
+        self.assertTrue(result.success, result.diagnostics)
+        self.assertIn("//! Source: controls.st.", result.output)
+        self.assertIn("// --- IEC 61131-3 runtime support", result.output)
+        self.assertIn("/// IEC function `choose`.", result.output)
+        self.assertIn("pub fn choose(mut enabled: bool) -> i16 {", result.output)
+        if shutil.which("rustfmt") is not None:
+            self.assertIn("} else {", result.output)
+            self.assertNotIn("}\nelse {", result.output)
+
     def test_c_torture_constructs_compile_and_link(self):
         compiler = shutil.which("cc")
         if compiler is None:
