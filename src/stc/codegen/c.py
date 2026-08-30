@@ -912,6 +912,8 @@ class CCodeGenerator(NodeVisitor):
     def collect_sections(self, node, section_name):
         if not isinstance(node, dict):
             return []
+        if node.get("name") == "property_declaration":
+            return []
         if node.get("name") == section_name:
             return self.collect_var_decls(node)
         declarations = []
@@ -1097,6 +1099,49 @@ class CCodeGenerator(NodeVisitor):
 
     def visit_field_selector(self, node):
         self.text += str(node.get("value", ""))
+
+    def visit_structured_variable(self, node):
+        info = self.context.resolved_properties.get(id(node)) if self.context is not None else None
+        if info is None or info.get("accessor") != "get":
+            self.accept(node)
+            return
+        receiver = self._first_named(node, "variable_name")
+        expression = self.render(receiver)
+        method_name = info["method"]["name"]
+        if info["interface"]:
+            self.text += (
+                f"({expression}).vtable->{method_name}"
+                f"(({expression}).instance)"
+            )
+        elif info["owner_kind"] == "class":
+            self.text += f"{info['owner']}__{method_name}((void *)&({expression}))"
+        else:
+            self.text += f"{info['owner']}__{method_name}(&({expression}))"
+
+    def _emit_property_assignment(self, node):
+        if self.context is None:
+            return False
+        variable = self._first_named(node, "variable")
+        structured = self._first_named(variable, "structured_variable")
+        info = self.context.resolved_properties.get(id(structured)) if structured is not None else None
+        if info is None or info.get("accessor") != "set":
+            return False
+        expression_node = self._first_named(node, "expression")
+        receiver = self._first_named(structured, "variable_name")
+        receiver_text = self.render(receiver)
+        value = self.render(expression_node)
+        method_name = info["method"]["name"]
+        if info["interface"]:
+            call = (
+                f"({receiver_text}).vtable->{method_name}"
+                f"(({receiver_text}).instance, {value})"
+            )
+        elif info["owner_kind"] == "class":
+            call = f"{info['owner']}__{method_name}((void *)&({receiver_text}), {value})"
+        else:
+            call = f"{info['owner']}__{method_name}(&({receiver_text}), {value})"
+        self.text += f"{self.indent}{call};\n"
+        return True
 
     def _array_lower_bounds(self, variable_name):
         """Return the IEC lower bounds for an array variable reference."""
@@ -1417,6 +1462,8 @@ class CCodeGenerator(NodeVisitor):
         self.indent_dec()
         self.text += f"}} {name};\n\n"
 
+        self._emit_function_block_properties(name, node, declarations)
+
         self.text += f"/* Initialize function block {name}. */\n"
         self.text += f"void {name}_setup({name} *self)\n{{\n"
         self.indent_inc()
@@ -1458,6 +1505,52 @@ class CCodeGenerator(NodeVisitor):
         self.current_instance, self.current_instance_fields, self.current_pointer_params = previous_instance, previous_fields, previous_pointers
         self.indent_dec()
         self.text += "}\n\n"
+
+    def _emit_function_block_properties(self, owner_name, node, declarations):
+        field_paths = {field.casefold(): field for _, field in declarations}
+        for prop in self._named_nodes(node, "property_declaration"):
+            method = self._first_named(prop, "method_declaration")
+            if method is None:
+                continue
+            method_name_node = self._first_named(method, "method_name")
+            if method_name_node is None:
+                continue
+            method_name = method_name_node["value"]
+            ret, params = self.oop._method_signature(method)
+            suffix = ", " + ", ".join(params) if params else ""
+            self.text += f"static {ret} {owner_name}__{method_name}({owner_name} *self{suffix})\n{{\n"
+            self.text += "    (void)self;\n"
+            return_type_node = self._first_named(method, "function_return_type")
+            if return_type_node is not None:
+                self.text += (
+                    f"    {self._format_declarator(ret, method_name)} = "
+                    f"{self.zero_value(ret)};\n"
+                )
+            for var_type, local in (
+                self.collect_sections(method, "function_var_decls")
+                + self.collect_sections(method, "temp_var_decls")
+            ):
+                self.text += f"    {self._format_declarator(var_type, local)} = {{0}};\n"
+
+            old_instance, old_fields = self.current_instance, self.current_instance_fields
+            old_paths, old_pointers = self.current_instance_field_paths, self.current_pointer_params
+            self.current_instance = "self"
+            self.current_instance_fields = set(field_paths)
+            self.current_instance_field_paths = field_paths
+            inouts = self.collect_sections(method, "input_output_declarations")
+            outputs = self.collect_sections(method, "output_declarations")
+            self.current_pointer_params = {item.casefold() for _, item in inouts + outputs}
+            body = self._first_named(method, "function_body")
+            if body is not None:
+                old_indent = self.indent
+                self.indent = "    "
+                self.visit(body)
+                self.indent = old_indent
+            self.current_instance, self.current_instance_fields = old_instance, old_fields
+            self.current_instance_field_paths, self.current_pointer_params = old_paths, old_pointers
+            if return_type_node is not None:
+                self.text += f"    return {method_name};\n"
+            self.text += "}\n\n"
 
     def visit_program_declaration(self, node):
         name_node = self._first_named(node, "program_type_name")
@@ -1848,6 +1941,8 @@ class CCodeGenerator(NodeVisitor):
         self.text += f" {op} "
 
     def visit_assignment_statement(self, node):
+        if self._emit_property_assignment(node):
+            return
         if self.oop.emit_assignment(node):
             return
         self.text += self.indent

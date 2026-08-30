@@ -102,6 +102,29 @@ def _method_info(node):
     }
 
 
+def _property_infos(node):
+    properties = {}
+    for declaration in _all(node, "property_declaration"):
+        name_node = _first(declaration, "property_name")
+        method_node = _first(declaration, "method_declaration")
+        if name_node is None or method_node is None:
+            continue
+        name = str(name_node.get("value", "<property>"))
+        key = normalize_identifier(name)
+        info = properties.setdefault(key, {
+            "name": name,
+            "key": key,
+            "type": _type_name(_first(declaration, "property_type")),
+            "node": declaration,
+            "get": None,
+            "set": None,
+        })
+        accessor = str(declaration.get("value", "")).casefold()
+        if accessor in {"get", "set"}:
+            info[accessor] = _method_info(method_node)
+    return properties
+
+
 def _class_info(node):
     names = _all(node, "class_type_name")
     name = names[0].get("value") if names else "<class>"
@@ -122,6 +145,7 @@ def _class_info(node):
         "final": modifier == "FINAL",
         "abstract": modifier == "ABSTRACT",
         "methods": [_method_info(item) for item in _all(node, "method_declaration")],
+        "properties": _property_infos(node),
     }
 
 
@@ -138,6 +162,12 @@ def _interface_info(node):
         info = _method_info(item)
         info["abstract"] = True
         methods.append(info)
+    for property_info in _property_infos(node).values():
+        for accessor in (property_info.get("get"), property_info.get("set")):
+            if accessor is None:
+                continue
+            accessor["abstract"] = True
+            methods.append(accessor)
     return {
         "kind": "interface",
         "name": name,
@@ -145,6 +175,7 @@ def _interface_info(node):
         "node": node,
         "extends": extends,
         "methods": methods,
+        "properties": _property_infos(node),
     }
 
 
@@ -173,14 +204,130 @@ class Edition3ObjectOrientedCheck(SemanticCheck):
                 if node.get("name") == "interface_declaration"
             )
         }
-        self.context.oop_types = {"classes": classes, "interfaces": interfaces}
+        function_blocks = {}
+        for node in walk(ast):
+            if node.get("name") != "function_block_declaration":
+                continue
+            name_node = _first(node, "derived_function_block_name")
+            if name_node is None:
+                continue
+            name = str(name_node.get("value", ""))
+            function_blocks[normalize_identifier(name)] = {
+                "kind": "function_block",
+                "name": name,
+                "key": normalize_identifier(name),
+                "node": node,
+                "properties": _property_infos(node),
+            }
+        self.context.oop_types = {
+            "classes": classes,
+            "interfaces": interfaces,
+            "function_blocks": function_blocks,
+        }
 
         self._bind_inherited_fields(classes)
+        self._validate_properties(classes, interfaces, function_blocks)
         self._validate_interfaces(interfaces)
         self._validate_classes(classes, interfaces)
         self._resolve_invocations(ast, classes, interfaces)
         self._resolve_interface_assignments(ast, classes, interfaces)
+        self._resolve_property_accesses(ast, classes, interfaces, function_blocks)
         return self.context
+
+    def _validate_properties(self, classes, interfaces, function_blocks):
+        for owner in [*classes.values(), *interfaces.values(), *function_blocks.values()]:
+            for prop in owner.get("properties", {}).values():
+                getter = prop.get("get")
+                setter = prop.get("set")
+                if getter is not None and setter is not None:
+                    getter_type = getter["signature"][0]
+                    setter_params = setter["signature"][1]
+                    setter_type = setter_params[0][2] if setter_params else None
+                    if normalize_identifier(getter_type or "") != normalize_identifier(setter_type or ""):
+                        self.error(
+                            "property-type-mismatch",
+                            f"Getter and setter for property '{owner['name']}.{prop['name']}' must use the same type.",
+                            prop["node"],
+                        )
+
+    def _resolve_property_accesses(self, ast, classes, interfaces, function_blocks):
+        assignment_targets = set()
+        for assignment in (item for item in walk(ast) if item.get("name") == "assignment_statement"):
+            children = direct_children(assignment)
+            if children:
+                assignment_targets.update(
+                    id(item) for item in walk(children[0])
+                    if item.get("name") == "structured_variable"
+                )
+
+        for structured in (item for item in walk(ast) if item.get("name") == "structured_variable"):
+            receiver = _first(structured, "variable_name")
+            field = _first(structured, "field_selector")
+            if receiver is None or field is None:
+                continue
+            symbol = self.context.symbols.symbol_for_reference(receiver)
+            if symbol is None or symbol.type_ref is None:
+                continue
+            receiver_key = normalize_identifier(symbol.type_ref.name or "")
+            property_key = normalize_identifier(str(field.get("value", "")))
+            owner = None
+            prop = None
+            interface = False
+            base_path = []
+            if receiver_key in classes:
+                current = classes[receiver_key]
+                while current is not None:
+                    prop = current.get("properties", {}).get(property_key)
+                    if prop is not None:
+                        owner = current
+                        break
+                    current = self._class(classes, current.get("base"))
+                    if current is not None:
+                        base_path.append("__base")
+            elif receiver_key in interfaces:
+                owner = interfaces[receiver_key]
+                prop = self._interface_property(interfaces, owner, property_key)
+                interface = prop is not None
+            elif receiver_key in function_blocks:
+                owner = function_blocks[receiver_key]
+                prop = owner.get("properties", {}).get(property_key)
+            if prop is None or owner is None:
+                continue
+
+            accessor = "set" if id(structured) in assignment_targets else "get"
+            method = prop.get(accessor)
+            if method is None:
+                self.error(
+                    f"property-no-{accessor}",
+                    f"Property '{owner['name']}.{prop['name']}' has no {accessor} accessor.",
+                    structured,
+                )
+                continue
+            self.context.resolved_properties[id(structured)] = {
+                "owner": owner["name"],
+                "owner_kind": owner["kind"],
+                "interface": interface,
+                "base_path": tuple(base_path),
+                "property": prop,
+                "accessor": accessor,
+                "method": method,
+            }
+            datatype = self.context.declared_types.get(
+                normalize_identifier(prop.get("type") or ""), UNKNOWN_TYPE
+            )
+            self.context.candidate_types[id(structured)] = {datatype}
+
+    def _interface_property(self, interfaces, iface, key):
+        own = iface.get("properties", {}).get(key)
+        if own is not None:
+            return own
+        for parent_name in iface.get("extends", []):
+            parent = interfaces.get(normalize_identifier(parent_name))
+            if parent is not None:
+                found = self._interface_property(interfaces, parent, key)
+                if found is not None:
+                    return found
+        return None
 
     def _bind_inherited_fields(self, classes):
         """Resolve unqualified method references against inherited fields."""

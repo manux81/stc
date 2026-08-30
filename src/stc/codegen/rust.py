@@ -609,6 +609,7 @@ class RustCodeGenerator(NodeVisitor):
             if field.casefold() in reference_initializers:
                 self.text += f"        self.{field} = {reference_initializers[field.casefold()]};\n"
         self.text += "    }\n\n"
+        self._emit_function_block_properties(node, declarations)
         inouts = self.collect_sections(node, "input_output_declarations")
         params = ", " + ", ".join(f"{field}: &mut {var_type}" for var_type, field in inouts) if inouts else ""
         operation = "Execute one invocation" if entry_name == "step" else "Execute one program cycle"
@@ -625,8 +626,48 @@ class RustCodeGenerator(NodeVisitor):
         self.indent = ""
         self.text += "    }\n}\n\n"
 
+    def _emit_function_block_properties(self, node, declarations):
+        field_paths = {field.casefold(): field for _, field in declarations}
+        for prop in self._named_nodes(node, "property_declaration"):
+            method = self._first_named(prop, "method_declaration")
+            method_name_node = self._first_named(method, "method_name") if method is not None else None
+            if method is None or method_name_node is None:
+                continue
+            method_name = method_name_node["value"]
+            result, params = self._rust_method_signature(method)
+            declarations_text = ", ".join(
+                f"{param}: {'&mut ' if pointer else ''}{var_type}"
+                for param, var_type, pointer in params
+            )
+            suffix = ", " + declarations_text if declarations_text else ""
+            self.text += f"    fn {method_name}(&mut self{suffix}) -> {result} {{\n"
+            old_instance, old_fields = self.current_instance, self.current_instance_fields
+            old_paths, old_refs, old_indent = self.current_instance_field_paths, self.current_reference_params, self.indent
+            self.current_instance = True
+            self.current_instance_fields = set(field_paths)
+            self.current_instance_field_paths = field_paths
+            self.current_reference_params = {param.casefold() for param, _, pointer in params if pointer}
+            self.indent = "        "
+            if result != "()":
+                self.text += f"{self.indent}let mut {method_name}: {result} = {self.zero_value(result)};\n"
+            for var_type, local in (
+                self.collect_sections(method, "function_var_decls")
+                + self.collect_sections(method, "temp_var_decls")
+            ):
+                self.text += f"{self.indent}let mut {local}: {var_type} = {self.zero_value(var_type)};\n"
+            body = self._first_named(method, "function_body")
+            if body is not None:
+                self.visit(body)
+            if result != "()":
+                self.text += f"{self.indent}{method_name}\n"
+            self.current_instance, self.current_instance_fields = old_instance, old_fields
+            self.current_instance_field_paths, self.current_reference_params, self.indent = old_paths, old_refs, old_indent
+            self.text += "    }\n\n"
+
     def collect_sections(self, node, section_name):
         if not isinstance(node, dict):
+            return []
+        if node.get("name") == "property_declaration":
             return []
         if node.get("name") == section_name:
             return self.collect_var_decls(node)
@@ -1485,6 +1526,32 @@ class RustCodeGenerator(NodeVisitor):
     def visit_field_selector(self, node):
         self.text += str(node.get("value", ""))
 
+    def visit_structured_variable(self, node):
+        info = self.context.resolved_properties.get(id(node)) if self.context is not None else None
+        if info is None or info.get("accessor") != "get":
+            self.accept(node)
+            return
+        receiver = self._first_named(node, "variable_name")
+        base_path = "".join(f".{field}" for field in info.get("base_path", ()))
+        self.text += f"{self.render(receiver)}{base_path}.{info['method']['name']}()"
+
+    def _emit_property_assignment(self, node):
+        if self.context is None:
+            return False
+        variable = self._first_named(node, "variable")
+        structured = self._first_named(variable, "structured_variable")
+        info = self.context.resolved_properties.get(id(structured)) if structured is not None else None
+        if info is None or info.get("accessor") != "set":
+            return False
+        receiver = self._first_named(structured, "variable_name")
+        expression = self._first_named(node, "expression")
+        base_path = "".join(f".{field}" for field in info.get("base_path", ()))
+        self.text += (
+            f"{self.indent}{self.render(receiver)}{base_path}.{info['method']['name']}"
+            f"({self.render(expression)});\n"
+        )
+        return True
+
     def _iter_named_set(self, node, names):
         if not isinstance(node, dict):
             return
@@ -1597,6 +1664,8 @@ class RustCodeGenerator(NodeVisitor):
         self.text += f" {op} "
 
     def visit_assignment_statement(self, node):
+        if self._emit_property_assignment(node):
+            return
         variable = next(child for child in node["children"] if child.get("name") == "variable")
         expression = next(child for child in node["children"] if child.get("name") == "expression")
         oop_assignment = self.context.oop_assignments.get(id(node)) if self.context is not None else None

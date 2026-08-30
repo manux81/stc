@@ -37,6 +37,7 @@ The Edition 4 profile rejects IL before code generation.
 | Tables 23-27 - Conversion matrices | Partial | Core numeric conversions, BCD helpers, bit-string-to-Boolean conversions, and selected character conversions are implemented. The complete matrix is not yet claimed. |
 | Tables 28-33 - Numerical, arithmetic, bit, selection, comparison | Partial | Common arithmetic, comparison, selection, and mathematical operations are generated. Extensible arity and every generic overload are not yet claimed. |
 | Table 34 - Character string functions | Partial | C primitives implement `LEN`, `LEFT`, `RIGHT`, `MID`, two-input `CONCAT`, `INSERT`, `DELETE`, and `REPLACE`; `FIND` is implemented in portable ST. Rust currently provides `LEN` and `MID`; the allocating string operations await the owned-string ABI. |
+| Table 48 - Object-oriented programming | Partial | Edition 3/4 profiles parse, check, and lower `CLASS`, `INTERFACE`, `METHOD`, `EXTENDS`, `IMPLEMENTS`, `ABSTRACT`, `FINAL`, `OVERRIDE`, access modifiers, `THIS`, and `SUPER`. Edition 4 adds typed `PROPERTY_GET` and `PROPERTY_SET` accessors to function blocks, classes, and interfaces, including read-only/write-only diagnostics and interface dispatch. C uses embedded base objects, vtables, and interface fat pointers; Rust uses embedded base objects and generated interface adapters. Inheritance, interface/property dispatch, abstract/interface completeness, accessor type agreement, and invalid final overrides are covered by target-compilation tests. Complete access-control enforcement is not yet implemented. |
 
 ## Sequential Function Charts
 
@@ -55,12 +56,13 @@ online-change state migration are not currently claimed as supported.
 ## Edition 4 extensions
 
 The Edition 4 profile currently adds `USTRING`, `UCHAR`, Unicode `${HEX}`
-literals, `LEN_CODE_UNIT`, `ASSERT`, and selected new
-numeric/character conversions. Octal literals and old untyped `TRUNC` are
-rejected in this profile; BCD operations produce a deprecation warning.
+literals, `LEN_CODE_UNIT`, `ASSERT`, typed `PROPERTY_GET`/`PROPERTY_SET`
+accessors, and selected new numeric/character conversions. Octal literals and
+old untyped `TRUNC` are rejected in this profile; BCD operations produce a
+deprecation warning.
 
-Properties, `LEN_MAX`, string/byte-array conversion, mutexes, and semaphores
-are not yet claimed as implemented.
+String/byte-array conversion, mutexes, and semaphores are not yet claimed as
+implemented.
 
 ## Target primitive boundary
 

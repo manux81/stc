@@ -27,6 +27,7 @@ class SemanticContext:
     oop_types:dict[str,Any]=field(default_factory=dict)
     resolved_methods:dict[int,dict[str,Any]]=field(default_factory=dict)
     oop_assignments:dict[int,dict[str,Any]]=field(default_factory=dict)
+    resolved_properties:dict[int,dict[str,Any]]=field(default_factory=dict)
     generated_names:dict[int,str]=field(default_factory=dict)
     constants:dict[int,ConstantValue]=field(default_factory=dict)
     lvalues:dict[int,bool]=field(default_factory=dict)

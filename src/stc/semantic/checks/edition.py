@@ -140,6 +140,15 @@ class EditionCompatibilityCheck(SemanticCheck):
             )
         self.generic_visit(node)
 
+    def visit_property_declaration(self, node):
+        if self.context.standard_edition < 4 and self._belongs_to_compilation_unit(node):
+            self.error(
+                "edition4-property",
+                "Properties require IEC 61131-3 Edition 4.",
+                node,
+            )
+        self.generic_visit(node)
+
     def visit_token(self, node):
         value = str(node.get("value", "")).upper()
         if self.context.standard_edition < 4 and value in {"USTRING", "UCHAR"} and self._belongs_to_compilation_unit(node):

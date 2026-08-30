@@ -169,6 +169,7 @@ class IECLexer(Lexer):
 
         # IEC 61131-3 Edition 3 object-oriented extensions.
         CLASS, END_CLASS, METHOD, END_METHOD, INTERFACE, END_INTERFACE,
+        PROPERTY_GET, PROPERTY_SET, END_PROPERTY,
         EXTENDS, IMPLEMENTS, FINAL, ABSTRACT, OVERRIDE,
         PUBLIC, PRIVATE, INTERNAL, PROTECTED, THIS, SUPER,
 
@@ -436,6 +437,9 @@ class IECLexer(Lexer):
     IDENTIFIER['PROTECTED'] = PROTECTED
     IDENTIFIER['THIS'] = THIS
     IDENTIFIER['SUPER'] = SUPER
+    IDENTIFIER['PROPERTY_GET'] = PROPERTY_GET
+    IDENTIFIER['PROPERTY_SET'] = PROPERTY_SET
+    IDENTIFIER['END_PROPERTY'] = END_PROPERTY
 
 ############################################
 # B.1.6 Sequential function chart elements #

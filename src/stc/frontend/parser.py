@@ -1115,7 +1115,8 @@ class IECParser(Parser):
     def derived_function_block_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
-    @_('FUNCTION_BLOCK derived_function_block_name pou_var_declarations_list function_block_body END_FUNCTION_BLOCK')
+    @_('FUNCTION_BLOCK derived_function_block_name pou_var_declarations_list '
+       'property_declaration_list function_block_body END_FUNCTION_BLOCK')
     def function_block_declaration(self, p):
         return self._node_from_production(p)
 
@@ -1176,6 +1177,10 @@ class IECParser(Parser):
     def method_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": []}
 
+    @_('IDENTIFIER')
+    def property_name(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
+
     @_('PUBLIC', 'PRIVATE', 'INTERNAL', 'PROTECTED')
     def access_spec(self, p):
         return {"name": self.production.name, "value": p[0], "children": []}
@@ -1186,6 +1191,10 @@ class IECParser(Parser):
 
     @_('FINAL', 'ABSTRACT')
     def method_modifier(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
+
+    @_('FINAL', 'ABSTRACT')
+    def property_modifier(self, p):
         return {"name": self.production.name, "value": p[0], "children": []}
 
     @_('interface_type_name { "," interface_type_name }')
@@ -1215,7 +1224,11 @@ class IECParser(Parser):
     def method_var_declarations(self, p):
         return {"name": self.production.name, "children": [p[0]]}
 
-    @_('', 'method_declaration_list method_declaration')
+    @_('method_declaration', 'property_declaration')
+    def class_member_declaration(self, p):
+        return {"name": self.production.name, "children": [p[0]]}
+
+    @_('', 'method_declaration_list class_member_declaration')
     def method_declaration_list(self, p):
         if not p:
             return {"name": self.production.name, "children": []}
@@ -1228,7 +1241,11 @@ class IECParser(Parser):
     def method_declaration(self, p):
         return self._node_from_production(p)
 
-    @_('', 'method_prototype_list method_prototype')
+    @_('method_prototype', 'property_declaration')
+    def interface_member_declaration(self, p):
+        return {"name": self.production.name, "children": [p[0]]}
+
+    @_('', 'method_prototype_list interface_member_declaration')
     def method_prototype_list(self, p):
         if not p:
             return {"name": self.production.name, "children": []}
@@ -1239,6 +1256,98 @@ class IECParser(Parser):
     @_('METHOD method_name [ ":" function_return_type ] method_interface_var_declarations_list END_METHOD')
     def method_prototype(self, p):
         return self._node_from_production(p)
+
+    @_('', 'property_declaration_list property_declaration')
+    def property_declaration_list(self, p):
+        if not p:
+            return {"name": self.production.name, "children": []}
+        children = list(p[0].get("children", []))
+        children.append(p[1])
+        return {"name": self.production.name, "children": children}
+
+    def _property_declaration(self, p, accessor):
+        access = p[1][0]
+        modifier = p[2][0]
+        property_name = p[3]
+        property_type = p[5]
+        declarations = p[6]
+        body = p[7][0]
+        name = str(property_name.get("value", ""))
+        synthetic_name = f"__property_{accessor}_{name}"
+
+        if accessor == "get" and body is not None:
+            def rename_return(node):
+                if not isinstance(node, dict):
+                    return
+                if node.get("name") == "variable_name" and str(node.get("value", "")).casefold() == name.casefold():
+                    node["value"] = synthetic_name
+                for child in node.get("children", []):
+                    rename_return(child)
+            rename_return(body)
+
+        if accessor == "set":
+            implicit_input = {
+                "name": "method_var_declarations",
+                "children": [{
+                    "name": "io_var_declarations",
+                    "children": [{
+                        "name": "input_declarations",
+                        "children": [{
+                            "name": "var_init_decl",
+                            "children": [{
+                                "name": "var1_init_decl",
+                                "children": [
+                                    {"name": "var1_list", "children": [
+                                        {"name": "variable_name", "value": name, "children": []}
+                                    ]},
+                                    {"name": "simple_spec_init", "children": [
+                                        {"name": "simple_specification", "children": [property_type]}
+                                    ]},
+                                ],
+                            }],
+                        }],
+                    }],
+                }],
+            }
+            declarations = {
+                "name": "method_var_declarations_list",
+                "children": [implicit_input, *declarations.get("children", [])],
+            }
+
+        method_children = []
+        if access is not None:
+            method_children.append(access)
+        if modifier is not None:
+            method_children.append({
+                "name": "method_modifier",
+                "value": modifier.get("value"),
+                "children": [],
+            })
+        method_children.append({"name": "method_name", "value": synthetic_name, "children": []})
+        if accessor == "get":
+            method_children.append({"name": "function_return_type", "children": [property_type]})
+        method_children.append(declarations)
+        if body is not None:
+            method_children.append(body)
+        return {
+            "name": "property_declaration",
+            "value": accessor.upper(),
+            "children": [
+                property_name,
+                {"name": "property_type", "children": [property_type]},
+                {"name": "method_declaration", "children": method_children},
+            ],
+        }
+
+    @_('PROPERTY_GET [ access_spec ] [ property_modifier ] property_name ":" '
+       'function_return_type method_var_declarations_list [ function_body ] [ ";" ] END_PROPERTY')
+    def property_declaration(self, p):
+        return self._property_declaration(p, "get")
+
+    @_('PROPERTY_SET [ access_spec ] [ property_modifier ] property_name ":" '
+       'function_return_type method_var_declarations_list [ function_body ] [ ";" ] END_PROPERTY')
+    def property_declaration(self, p):
+        return self._property_declaration(p, "set")
 
     @_('', 'method_interface_var_declarations_list io_var_declarations')
     def method_interface_var_declarations_list(self, p):
