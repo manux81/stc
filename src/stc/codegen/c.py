@@ -603,6 +603,9 @@ class CCodeGenerator(NodeVisitor):
             "#include <stdio.h>\n"
             "#include <stdlib.h>\n"
             "#include <string.h>\n\n"
+            "/* Checked IEC reference dereference: NULL is a runtime error. */\n"
+            "#define STC_DEREF(pointer) "
+            "(*((pointer) != NULL ? (pointer) : (abort(), (pointer))))\n\n"
         )
         self.indent = ""
         self.current_function = None
@@ -671,6 +674,9 @@ class CCodeGenerator(NodeVisitor):
 
     def declaration_type(self, node, fallback="int16_t"):
         """Return a target type for an IEC declaration, including strings."""
+        reference = self._first_named(node, "reference_specification")
+        if reference is not None:
+            return f"{self.extract_type(reference) or fallback} *"
         if self._first_named(node, "single_byte_string_spec") is not None:
             return "const char *"
         if self._first_named(node, "double_byte_string_spec") is not None:
@@ -738,6 +744,9 @@ class CCodeGenerator(NodeVisitor):
         return "".join(dimensions)
 
     def _declaration_type(self, node):
+        reference = self._first_named(node, "reference_specification")
+        if reference is not None:
+            return f"{self.extract_type(reference) or 'int16_t'} *"
         if self._first_named(node, "single_byte_string_spec") is not None:
             return "const char *"
         if self._first_named(node, "double_byte_string_spec") is not None:
@@ -788,7 +797,8 @@ class CCodeGenerator(NodeVisitor):
         }
         if node.get("name") in declaration_nodes:
             names = []
-            for child in self._named_nodes(node, "variable_name"):
+            names_node = self._first_named(node, "var1_list")
+            for child in self._named_nodes(names_node, "variable_name"):
                 if child.get("value") and child["value"] not in names:
                     names.append(child["value"])
             if not names:
@@ -832,16 +842,26 @@ class CCodeGenerator(NodeVisitor):
             "input_declarations", "output_declarations", "input_output_declarations",
             "var_declarations", "retentive_var_declarations", "non_retentive_var_decls",
         }
-        for section_name in persistent_sections:
-            for section in self._named_nodes(node, section_name):
-                for declaration in self._iter_named_set(section, declaration_nodes):
-                    initializer = self._first_named(declaration, "constant")
-                    if initializer is None:
-                        continue
-                    value = self.render(initializer)
-                    for var_type, field in self.collect_var_decls(declaration):
-                        if "[" not in var_type:
-                            result[field.casefold()] = value
+        declarations = self._persistent_declarations(node)
+        previous_instance, previous_fields = self.current_instance, self.current_instance_fields
+        self.current_instance = "self"
+        self.current_instance_fields = {field.casefold() for _, field in declarations}
+        try:
+            for section_name in persistent_sections:
+                for section in self._named_nodes(node, section_name):
+                    for declaration in self._iter_named_set(section, declaration_nodes):
+                        initializer = (
+                            self._first_named(declaration, "reference_value")
+                            or self._first_named(declaration, "constant")
+                        )
+                        if initializer is None:
+                            continue
+                        value = self.render(initializer)
+                        for var_type, field in self.collect_var_decls(declaration):
+                            if "[" not in var_type:
+                                result[field.casefold()] = value
+        finally:
+            self.current_instance, self.current_instance_fields = previous_instance, previous_fields
         return result
 
     def _iter_named_set(self, node, names):
@@ -1653,6 +1673,15 @@ class CCodeGenerator(NodeVisitor):
             self.visit_structure_type_declaration(declaration)
         for declaration in self._named_nodes(node, "string_type_declaration"):
             self.visit_string_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "reference_type_declaration"):
+            self.visit_reference_type_declaration(declaration)
+
+    def visit_reference_type_declaration(self, node):
+        name = self._first_named(node, "reference_type_name")
+        specification = self._first_named(node, "reference_specification")
+        if name is not None and specification is not None:
+            target = self.extract_type(specification) or "int16_t"
+            self.text += f"typedef {target} *{name['value']};\n"
 
     def visit_subrange_type_declaration(self, node):
         name = self._first_named(node, "subrange_type_name")
@@ -1826,6 +1855,23 @@ class CCodeGenerator(NodeVisitor):
         self.text += " = "
         self.accept(node, lambda name: name == "expression")
         self.text += ";\n"
+
+    def visit_reference_constructor(self, node):
+        variable = self._first_named(node, "variable")
+        self.text += f"&({self.render(variable)})"
+
+    def visit_reference_value(self, node):
+        if node.get("value") == "NULL":
+            self.text += "NULL"
+        else:
+            self.accept(node)
+
+    def visit_dereferenced_variable(self, node):
+        referenced = next(
+            (child for child in node.get("children", []) if isinstance(child, dict)),
+            None,
+        )
+        self.text += f"STC_DEREF({self.render(referenced)})"
 
     def visit_assert_statement(self, node):
         expression = next(child for child in node.get("children", []) if isinstance(child, dict))

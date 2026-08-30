@@ -19,6 +19,25 @@ class EditionCompatibilityCheck(SemanticCheck):
         """Exclude bundled library declarations from the caller's source profile."""
         return not node.get("library_import", False)
 
+    def _require_reference_support(self, node):
+        if self.context.standard_edition < 3 and self._belongs_to_compilation_unit(node):
+            self.error(
+                "edition3-reference",
+                "REF_TO reference types and operations require IEC 61131-3 Edition 3 or later.",
+                node,
+            )
+        self.generic_visit(node)
+
+    visit_reference_specification = _require_reference_support
+    visit_reference_constructor = _require_reference_support
+    visit_dereferenced_variable = _require_reference_support
+
+    def visit_reference_value(self, node):
+        if node.get("value") == "NULL":
+            self._require_reference_support(node)
+        else:
+            self.generic_visit(node)
+
     def visit_instruction_list(self, node):
         if self._belongs_to_compilation_unit(node):
             if self.context.standard_edition >= 4:

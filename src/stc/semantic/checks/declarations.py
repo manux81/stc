@@ -3,7 +3,10 @@
 """Validate declarations, type names, and identifier resolution."""
 from __future__ import annotations
 
-from ..types import BUILTIN_TYPES, DataType, EnumType, TypeCategory, UNKNOWN_TYPE
+from ..types import (
+    BUILTIN_TYPES, ArrayType, DataType, EnumType, ReferenceType,
+    TypeCategory, UNKNOWN_TYPE,
+)
 from ..symbol_table import StorageClass, normalize_identifier
 from .base import SemanticCheck, SemanticPhase, descendants, register_check, walk
 
@@ -49,6 +52,7 @@ class TypeDeclarationCollector(SemanticCheck):
         "function_block_declaration",
         "class_declaration",
         "interface_declaration",
+        "reference_type_declaration",
     }
     NAME_NODES = {
         "simple_type_name",
@@ -60,6 +64,7 @@ class TypeDeclarationCollector(SemanticCheck):
         "derived_function_block_name",
         "class_type_name",
         "interface_type_name",
+        "reference_type_name",
     }
 
     def run(self, ast):
@@ -91,7 +96,22 @@ class TypeDeclarationCollector(SemanticCheck):
                 )
                 datatype = EnumType(name_node["value"], TypeCategory.ENUM, elements=elements)
             elif declaration.get("name") == "array_type_declaration":
-                datatype = DataType(name_node["value"], TypeCategory.ARRAY)
+                element_name = next(
+                    (
+                        node["value"]
+                        for node in reversed(list(walk(declaration)))
+                        if node is not name_node
+                        and isinstance(node.get("value"), str)
+                        and node.get("name", "").endswith("_type_name")
+                    ),
+                    None,
+                )
+                datatype = ArrayType(
+                    name_node["value"], TypeCategory.ARRAY,
+                    element_type=self.context.declared_types.get(
+                        normalize_identifier(element_name or ""), UNKNOWN_TYPE
+                    ),
+                )
             elif declaration.get("name") == "structure_type_declaration":
                 datatype = DataType(name_node["value"], TypeCategory.STRUCT)
             elif declaration.get("name") == "function_block_declaration":
@@ -100,6 +120,24 @@ class TypeDeclarationCollector(SemanticCheck):
                 datatype = DataType(name_node["value"], TypeCategory.CLASS)
             elif declaration.get("name") == "interface_declaration":
                 datatype = DataType(name_node["value"], TypeCategory.INTERFACE)
+            elif declaration.get("name") == "reference_type_declaration":
+                referenced_name = next(
+                    (
+                        node["value"]
+                        for node in walk(declaration)
+                        if node is not name_node
+                        and isinstance(node.get("value"), str)
+                        and node.get("name", "").endswith("_type_name")
+                    ),
+                    None,
+                )
+                referenced = self.context.declared_types.get(
+                    normalize_identifier(referenced_name or ""), UNKNOWN_TYPE
+                )
+                datatype = ReferenceType(
+                    name_node["value"], TypeCategory.REFERENCE,
+                    referenced_type=referenced,
+                )
             else:
                 underlying = next(
                     (
@@ -123,10 +161,19 @@ class TypeDeclarationCollector(SemanticCheck):
             if symbol.type_ref is None:
                 continue
             type_name = normalize_identifier(symbol.type_ref.name or "")
-            symbol.attributes["datatype"] = self.context.declared_types.get(
-                type_name,
-                UNKNOWN_TYPE,
-            )
+            if type_name.startswith("ref_to "):
+                referenced_name = type_name[len("ref_to "):]
+                referenced = self.context.declared_types.get(referenced_name, UNKNOWN_TYPE)
+                symbol.attributes["datatype"] = ReferenceType(
+                    f"REF_TO {symbol.type_ref.name[len('REF_TO '):]}",
+                    TypeCategory.REFERENCE,
+                    referenced_type=referenced,
+                )
+            else:
+                symbol.attributes["datatype"] = self.context.declared_types.get(
+                    type_name,
+                    UNKNOWN_TYPE,
+                )
         return self.context
 
 
@@ -225,10 +272,36 @@ class DeclarationCheck(SemanticCheck):
             if symbol.type_ref is None:
                 continue
             type_name = normalize_identifier(symbol.type_ref.name or "")
+            if type_name.startswith("ref_to "):
+                type_name = type_name[len("ref_to "):]
             if type_name not in self.context.declared_types:
                 self.error(
                     "unknown-type",
                     f"Unknown type '{symbol.type_ref.name}'.",
                     symbol.type_ref.node or symbol.declaration,
+                )
+
+        for declaration in (
+            node for node in walk(ast) if node.get("name") == "reference_type_declaration"
+        ):
+            name_node = next(
+                (node for node in walk(declaration) if node.get("name") == "reference_type_name"),
+                None,
+            )
+            referenced_name = next(
+                (
+                    node.get("value")
+                    for node in walk(declaration)
+                    if node is not name_node
+                    and isinstance(node.get("value"), str)
+                    and node.get("name", "").endswith("_type_name")
+                ),
+                None,
+            )
+            if referenced_name and normalize_identifier(referenced_name) not in self.context.declared_types:
+                self.error(
+                    "unknown-type",
+                    f"Unknown type '{referenced_name}'.",
+                    declaration,
                 )
         return self.context

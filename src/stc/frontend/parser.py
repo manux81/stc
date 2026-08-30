@@ -408,7 +408,7 @@ class IECParser(Parser):
 # B.1.3.3 Derived data types #
 ##############################
     @_('single_element_type_name', 'array_type_name',
-       'structure_type_name', 'string_type_name')
+       'structure_type_name', 'string_type_name', 'reference_type_name')
     def derived_type_name(self, p):
         return self._node_from_production(p)
 
@@ -436,6 +436,21 @@ class IECParser(Parser):
     def structure_type_name(self, p):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
+    @_('IDENTIFIER')
+    def reference_type_name(self, p):
+        return {"name": self.production.name, "value": p[0], "children": []}
+
+    @_('REF_TO non_generic_type_name')
+    def reference_specification(self, p):
+        return {"name": self.production.name, "children": [p[1]]}
+
+    @_('reference_specification [ ASSIGN reference_value ]')
+    def reference_spec_init(self, p):
+        children = [p[0]]
+        if p[1][0] is not None:
+            children.append(p[1][1])
+        return {"name": self.production.name, "children": children}
+
     @_('TYPE type_declaration ";" { type_declaration ";" } END_TYPE')
     def data_type_declaration(self, p):
         return self._node_from_production(p)
@@ -443,9 +458,20 @@ class IECParser(Parser):
     @_('array_type_declaration',
        'structure_type_declaration',
        'string_type_declaration',
-       'single_element_type_declaration')
+       'single_element_type_declaration',
+       'reference_type_declaration')
     def type_declaration(self, p):
         return self._node_from_production(p)
+
+    @_('IDENTIFIER ":" reference_specification')
+    def reference_type_declaration(self, p):
+        return {
+            "name": self.production.name,
+            "children": [
+                {"name": "reference_type_name", "value": p[0], "children": []},
+                p[2],
+            ],
+        }
 
     @_('IDENTIFIER ":" simple_spec_init',
        'IDENTIFIER ":" subrange_spec_init',
@@ -485,11 +511,13 @@ class IECParser(Parser):
     def simple_type_declaration(self, p):
         return self._node_from_production(p)
 
-    @_('simple_specification [ ASSIGN constant ]')
+    @_('simple_specification',
+       'simple_specification ASSIGN constant',
+       'simple_specification ASSIGN reference_value')
     def simple_spec_init(self, p):
-        if p[1][0] == None:
-            return {"name": "simple_spec_init", "children": [ p[0] ]}
-        return {"name": self.production.name, "children": [ p[0], p[1][1] ]}
+        if len(p) == 1:
+            return {"name": "simple_spec_init", "children": [p[0]]}
+        return {"name": self.production.name, "children": [p[0], p[2]]}
 
 
     @_('elementary_type_name',
@@ -655,9 +683,13 @@ class IECParser(Parser):
     def variable(self, p):
         return {"name": self.production.name, "children": [ p[0] ]}
 
-    @_('variable_name', 'multi_element_variable')
+    @_('variable_name', 'multi_element_variable', 'dereferenced_variable')
     def symbolic_variable(self, p):
         return {"name": self.production.name, "children": [ p[0] ]}
+
+    @_('symbolic_variable "^"')
+    def dereferenced_variable(self, p):
+        return {"name": self.production.name, "children": [p[0]]}
 
     @_('IDENTIFIER', 'PARAMETER_IDENTIFIER')
     def variable_name(self, p):
@@ -688,7 +720,7 @@ class IECParser(Parser):
     def multi_element_variable(self, p):
         return self._node_from_production(p)
 
-    @_('subscripted_variable subscript_list')
+    @_('subscripted_variable subscript_list', 'dereferenced_variable subscript_list')
     def array_variable(self, p):
         return self._node_from_production(p)
 
@@ -709,7 +741,8 @@ class IECParser(Parser):
     # table and made otherwise valid reads such as ``P.X`` fail at the token
     # following the field selector.
     @_('variable_name "." field_selector',
-       'multi_element_variable "." field_selector')
+       'multi_element_variable "." field_selector',
+       'dereferenced_variable "." field_selector')
     def structured_variable(self, p):
         return self._node_from_production(p)
 
@@ -741,13 +774,35 @@ class IECParser(Parser):
 
     @_('var1_init_decl', 'array_var_init_decl',
         'structured_var_init_decl', 'fb_name_decl', 'string_var_declaration',
-        'located_var_decl')
+        'located_var_decl', 'reference_alias_var_init_decl')
     def var_init_decl(self, p):
         return { "name": self.production.name, "children": [ p[0] ] }
 
+    @_('var1_list ":" IDENTIFIER ASSIGN reference_value')
+    def reference_alias_var_init_decl(self, p):
+        return {
+            "name": "var1_init_decl",
+            "children": [
+                p[0],
+                {
+                    "name": "simple_spec_init",
+                    "children": [
+                        {
+                            "name": "simple_specification",
+                            "children": [
+                                {"name": "simple_type_name", "value": p[2], "children": []}
+                            ],
+                        },
+                        p[4],
+                    ],
+                },
+            ],
+        }
+
     @_('var1_list ":" simple_spec_init',
        'var1_list ":" subrange_spec_init',
-       'var1_list ":" enumerated_spec_init')
+       'var1_list ":" enumerated_spec_init',
+       'var1_list ":" reference_spec_init')
     def var1_init_decl(self, p):
         return { "name": self.production.name, "children": [ p[0], p[2] ] }
 
@@ -849,7 +904,8 @@ class IECParser(Parser):
 
     @_('var1_list ":" simple_specification',
        'var1_list ":" subrange_specification',
-       'var1_list ":" enumerated_specification')
+       'var1_list ":" enumerated_specification',
+       'var1_list ":" reference_specification')
     def var1_declaration(self, p):
         return self._node_from_production(p)
 
@@ -1633,7 +1689,7 @@ class IECParser(Parser):
     def unary_operator(self, p):
         return { "name": self.production.name, "value": p[0], "children": [ ] }
 
-    @_('constant', 'qualified_enumerated_value', 'variable', 'method_invocation', '"(" expression ")"',
+    @_('constant', 'qualified_enumerated_value', 'variable', 'reference_value', 'method_invocation', '"(" expression ")"',
        'function_name "(" [ param_assignment { "," param_assignment } ] ")"')
     def primary_expression(self, p):
         if len(p) == 1:
@@ -1646,6 +1702,16 @@ class IECParser(Parser):
             for obj in p[2][1]:
                 children.append(obj[1])
         return { "name": self.production.name, "children": children }
+
+    @_('REF "(" variable ")"')
+    def reference_constructor(self, p):
+        return {"name": self.production.name, "children": [p[2]]}
+
+    @_('reference_constructor', 'NULL')
+    def reference_value(self, p):
+        if isinstance(p[0], dict):
+            return {"name": self.production.name, "children": [p[0]]}
+        return {"name": self.production.name, "value": "NULL", "children": []}
 
 ####################
 # B.3.2 Statements #

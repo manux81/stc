@@ -9,7 +9,7 @@ import subprocess
 from .visitor import NodeVisitor
 from .sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
 from ..runtime.loader import render_primitives
-from ..semantic.types import EnumType
+from ..semantic.types import ArrayType, EnumType, ReferenceType
 
 
 class RustCodeGenerator(NodeVisitor):
@@ -269,7 +269,13 @@ class RustCodeGenerator(NodeVisitor):
             "//! This module contains the translated IEC program and its runtime glue.\n"
             "//! Regenerate this file from Structured Text instead of editing it directly.\n\n"
             "#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]\n"
-            "#![allow(unused_assignments, unused_mut, unused_variables, unused_unsafe)]\n\n"
+            "#![allow(unused_assignments, unused_mut, unused_variables, unused_unsafe, unused_parens)]\n\n"
+            "/// Dereference an IEC reference and trap the required NULL error.\n"
+            "#[allow(dead_code)]\n"
+            "unsafe fn stc_deref<'a, T>(pointer: *mut T) -> &'a mut T {\n"
+            "    assert!(!pointer.is_null(), \"IEC NULL reference dereference\");\n"
+            "    unsafe { &mut *pointer }\n"
+            "}\n\n"
         )
         self.indent = ""
         self.current_function = None
@@ -329,6 +335,9 @@ class RustCodeGenerator(NodeVisitor):
         datatype = self.context.type_of(node)
         if datatype is None or datatype.name in {"<unknown>", "<error>"}:
             return None
+        if isinstance(datatype, ReferenceType):
+            referenced = datatype.referenced_type
+            return f"*mut {self.iecType2Rust(referenced.name if referenced else 'INT')}"
         return self.iecType2Rust(datatype.name)
 
     def common_numeric_type(self, nodes):
@@ -373,6 +382,9 @@ class RustCodeGenerator(NodeVisitor):
         return None
 
     def declaration_type(self, node, fallback="i16"):
+        reference = self._first_named(node, "reference_specification")
+        if reference is not None:
+            return f"*mut {self.extract_type(reference) or fallback}"
         found = self.extract_type(node)
         if found:
             return found
@@ -392,6 +404,9 @@ class RustCodeGenerator(NodeVisitor):
         return dimensions
 
     def _declaration_type(self, node):
+        reference = self._first_named(node, "reference_specification")
+        if reference is not None:
+            return f"*mut {self.extract_type(reference) or 'i16'}"
         if self._first_named(node, "single_byte_string_spec") is not None:
             return "&'static str"
         if self._first_named(node, "double_byte_string_spec") is not None:
@@ -417,6 +432,8 @@ class RustCodeGenerator(NodeVisitor):
         return self.declaration_type(node)
 
     def zero_value(self, rust_type):
+        if rust_type.startswith("*mut "):
+            return "std::ptr::null_mut()"
         if rust_type == "bool":
             return "false"
         if rust_type in ("f32", "f64"):
@@ -425,10 +442,16 @@ class RustCodeGenerator(NodeVisitor):
             return '""'
         if rust_type.startswith("Vec<"):
             return "Vec::new()"
-        if rust_type.startswith("["):
+        if rust_type.startswith("[") and rust_type.endswith("]"):
+            inner = rust_type[1:-1]
+            element, separator, length = inner.rpartition(";")
+            if separator:
+                return f"[{self.zero_value(element.strip())}; {length.strip()}]"
             return "Default::default()"
         if self.context is not None:
             datatype = self.context.declared_types.get(rust_type.casefold())
+            if isinstance(datatype, ArrayType):
+                return "std::array::from_fn(|_| Default::default())"
             if isinstance(datatype, EnumType) and datatype.elements:
                 return f"{rust_type}::{datatype.elements[0]}"
         if rust_type in {"i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"}:
@@ -467,7 +490,8 @@ class RustCodeGenerator(NodeVisitor):
         }
         if node.get("name") in declaration_nodes:
             names = []
-            for child in self._named_nodes(node, "variable_name"):
+            names_node = self._first_named(node, "var1_list")
+            for child in self._named_nodes(names_node, "variable_name"):
                 if child.get("value") and child["value"] not in names:
                     names.append(child["value"])
             if not names:
@@ -504,12 +528,36 @@ class RustCodeGenerator(NodeVisitor):
                              "var_declarations", "retentive_var_declarations", "non_retentive_var_decls"):
             for section in self._named_nodes(node, section_name):
                 for declaration in self._iter_named_set(section, {"var1_init_decl", "string_var_declaration"}):
+                    if self._first_named(declaration, "reference_value") is not None:
+                        continue
                     initializer = self._first_named(declaration, "constant")
                     if initializer is None:
                         continue
                     value = self.render(initializer)
                     for _, field in self.collect_var_decls(declaration):
                         result[field.casefold()] = value
+        return result
+
+    def _reference_initializers(self, node, declarations):
+        result = {}
+        previous_instance, previous_fields = self.current_instance, self.current_instance_fields
+        self.current_instance = True
+        self.current_instance_fields = {field.casefold() for _, field in declarations}
+        try:
+            for section_name in (
+                "input_declarations", "output_declarations", "var_declarations",
+                "retentive_var_declarations", "non_retentive_var_decls",
+            ):
+                for section in self._named_nodes(node, section_name):
+                    for declaration in self._iter_named_set(section, {"var1_init_decl"}):
+                        constructor = self._first_named(declaration, "reference_constructor")
+                        if constructor is None:
+                            continue
+                        value = self.render(constructor)
+                        for _, field in self.collect_var_decls(declaration):
+                            result[field.casefold()] = value
+        finally:
+            self.current_instance, self.current_instance_fields = previous_instance, previous_fields
         return result
 
     @staticmethod
@@ -531,6 +579,7 @@ class RustCodeGenerator(NodeVisitor):
                 if step["initial"]:
                     initializers[sfc_field(step["name"], "active").casefold()] = "true"
         retained_names = {field.casefold() for _, field in retained}
+        reference_initializers = self._reference_initializers(node, declarations)
         kind = "function block" if entry_name == "step" else "program"
         self.text += f"/// Persistent state for IEC {kind} `{name}`.\n"
         self.text += "#[allow(non_camel_case_types, non_snake_case)]\n"
@@ -545,13 +594,20 @@ class RustCodeGenerator(NodeVisitor):
             self.text += f"            {field}: {value},\n"
         self.text += "        }\n    }\n}\n\nimpl " + name + " {\n"
         self.text += "    /// Reset all state, including retained variables.\n"
-        self.text += "    pub fn cold_init(&mut self) {\n        *self = Self::default();\n    }\n\n"
+        self.text += "    pub fn cold_init(&mut self) {\n        *self = Self::default();\n"
+        for _, field in declarations:
+            if field.casefold() in reference_initializers:
+                self.text += f"        self.{field} = {reference_initializers[field.casefold()]};\n"
+        self.text += "    }\n\n"
         self.text += "    /// Reset non-retained state while preserving retained variables.\n"
         self.text += "    pub fn warm_init(&mut self) {\n"
         for var_type, field in declarations:
             if field.casefold() not in retained_names:
                 value = initializers.get(field.casefold(), self.zero_value(var_type))
                 self.text += f"        self.{field} = {value};\n"
+        for _, field in declarations:
+            if field.casefold() in reference_initializers:
+                self.text += f"        self.{field} = {reference_initializers[field.casefold()]};\n"
         self.text += "    }\n\n"
         inouts = self.collect_sections(node, "input_output_declarations")
         params = ", " + ", ".join(f"{field}: &mut {var_type}" for var_type, field in inouts) if inouts else ""
@@ -1152,6 +1208,16 @@ class RustCodeGenerator(NodeVisitor):
             self.visit_structure_type_declaration(declaration)
         for declaration in self._named_nodes(node, "string_type_declaration"):
             self.visit_string_type_declaration(declaration)
+        for declaration in self._named_nodes(node, "reference_type_declaration"):
+            self.visit_reference_type_declaration(declaration)
+
+    def visit_reference_type_declaration(self, node):
+        name = self._first_named(node, "reference_type_name")
+        specification = self._first_named(node, "reference_specification")
+        if name is not None and specification is not None:
+            target = self.extract_type(specification) or "i16"
+            self.text += f"/// IEC reference type `{name['value']}`.\n"
+            self.text += f"pub type {name['value']} = *mut {target};\n\n"
 
     def visit_subrange_type_declaration(self, node):
         name = self._first_named(node, "subrange_type_name")
@@ -1560,6 +1626,23 @@ class RustCodeGenerator(NodeVisitor):
             self.text += f"{self.indent}unsafe {{ {variable_name['value']} = {rendered}; }}\n"
         else:
             self.text += f"{self.indent}{self.render(variable)} = {rendered};\n"
+
+    def visit_reference_constructor(self, node):
+        variable = self._first_named(node, "variable")
+        self.text += f"&mut {self.render(variable)} as *mut _"
+
+    def visit_reference_value(self, node):
+        if node.get("value") == "NULL":
+            self.text += "std::ptr::null_mut()"
+        else:
+            self.accept(node)
+
+    def visit_dereferenced_variable(self, node):
+        referenced = next(
+            (child for child in node.get("children", []) if isinstance(child, dict)),
+            None,
+        )
+        self.text += f"(*unsafe {{ stc_deref({self.render(referenced)}) }})"
 
     def visit_assert_statement(self, node):
         expression = next(child for child in node.get("children", []) if isinstance(child, dict))

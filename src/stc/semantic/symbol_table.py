@@ -461,6 +461,14 @@ class SymbolTableBuilder:
     def _extract_type(self, node: Any) -> TypeRef | None:
         if not isinstance(node, dict):
             return None
+        reference = self._first_descendant(node, "reference_specification")
+        if reference is not None:
+            for candidate in self._iter_nodes(reference):
+                if candidate is reference:
+                    continue
+                value = candidate.get("value")
+                if isinstance(value, str) and candidate.get("name", "").endswith("_type_name"):
+                    return TypeRef(f"REF_TO {value}", reference)
         for candidate in self._iter_nodes(node):
             if candidate.get("name") in self._TYPE_LEAF_NAMES:
                 value = candidate.get("value")

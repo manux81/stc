@@ -10,7 +10,8 @@ class TypeCategory(str, Enum):
     BOOL='bool'; SIGNED_INT='signed_int'; UNSIGNED_INT='unsigned_int'; REAL='real'
     BIT_STRING='bit_string'; STRING='string'; CHAR='char'; TIME='time'; DATE='date'; ENUM='enum'
     ARRAY='array'; STRUCT='struct'; FUNCTION_BLOCK='function_block'
-    CLASS='class'; INTERFACE='interface'; UNKNOWN='unknown'; ERROR='error'
+    CLASS='class'; INTERFACE='interface'; REFERENCE='reference'; NULL_REFERENCE='null_reference'
+    UNKNOWN='unknown'; ERROR='error'
 
 @dataclass(frozen=True, slots=True)
 class DataType:
@@ -31,6 +32,10 @@ class ArrayType(DataType):
 @dataclass(frozen=True, slots=True)
 class EnumType(DataType):
     elements: tuple[str, ...] = ()
+
+@dataclass(frozen=True, slots=True)
+class ReferenceType(DataType):
+    referenced_type: DataType | None = None
 
 @dataclass(frozen=True, slots=True)
 class ConstantValue:
@@ -60,6 +65,7 @@ CTD=DataType('CTD',TypeCategory.FUNCTION_BLOCK); CTUD=DataType('CTUD',TypeCatego
 R_TRIG=DataType('R_TRIG',TypeCategory.FUNCTION_BLOCK); F_TRIG=DataType('F_TRIG',TypeCategory.FUNCTION_BLOCK)
 SR=DataType('SR',TypeCategory.FUNCTION_BLOCK); RS=DataType('RS',TypeCategory.FUNCTION_BLOCK)
 UNKNOWN_TYPE=DataType('<unknown>',TypeCategory.UNKNOWN); ERROR_TYPE=DataType('<error>',TypeCategory.ERROR)
+NULL_REFERENCE=DataType('NULL',TypeCategory.NULL_REFERENCE)
 
 BUILTIN_TYPES={t.name.casefold():t for t in (
     BOOL,SINT,INT,DINT,LINT,USINT,UINT,UDINT,ULINT,REAL,LREAL,BYTE,WORD,DWORD,LWORD,
@@ -79,6 +85,9 @@ def value_fits(value:int,t:DataType)->bool:
 def is_assignable(source:DataType,destination:DataType)->bool:
     if ERROR_TYPE in (source,destination) or UNKNOWN_TYPE in (source,destination): return True
     if source==destination: return True
+    if source.category == TypeCategory.NULL_REFERENCE and destination.category == TypeCategory.REFERENCE: return True
+    if isinstance(source, ReferenceType) and isinstance(destination, ReferenceType):
+        return is_assignable(source.referenced_type or UNKNOWN_TYPE, destination.referenced_type or UNKNOWN_TYPE)
     if source.category==TypeCategory.STRING and destination.category==TypeCategory.STRING: return True
     # A derived elementary type is compatible with its base representation.
     # Different numeric representations require an explicit IEC conversion.

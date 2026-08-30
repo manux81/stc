@@ -83,7 +83,7 @@ class IECLexer(Lexer):
     reflags = re.IGNORECASE
     literals = {
         ':', ',', ';', '+', '-', '(', ')', '=', '[', ']', '%', '.',
-        '*', '/', '<', '>', '&',
+        '*', '/', '<', '>', '&', '^',
     }
     ignore = ' \t'
 
@@ -159,7 +159,7 @@ class IECLexer(Lexer):
 
         TYPE, END_TYPE, ASSIGN, DOTDOT, SHARP, ARRAY, OF, STRUCT, END_STRUCT, STRING, WSTRING,
 
-        NIL,
+        NIL, NULL, REF, REF_TO,
 
         VAR_INPUT, RETAIN, END_VAR, NON_RETAIN, R_EDGE, F_EDGE, VAR_OUTPUT, VAR_IN_OUT, VAR, CONSTANT, VAR_EXTERNAL, VAR_GLOBAL, AT,
         STANDARD_FUNCTION_NAME, ASSERT, FUNCTION, END_FUNCTION,
@@ -212,6 +212,9 @@ class IECLexer(Lexer):
 ############################
     IDENTIFIER['TRUE'] = TRUE
     IDENTIFIER['FALSE'] = FALSE
+    IDENTIFIER['NULL'] = NULL
+    IDENTIFIER['REF'] = REF
+    IDENTIFIER['REF_TO'] = REF_TO
 
 ##############################
 #  B.1.2.2 Character strings #

@@ -3,7 +3,11 @@
 """Infer candidate types, narrow them, and report type errors."""
 from __future__ import annotations
 
-from ..types import ERROR_TYPE, TypeCategory, UNKNOWN_TYPE, conversion_cost, is_assignable
+from ..types import (
+    ArrayType, ERROR_TYPE, NULL_REFERENCE, ReferenceType, TypeCategory, UNKNOWN_TYPE,
+    conversion_cost, is_assignable,
+)
+from ..symbol_table import ScopeKind, StorageClass
 from .base import SemanticCheck, SemanticPhase, direct_children, register_check, walk
 
 
@@ -28,6 +32,35 @@ class FillCandidateDatatypes(SemanticCheck):
                 constant = self.context.constants[id(node)]
                 self.context.candidate_types.setdefault(id(node), {constant.datatype})
 
+            if node.get("name") == "reference_constructor":
+                variable = next(
+                    (item for item in walk(node) if item.get("name") == "variable_name"),
+                    None,
+                )
+                symbol = self.context.symbols.symbol_for_reference(variable) if variable else None
+                referenced = symbol.attributes.get("datatype", UNKNOWN_TYPE) if symbol else UNKNOWN_TYPE
+                if any(item.get("name") == "array_variable" for item in walk(node)) and isinstance(referenced, ArrayType):
+                    referenced = referenced.element_type or UNKNOWN_TYPE
+                self.context.candidate_types[id(node)] = {
+                    ReferenceType(
+                        f"REF_TO {referenced.name}", TypeCategory.REFERENCE,
+                        referenced_type=referenced,
+                    )
+                }
+            elif node.get("name") == "reference_value" and node.get("value") == "NULL":
+                self.context.candidate_types[id(node)] = {NULL_REFERENCE}
+            elif node.get("name") == "dereferenced_variable":
+                variable = next(
+                    (item for item in walk(node) if item.get("name") == "variable_name"),
+                    None,
+                )
+                symbol = self.context.symbols.symbol_for_reference(variable) if variable else None
+                datatype = symbol.attributes.get("datatype", UNKNOWN_TYPE) if symbol else UNKNOWN_TYPE
+                if isinstance(datatype, ReferenceType):
+                    self.context.candidate_types[id(node)] = {
+                        datatype.referenced_type or UNKNOWN_TYPE
+                    }
+
         self._propagate_expression_types(nodes)
         return self.context
 
@@ -46,6 +79,10 @@ class FillCandidateDatatypes(SemanticCheck):
             changed = False
             for node in reversed(nodes):
                 node_children = direct_children(node)
+                if node.get("name") in {"reference_constructor", "dereferenced_variable"}:
+                    continue
+                if node.get("name") == "reference_value" and node.get("value") == "NULL":
+                    continue
                 if node.get("name") == "unary_expression" and len(node_children) == 1:
                     child_candidates = self.context.candidates(node_children[0])
                     if node.get("value") == "-":
@@ -152,6 +189,70 @@ class PrintDatatypesError(SemanticCheck):
                     "incompatible-assignment",
                     f"Cannot assign {source_names} to {destination_names}.",
                     assignment,
+                )
+
+        for declaration in (
+            node for node in walk(ast) if node.get("name") == "var1_init_decl"
+        ):
+            reference_value = next(
+                (item for item in walk(declaration) if item.get("name") == "reference_value"),
+                None,
+            )
+            if reference_value is None:
+                continue
+            declared_name = next(
+                (item for item in walk(declaration) if item.get("name") == "variable_name"),
+                None,
+            )
+            symbol = self.context.symbols.symbol_for_declaration(declared_name) if declared_name else None
+            destination = symbol.attributes.get("datatype", UNKNOWN_TYPE) if symbol else UNKNOWN_TYPE
+            sources = self.context.candidates(reference_value)
+            if sources and not any(is_assignable(source, destination) for source in sources):
+                self.error(
+                    "incompatible-reference-initializer",
+                    f"Cannot initialize '{symbol.name}' with this reference value.",
+                    reference_value,
+                )
+
+        for node in walk(ast):
+            if node.get("name") == "dereferenced_variable":
+                variable = next(
+                    (item for item in walk(node) if item.get("name") == "variable_name"),
+                    None,
+                )
+                symbol = self.context.symbols.symbol_for_reference(variable) if variable else None
+                datatype = symbol.attributes.get("datatype", UNKNOWN_TYPE) if symbol else UNKNOWN_TYPE
+                if not isinstance(datatype, ReferenceType) and datatype is not UNKNOWN_TYPE:
+                    self.error(
+                        "dereference-non-reference",
+                        f"Cannot dereference non-reference variable '{variable.get('value')}'.",
+                        node,
+                    )
+            elif node.get("name") == "reference_constructor":
+                variable = next(
+                    (item for item in walk(node) if item.get("name") == "variable_name"),
+                    None,
+                )
+                symbol = self.context.symbols.symbol_for_reference(variable) if variable else None
+                if symbol is not None and (
+                    symbol.storage == StorageClass.TEMP
+                    or symbol.scope.kind == ScopeKind.FUNCTION
+                ):
+                    self.error(
+                        "reference-to-temporary",
+                        f"REF cannot be applied to temporary variable '{symbol.name}'.",
+                        node,
+                    )
+
+        for symbol in self.context.symbols.iter_symbols():
+            if (
+                symbol.storage == StorageClass.IN_OUT
+                and isinstance(symbol.attributes.get("datatype"), ReferenceType)
+            ):
+                self.error(
+                    "reference-in-out",
+                    f"Reference variable '{symbol.name}' cannot be declared VAR_IN_OUT.",
+                    symbol.declaration,
                 )
         return self.context
 
