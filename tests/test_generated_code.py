@@ -127,6 +127,46 @@ END_FUNCTION
             self.assertIn("} else {", result.output)
             self.assertNotIn("}\nelse {", result.output)
 
+    def test_compound_duration_without_separators_compiles_for_both_backends(self):
+        source = """\
+FUNCTION duration_value : TIME
+VAR delay : TIME; END_VAR
+delay := T#1d2h3m4s5ms;
+duration_value := delay;
+END_FUNCTION
+"""
+        for target in ("c", "rust"):
+            with self.subTest(target=target):
+                result = compile_source(source, target)
+                self.assertTrue(result.success, result.diagnostics)
+                self.assertIn("delay = 93784005;", result.output)
+
+    def test_compound_duration_accepts_optional_component_separators(self):
+        source = """\
+FUNCTION duration_value : TIME
+VAR delay : TIME; END_VAR
+delay := TIME#1d_2h_3m_4s_5ms;
+duration_value := delay;
+END_FUNCTION
+"""
+        result = compile_source(source, "c")
+
+        self.assertTrue(result.success, result.diagnostics)
+        self.assertIn("delay = 93784005;", result.output)
+
+    def test_function_block_call_accepts_ld_named_parameter(self):
+        source = """\
+FUNCTION_BLOCK Caller
+VAR_INPUT CountDown : BOOL; Reset : BOOL; END_VAR
+VAR Down : CTD; END_VAR
+Down(CD := CountDown, LD := Reset, PV := 10);
+END_FUNCTION_BLOCK
+"""
+        result = compile_source(source, "c")
+
+        self.assertTrue(result.success, result.diagnostics)
+        self.assertIn("Caller_step", result.output)
+
     def test_c_torture_constructs_compile_and_link(self):
         compiler = shutil.which("cc")
         if compiler is None:

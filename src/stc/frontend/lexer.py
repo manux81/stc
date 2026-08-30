@@ -115,7 +115,13 @@ class IECLexer(Lexer):
             if self.language == "IL" and token.type in il_operators:
                 token.type = "IL_" + token.type
             elif self.language != "IL" and token.type in il_only:
-                token.type = "IDENTIFIER"
+                rest = self.text[token.index + len(str(token.value)):]
+                prefix = self.text[:token.index].rstrip()
+                token.type = (
+                    "PARAMETER_IDENTIFIER"
+                    if re.match(r'\s*:=', rest) and prefix.endswith(('(', ','))
+                    else "IDENTIFIER"
+                )
             yield token
 
     def ignore_block_comment(self, t):
@@ -240,11 +246,14 @@ class IECLexer(Lexer):
     # surrounding duration grammar supplies the context in which a standalone
     # unit is meaningful.
     T = before("IDENTIFIER", r'T(?![a-zA-Z0-9_])')
-    D = before("IDENTIFIER", r'D(?![a-zA-Z0-9_])')
-    H = before("IDENTIFIER", r'H(?![a-zA-Z0-9_])')
-    M = before("IDENTIFIER", r'M(?![a-zA-Z0-9_])')
-    SEC = before("IDENTIFIER", r'S(?![a-zA-Z0-9_])')
-    MS = before("IDENTIFIER", r'MS(?![a-zA-Z0-9_])')
+    # A unit may be followed immediately by the next numeric component
+    # (T#1d2h) or by the optional separator (T#1d_2h). Letters still prevent
+    # partial matches, so ``day`` remains a single identifier.
+    D = before("IDENTIFIER", r'D(?![a-zA-Z])')
+    H = before("IDENTIFIER", r'H(?![a-zA-Z])')
+    M = before("IDENTIFIER", r'M(?![a-zA-Z])')
+    SEC = before("IDENTIFIER", r'S(?![a-zA-Z])')
+    MS = before("IDENTIFIER", r'MS(?![a-zA-Z])')
 
     def _inside_duration_literal(self, index):
         before_text = self.text[:index]
@@ -288,8 +297,8 @@ class IECLexer(Lexer):
         if not self._inside_duration_literal(t.index):
             if self.language == 'IL':
                 t.type = 'S'
-            else:
-                t.type = 'IDENTIFIER'
+                return t
+            return self._duration_unit_or_identifier(t)
         return t
 
     def MS(self, t):
@@ -597,7 +606,16 @@ class IECLexer(Lexer):
     #MINUS   = r'\-'
     #PLUS    = r'\+'
 
-    UNDERSCORE = r'\_'
+    UNDERSCORE = before("IDENTIFIER", r'_(?=[0-9])')
+
+    def UNDERSCORE(self, token):
+        if not self._inside_duration_literal(token.index):
+            token.type = 'IDENTIFIER'
+            tail = re.match(r'[a-zA-Z0-9_]*', self.text[self.index:]).group(0)
+            token.value += tail
+            self.index += len(tail)
+        return token
+
     REAL_VALUE = r'[+-]?\d(_?\d)*\.\d(_?\d)*(E[+-]?\d(_?\d)*)?'
     ARRAY_REPEAT_COUNT = before("INTEGER", r'[0-9](([_]?[0-9])*)(?=\s*\()')
     INTEGER = r'[0-9](([_]?[0-9])*)'
