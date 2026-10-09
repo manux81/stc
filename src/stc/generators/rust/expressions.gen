@@ -7,8 +7,14 @@ template = "{value}{suffix}"
 [boolean_literal]
 mapping = { TRUE = "true", FALSE = "false" }
 
+[based_prefix]
+mapping = { 2 = "0b", 8 = "0o", 16 = "0x" }
+
+[based_literal]
+template = "{prefix}{value}"
+
 [operator]
-mapping = { OR = "||", XOR = "^", AND = "&&", NOT = "!", "=" = "==", EQ = "==", NEQ = "!=", "<>" = "!=", LE_EQ = "<=", GE_EQ = ">=", MOD = "%", ADD = "+", SUB = "-", MUL = "*", DIV = "/", LT = "<", GT = ">", LE = "<=", GE = ">=" }
+mapping = { OR = "||", XOR = "^", AND = "&&", NOT = "!", "=" = "==", EQ = "==", NE = "!=", NEQ = "!=", "<>" = "!=", LE_EQ = "<=", GE_EQ = ">=", MOD = "%", ADD = "+", SUB = "-", MUL = "*", DIV = "/", LT = "<", GT = ">", LE = "<=", GE = ">=", BIT_OR = "|", BIT_AND = "&", BIT_NOT = "!" }
 
 [binary_expression]
 template = "{left} {operator} {right}"

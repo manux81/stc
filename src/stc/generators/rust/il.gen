@@ -1,1 +1,39 @@
-# Planned Phase 4 rules: il_dispatch, il_jump.
+# Instruction List lowering for Rust.
+# Rust has no goto: jump networks render through a program-counter
+# dispatcher while straight-line networks stay linear.
+
+[il_label]
+description = "Render one IL label definition."
+template = "{indent}// IL label {name}\n"
+
+[il_assign]
+description = "Render one IL accumulator store."
+template = "{indent}{target} = {value};\n"
+
+[il_call]
+description = "Render one IL function invocation."
+template = "{name}({arguments})"
+
+[il_jump]
+description = "Render a resolved IL jump as a dispatcher transfer."
+template = "{indent}__il_pc = {target_index}; /* -> {target_label} */\n{indent}continue '__il_dispatch;\n"
+
+[il_return]
+description = "Render one IL return."
+template = "{indent}return{value};\n"
+
+[il_guarded]
+description = "Guard one IL statement by the accumulator."
+template = "{indent}if {condition} {\n{body}{indent}}\n"
+
+[il_next]
+description = "Advance the dispatcher program counter."
+template = "{indent}__il_pc = {index};\n"
+
+[il_instruction]
+description = "Render one dispatcher match arm."
+template = "{indent}{index} => {\n{body}{indent}}\n"
+
+[il_dispatch]
+description = "Render a lowered IL jump network as a dispatcher loop."
+template = "{indent}let mut __il_pc: usize = 0;\n{indent}let mut __il_acc = {acc};\n{indent}'__il_dispatch: loop {\n{indent}    match __il_pc {\n{instructions}{indent}        _ => break '__il_dispatch,\n{indent}    }\n{indent}}\n"

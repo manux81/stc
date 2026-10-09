@@ -1,12 +1,14 @@
-"""Small, target-neutral Lowered IR used by the first generator migration.
+"""Target-neutral Lowered IR for data-driven backends.
 
-The classes deliberately contain semantic facts, never target syntax.  Later
-phases can add nodes without changing the template language.
+Every record carries resolved semantic facts (names, types, direction,
+labels, priorities) and already-lowered target fragments for nested values.
+No record contains target keywords, casts, ABI layout or control-flow syntax;
+those decisions live exclusively in ``.gen`` templates.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -139,3 +141,126 @@ class Function:
     body: str
     return_value: str
     comment: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PropertyGet:
+    receiver: str
+    method: str
+    arguments: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PropertySet:
+    receiver: str
+    method: str
+    value: str
+    indent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class InterfaceAssignment:
+    target: str
+    source: str
+    owner_class: str = ""
+    interface: str = ""
+    indent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class FieldDecl:
+    type: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class MethodDecl:
+    owner: str = ""
+    name: str = ""
+    return_type: str = ""
+    parameters: str = ""
+    locals: str = ""
+    body: str = ""
+    has_return: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ClassLayout:
+    name: str
+    base: str = ""
+    has_base: str = ""
+    fields: str = ""
+    prototypes: str = ""
+    vtable: str = ""
+    dispatch: str = ""
+    adapters: str = ""
+    init: str = ""
+    methods: str = ""
+    interfaces: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class InterfaceLayout:
+    name: str
+    methods: str = ""
+    bases: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SfcChart:
+    body: str
+    indent: str = ""
+    steps: str = ""
+    transitions: str = ""
+    actions: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SfcTransition:
+    fire: str
+    condition: str
+    sources: str = ""
+    targets: str = ""
+    priority: int = 0
+    indent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SfcFire:
+    fire: str
+    sources: str
+    condition: str
+    indent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class IlProgram:
+    instructions: str
+    labels: str = ""
+    indent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class IlInstruction:
+    body: str
+    index: int = 0
+    label: str = ""
+    has_label: str = ""
+    indent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class IlJump:
+    target_label: str
+    target_index: int
+    condition: str = ""
+    has_condition: str = ""
+    indent: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePrimitive:
+    implementation: str
+    name: str = ""
+    dependencies: str = ""
+    declaration: str = ""

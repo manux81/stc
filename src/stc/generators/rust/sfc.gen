@@ -1,1 +1,55 @@
-# Planned Phase 4 rules: sfc_chart, sfc_transition.
+# Deterministic SFC scan lowering for Rust.
+# Boolean combinations reuse the backend operator spellings through the
+# lowering adapter (engine.map), so only layout lives here.
+
+[sfc_flag]
+description = "Render one SFC state flag access."
+template = "self.{field}"
+
+[sfc_state]
+description = "Render one persistent SFC state field."
+template = "    pub {name}: {type},"
+
+[sfc_fire]
+description = "Render one SFC transition fire computation."
+template = "{indent}let {fire}: bool = ({sources}) && ({condition}){gate};\n"
+
+[sfc_transition]
+description = "Render one resolved SFC transition."
+template = "{decl}{indent}if {fire} {\n{body}{indent}}\n"
+
+[sfc_step_assign]
+description = "Assign one SFC step state flag."
+template = "{indent}self.{step} = {value};\n"
+
+[sfc_elapsed]
+description = "Update one SFC step elapsed timer."
+template = "{indent}self.{elapsed} = if self.{active} { if self.{previous} { self.{elapsed} + 1 } else { 0 } } else { 0 };\n"
+
+[sfc_action]
+description = "Guard one SFC action body by its activation condition."
+template = "{indent}if {condition} {\n{body}{indent}}\n"
+
+[sfc_assign]
+description = "Drive one SFC variable output."
+template = "{indent}{target} = {condition};\n"
+
+[sfc_set]
+description = "Set or reset one latched SFC output."
+template = "{indent}if {condition} { {target} = {value}; }\n"
+
+[sfc_stored]
+description = "Latch or clear one stored SFC action."
+template = "{indent}if {condition} { self.{action} = {value}; }\n"
+
+[sfc_previous]
+description = "Copy one SFC step flag to its previous image."
+template = "{indent}self.{previous} = self.{active};\n"
+
+[sfc_chart]
+description = "Render one lowered deterministic SFC scan."
+template = "{body}"
+
+[sfc_action_decl]
+description = "Render one SFC action declaration."
+template = "/// IEC action `{name}`.\npub fn {name}() {{\n{body}}}\n\n"

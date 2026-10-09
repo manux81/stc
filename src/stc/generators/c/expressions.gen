@@ -11,8 +11,16 @@ template = "{value}{suffix}"
 [boolean_literal]
 mapping = { TRUE = "true", FALSE = "false" }
 
+[based_prefix]
+description = "Map an IEC base to its C literal prefix (empty means decimalize)."
+mapping = { 2 = "", 8 = "0", 16 = "0x" }
+
+[based_literal]
+description = "Render a normalized based integer literal."
+template = "{prefix}{value}"
+
 [operator]
-mapping = { OR = "||", XOR = "^", AND = "&&", NOT = "!", "=" = "==", EQ = "==", NEQ = "!=", "<>" = "!=", LE_EQ = "<=", GE_EQ = ">=", MOD = "%", ADD = "+", SUB = "-", MUL = "*", DIV = "/", LT = "<", GT = ">", LE = "<=", GE = ">=", BIT_OR = "|", BIT_AND = "&", BIT_NOT = "~" }
+mapping = { OR = "||", XOR = "^", AND = "&&", NOT = "!", "=" = "==", EQ = "==", NE = "!=", NEQ = "!=", "<>" = "!=", LE_EQ = "<=", GE_EQ = ">=", MOD = "%", ADD = "+", SUB = "-", MUL = "*", DIV = "/", LT = "<", GT = ">", LE = "<=", GE = ">=", BIT_OR = "|", BIT_AND = "&", BIT_NOT = "~" }
 
 [binary_expression]
 template = "{left} {operator} {right}"

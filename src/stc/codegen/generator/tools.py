@@ -23,6 +23,7 @@ FILE_CATEGORIES = {
     "sfc.gen": {"SFC"},
     "il.gen": {"IL"},
     "runtime.gen": {"runtime"},
+    "language.gen": {"module"},
 }
 
 
@@ -40,6 +41,8 @@ def validation_report(bundle: GeneratorBundle) -> str:
     lines.extend((
         "", f"Phase 1 generator coverage: {bundle.coverage_for_phase(1):.0f}%",
         f"Phase 2 generator coverage: {bundle.coverage_for_phase(2):.0f}%",
+        f"Phase 3 generator coverage: {bundle.coverage_for_phase(3):.0f}%",
+        f"Phase 4 generator coverage: {bundle.coverage_for_phase(4):.0f}%",
         f"Full Generator API coverage: {bundle.full_coverage:.0f}%",
         f"Status: {status}",
     ))
@@ -60,7 +63,14 @@ def create_generator_skeleton(name: str, destination: str | Path | None = None) 
         )
         assignments[filename].append(spec)
     (root / "language.gen").write_text(
-        f'# Generator metadata. Internal comments are not emitted.\n[generator]\nname = "{name}"\nextension = "txt"\n',
+        f'# Generator metadata. Internal comments are not emitted.\n[generator]\nname = "{name}"\nextension = "txt"\n'
+        + "".join(
+            f'\n# {spec.description}\n# Variables:\n'
+            + "\n".join(f"#   {{{value}}}" for value in spec.values)
+            + f'\n[{spec.name}]\ndescription = {spec.description!r}\n'
+            + ('mapping = {}\n' if spec.mapping else 'template = """\n"""\n')
+            for spec in assignments["language.gen"]
+        ),
         encoding="utf-8",
     )
     for filename in GENERATOR_FILES[1:]:

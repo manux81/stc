@@ -1,1 +1,173 @@
-# Planned Phase 3 rules: property_get, property_set, class, interface, virtual_call.
+# IEC 61131-3 Edition 3/4 object-oriented lowering for C.
+# Internal comments are not emitted. Target comments live in templates.
+# Convention: {arguments} carries a leading ", " separator when non-empty;
+# {has_base}/{no_base}/{empty} are "1"/"" semantic flags for `when` gating.
+
+[property_get]
+description = "Render a function-block property getter call."
+template = "{owner}__{method}(&({receiver}){extra_arguments})"
+
+[property_get_class]
+description = "Render a class property getter call."
+template = "{owner}__{method}((void *)&({receiver}){extra_arguments})"
+
+[property_get_interface]
+description = "Render an interface property getter call."
+template = "({receiver}).vtable->{method}(({receiver}).instance{extra_arguments})"
+
+[property_set]
+description = "Render a function-block property setter call."
+template = "{indent}{owner}__{method}(&({receiver}), {value});\n"
+
+[property_set_class]
+description = "Render a class property setter call."
+template = "{indent}{owner}__{method}((void *)&({receiver}), {value});\n"
+
+[property_set_interface]
+description = "Render an interface property setter call."
+template = "{indent}({receiver}).vtable->{method}(({receiver}).instance, {value});\n"
+
+[interface_assignment]
+description = "Render a resolved class-to-interface assignment."
+template = "{indent}{target} = {class}__as_{interface}(&({source}));\n"
+
+[virtual_call]
+description = "Render a virtual call on a class-typed variable."
+template = "((const {static_type}__vtable *)(({receiver}).{vptr}))->{method}((void *)&({receiver}){extra_arguments})"
+
+[virtual_call_this]
+description = "Render a virtual call on the current instance."
+template = "((const {static_type}__vtable *)(self->{vptr}))->{method}((void *)self{extra_arguments})"
+
+[virtual_call_super]
+description = "Render a non-virtual call on the base instance."
+template = "{static_type}__{method}((void *)self{extra_arguments})"
+
+[virtual_call_interface]
+description = "Render a virtual call through an interface fat pointer."
+template = "({receiver}).vtable->{method}(({receiver}).instance{extra_arguments})"
+
+[class_predecl]
+description = "Render one class/interface forward declaration."
+template = "typedef struct {name} {name};\ntypedef struct {name}__vtable {name}__vtable;\n"
+
+[class_field]
+description = "Render one lowered class field."
+template = "    {type} {name};"
+
+[class_fields]
+description = "Render a list of lowered class fields."
+each = "    {type} {name};"
+separator = "\n"
+
+[class_base_field]
+description = "Render the embedded base-class field."
+when = "{has_base}"
+template = "    {base} __base;\n"
+
+[class_vptr_field]
+description = "Render the root-class dispatch pointer field."
+when = "{no_base}"
+template = "    const void *__vptr;\n"
+
+[class_empty_field]
+description = "Render the empty-structure placeholder field."
+when = "{empty}"
+template = "    uint8_t _stc_empty;\n"
+
+[class_prototype]
+description = "Render one class method forward declaration."
+template = "static {return_type} {class}__{name}(void *instance{parameters});\n"
+
+[method_parameter]
+description = "Render one by-value method parameter."
+template = "{type} {name}"
+
+[method_parameter_out]
+description = "Render one by-reference method parameter."
+template = "{type} *{name}"
+
+[method_parameters]
+description = "Join already lowered method parameters."
+each = "{value}"
+separator = ", "
+
+[method_receiver]
+description = "Render the C method receiver parameter."
+template = "void *instance"
+
+[vtable_entry]
+description = "Render one vtable slot declaration."
+template = "    {return_type} (*{name})(void *instance{parameters});\n"
+
+[dispatch_entry]
+description = "Render one dispatch-table initializer entry."
+template = "    .{name} = {implementation},\n"
+
+[dispatch_entry_null]
+description = "Render one null dispatch-table entry."
+template = "    .{name} = NULL,\n"
+
+[class_method]
+description = "Render one lowered class method implementation."
+template = "static {return_type} {class}__{name}(void *instance{parameters})\n{\n    {class} *self = ({class} *)instance;\n    (void)self;\n{locals}{body}{return_stmt}}\n\n"
+
+[interface_method]
+description = "Render one lowered interface method slot."
+template = "    {return_type} (*{name})(void *instance{parameters});\n"
+
+[interface_default]
+description = "Record one interface default dispatch entry (used by value-dispatch targets)."
+template = "    /* default {name} for {interface}({parameters}). */\n"
+
+[interface_impl]
+description = "Record one interface dispatch wrapper (used by value-dispatch targets)."
+template = "    /* impl {name}({parameters}) -> {return_type} with ({arguments}). */\n"
+
+[interface_adapter]
+description = "Render one class-to-interface adapter."
+template = "static const {interface}__vtable {class}__{interface}__dispatch = {\n{methods}};\nstatic inline {interface} {class}__as_{interface}({class} *self)\n{\n    return ({interface}){ self, &{class}__{interface}__dispatch };\n}\n\n"
+
+[adapter_entry]
+description = "Render one adapter dispatch entry."
+template = "    .{name} = {implementation},\n"
+
+[adapter_entry_null]
+description = "Render one null adapter dispatch entry."
+template = "    .{name} = NULL,\n"
+
+[class_init_statement]
+description = "Render one class initializer statement."
+template = "{indent}{class}__init({address});\n"
+
+[class_base_init]
+description = "Render the base-class initializer call."
+template = "    {base}__init(&self->__base);\n"
+
+[class_default]
+description = "Record one default field initializer (used by value-struct targets)."
+template = "    /* default {field} = {value}; */\n"
+
+[empty_dispatch]
+description = "Render the empty dispatch-table placeholder."
+template = "    ._stc_empty = 0,\n"
+
+[property_method]
+description = "Render one property accessor implementation."
+template = "static {return_type} {owner}__{name}({owner} *self{parameters})\n{\n    (void)self;\n{locals}{body}{return_stmt}}\n\n"
+
+[method_return]
+description = "Render one method return statement."
+template = "{indent}return {name};\n"
+
+[class_init]
+description = "Render one class initializer."
+template = "void {name}__init({name} *self)\n{\n    memset(self, 0, sizeof(*self));\n{base_init}    self->{vptr} = &{name}__dispatch;\n{statements}}\n\n"
+
+[class]
+description = "Render a lowered class layout."
+template = "{prototypes}struct {name} {\n{base_field}{vptr_field}{fields}\n{empty_field}};\n\ntypedef struct {name}__vtable {\n{vtable}} {name}__vtable;\nstatic const {name}__vtable {name}__dispatch = {\n{dispatch}};\n\n{adapters}{init}{methods}"
+
+[interface]
+description = "Render a lowered interface layout."
+template = "struct {name}__vtable {\n{methods}};\nstruct {name} {\n    void *instance;\n    const {name}__vtable *vtable;\n};\n\n"

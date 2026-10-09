@@ -1,1 +1,39 @@
-# Planned Phase 4 rules: il_dispatch, il_jump.
+# Instruction List lowering for C (linear form with labels and goto).
+# The lowering adapter selects linear vs dispatch form from the semantic
+# presence of jumps; each backend renders both forms through these rules.
+
+[il_label]
+description = "Render one IL label definition."
+template = "{indent}{name}: ;\n"
+
+[il_assign]
+description = "Render one IL accumulator store."
+template = "{indent}{target} = {value};\n"
+
+[il_call]
+description = "Render one IL function invocation."
+template = "{name}({arguments})"
+
+[il_jump]
+description = "Render a resolved IL jump."
+template = "{indent}goto {target_label}; /* il {target_index} */\n"
+
+[il_return]
+description = "Render one IL return."
+template = "{indent}return{value};\n"
+
+[il_guarded]
+description = "Guard one IL statement by the accumulator."
+template = "{indent}if ({condition}) {\n{body}{indent}}\n"
+
+[il_next]
+description = "C keeps linear IL control flow; no program counter."
+template = ""
+
+[il_instruction]
+description = "Render one lowered IL instruction with its label."
+template = "{body}"
+
+[il_dispatch]
+description = "C keeps linear IL control flow; no dispatcher wrapper."
+template = "{instructions}"
