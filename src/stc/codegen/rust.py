@@ -7,6 +7,9 @@ import shutil
 import subprocess
 
 from .visitor import NodeVisitor
+from .generator.engine import GeneratorEngine
+from .generator.ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop, UnaryExpression, WhileLoop
+from .generator.loader import GeneratorBundle, bundled_generator, load_generator
 from .sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
 from ..runtime.loader import render_primitives
 from ..semantic.types import ArrayType, EnumType, ReferenceType
@@ -255,7 +258,7 @@ class RustCodeGenerator(NodeVisitor):
             target = self.render({"name": "variable_name", "value": self.current_function, "children": []})
             self._il_emit_line(self._il_assignment(target, accumulator))
 
-    def __init__(self, context=None, source_name="<stdin>", native_implementations=None):
+    def __init__(self, context=None, source_name="<stdin>", native_implementations=None, generator_bundle: GeneratorBundle | None = None):
         self.context = context
         self.source_name = source_name
         self.native_implementations = native_implementations or {}
@@ -285,6 +288,9 @@ class RustCodeGenerator(NodeVisitor):
         self.current_instance_field_paths = {}
         self.current_reference_params = set()
         self.current_synthetic_enum = None
+        self.generator_engine = GeneratorEngine(
+            generator_bundle or load_generator(bundled_generator("rust"))
+        )
 
     def formatted_text(self):
         """Return canonical Rust when rustfmt is installed, or readable raw output."""
@@ -317,6 +323,8 @@ class RustCodeGenerator(NodeVisitor):
         return rendered
 
     def iecType2Rust(self, typein):
+        if self.generator_engine is not None:
+            return self.generator_engine.map("type", str(typein))
         conv = {
             "SINT": "i8", "INT": "i16", "DINT": "i32", "LINT": "i64",
             "USINT": "u8", "UINT": "u16", "UDINT": "u32", "ULINT": "u64",
@@ -360,7 +368,9 @@ class RustCodeGenerator(NodeVisitor):
         rendered = self.render(node)
         source_type = self.rust_type_for_node(node)
         if target_type is not None and source_type is not None and source_type != target_type:
-            return f"({rendered}) as {target_type}"
+            return self.generator_engine.render(
+                "cast", Cast(source_type, target_type, rendered)
+            )
         return rendered
 
     def indent_inc(self):
@@ -400,7 +410,8 @@ class RustCodeGenerator(NodeVisitor):
             bounds = self._named_nodes(range_node, "signed_integer")
             if len(bounds) == 2:
                 lower, upper = self.render(bounds[0]), self.render(bounds[1])
-                dimensions.append(f"({upper} - ({lower}) + 1) as usize")
+                size = f"{upper} - ({lower}) + 1"
+                dimensions.append(self.generator_engine.render("cast", Cast("", "usize", size)))
         return dimensions
 
     def _declaration_type(self, node):
@@ -570,6 +581,15 @@ class RustCodeGenerator(NodeVisitor):
                 result.append(declaration)
         return result
 
+    def _capture_emission(self, callback):
+        previous = self.text
+        self.text = ""
+        try:
+            callback()
+            return self.text
+        finally:
+            self.text = previous
+
     def _emit_state_type(self, name, declarations, retained, initializers, entry_name, body_name, node):
         declarations = self._unique_declarations(
             declarations + sfc_state_declarations(node, "bool", "i64")
@@ -580,51 +600,45 @@ class RustCodeGenerator(NodeVisitor):
                     initializers[sfc_field(step["name"], "active").casefold()] = "true"
         retained_names = {field.casefold() for _, field in retained}
         reference_initializers = self._reference_initializers(node, declarations)
-        kind = "function block" if entry_name == "step" else "program"
-        self.text += f"/// Persistent state for IEC {kind} `{name}`.\n"
-        self.text += "#[allow(non_camel_case_types, non_snake_case)]\n"
-        self.text += "pub struct " + name + " {\n"
-        self.indent_inc()
-        for var_type, var_name in declarations:
-            self.text += f"{self.indent}pub {var_name}: {var_type},\n"
-        self.indent_dec()
-        self.text += "}\n\nimpl Default for " + name + " {\n    fn default() -> Self {\n        Self {\n"
+        fields = "".join(f"    pub {field}: {var_type},\n" for var_type, field in declarations)
+        defaults = ""
         for var_type, field in declarations:
             value = initializers.get(field.casefold(), self.zero_value(var_type))
-            self.text += f"            {field}: {value},\n"
-        self.text += "        }\n    }\n}\n\nimpl " + name + " {\n"
-        self.text += "    /// Reset all state, including retained variables.\n"
-        self.text += "    pub fn cold_init(&mut self) {\n        *self = Self::default();\n"
+            defaults += f"            {field}: {value},\n"
+        cold_init = "        *self = Self::default();\n"
         for _, field in declarations:
             if field.casefold() in reference_initializers:
-                self.text += f"        self.{field} = {reference_initializers[field.casefold()]};\n"
-        self.text += "    }\n\n"
-        self.text += "    /// Reset non-retained state while preserving retained variables.\n"
-        self.text += "    pub fn warm_init(&mut self) {\n"
+                cold_init += f"        self.{field} = {reference_initializers[field.casefold()]};\n"
+        warm_init = ""
         for var_type, field in declarations:
             if field.casefold() not in retained_names:
                 value = initializers.get(field.casefold(), self.zero_value(var_type))
-                self.text += f"        self.{field} = {value};\n"
+                warm_init += f"        self.{field} = {value};\n"
         for _, field in declarations:
             if field.casefold() in reference_initializers:
-                self.text += f"        self.{field} = {reference_initializers[field.casefold()]};\n"
-        self.text += "    }\n\n"
-        self._emit_function_block_properties(node, declarations)
+                warm_init += f"        self.{field} = {reference_initializers[field.casefold()]};\n"
+        properties = self._capture_emission(lambda: self._emit_function_block_properties(node, declarations))
         inouts = self.collect_sections(node, "input_output_declarations")
-        params = ", " + ", ".join(f"{field}: &mut {var_type}" for var_type, field in inouts) if inouts else ""
-        operation = "Execute one invocation" if entry_name == "step" else "Execute one program cycle"
-        self.text += f"    /// {operation} of `{name}`.\n"
-        self.text += f"    pub fn {entry_name}(&mut self{params}) {{\n"
-        self.indent = "        "
+        parameters = ", " + ", ".join(f"{field}: &mut {var_type}" for var_type, field in inouts) if inouts else ""
+        old_indent = self.indent
         old_instance, old_fields, old_refs = self.current_instance, self.current_instance_fields, self.current_reference_params
+        self.indent = "        "
         self.current_reference_params = {field.casefold() for _, field in inouts}
         self.current_instance, self.current_instance_fields = True, {field.casefold() for _, field in declarations} - self.current_reference_params
+        temporaries = ""
         for var_type, field in self.collect_sections(node, "temp_var_decls"):
-            self.text += f"{self.indent}let mut {field}: {var_type} = {self.zero_value(var_type)};\n"
-        self.accept(node, lambda child_name: child_name == body_name)
+            temporaries += f"{self.indent}let mut {field}: {var_type} = {self.zero_value(var_type)};\n"
+        body_node = self._first_named(node, body_name)
+        body = self.render(body_node) if body_node is not None else ""
         self.current_instance, self.current_instance_fields, self.current_reference_params = old_instance, old_fields, old_refs
-        self.indent = ""
-        self.text += "    }\n}\n\n"
+        self.indent = old_indent
+        rule = "function_block" if entry_name == "step" else "program"
+        self.text += self.generator_engine.render(
+            rule, name=name, fields=fields, defaults=defaults, properties=properties,
+            setup="", cold_init=cold_init, warm_init=warm_init,
+            parameters=parameters, entrypoint=entry_name,
+            temporaries=temporaries, body=body,
+        )
 
     def _emit_function_block_properties(self, node, declarations):
         field_paths = {field.casefold(): field for _, field in declarations}
@@ -733,30 +747,36 @@ class RustCodeGenerator(NodeVisitor):
         # even when a particular control-flow path overwrites them before the
         # first read. These are meaningful PLC semantics, but rustc reports
         # them as dead-store/unused-variable warnings in generated code.
-        if node.get("synthetic") and node.get("generated_by") == "enum-conversions":
-            self.text += f"/// Automatically generated conversion for enum `{node.get('enum_type')}`.\n"
-        else:
-            self.text += f"/// IEC function `{name}`.\n"
+        comment = (
+            f"/// Automatically generated conversion for enum `{node.get('enum_type')}`.\n"
+            if node.get("synthetic") and node.get("generated_by") == "enum-conversions"
+            else f"/// IEC function `{name}`.\n"
+        )
         allowed_lints = ["non_snake_case", "unused_assignments", "unused_mut", "unused_variables"]
         if node.get("synthetic") and node.get("generated_by") == "enum-conversions":
             allowed_lints.append("unreachable_patterns")
-        self.text += f"#[allow({', '.join(allowed_lints)})]\n"
-        self.text += f"pub fn {emitted_name}({', '.join(params)}) -> {return_type} {{\n"
-        self.indent_inc()
+        attributes = f"#[allow({', '.join(allowed_lints)})]"
+        locals_text = ""
         if return_type != "()":
-            self.text += f"{self.indent}let mut {name}: {return_type} = {self.zero_value(return_type)};\n"
+            locals_text += f"    let mut {name}: {return_type} = {self.zero_value(return_type)};\n"
         for var_type, var_name in local_decls:
-            self.text += f"{self.indent}let mut {var_name}: {var_type} = {self.zero_value(var_type)};\n"
+            locals_text += f"    let mut {var_name}: {var_type} = {self.zero_value(var_type)};\n"
         if local_decls or return_type != "()":
-            self.text += "\n"
+            locals_text += "\n"
+        old_indent = self.indent
+        self.indent = "    "
         if native is not None:
-            self._emit_native_code(native.section("body") or "")
+            body = "".join(f"    {line.rstrip()}\n" if line.strip() else "\n" for line in (native.section("body") or "").splitlines())
         else:
-            self.accept(node, lambda child_name: child_name == "function_body")
-        if return_type != "()":
-            self.text += f"{self.indent}{name}\n"
-        self.indent_dec()
-        self.text += "}\n\n"
+            function_body = self._first_named(node, "function_body")
+            body = self.render(function_body) if function_body is not None else ""
+        self.indent = old_indent
+        return_value = f"    {name}\n" if return_type != "()" else ""
+        self.text += self.generator_engine.render(
+            "function", name=name, emitted_name=emitted_name, comment=comment, attributes=attributes,
+            return_type=return_type, parameters=", ".join(params), locals=locals_text,
+            body=body, return_value=return_value,
+        )
         self.current_function = None
         self.current_return_type = None
         self.current_synthetic_enum = previous_synthetic_enum
@@ -1258,7 +1278,7 @@ class RustCodeGenerator(NodeVisitor):
         if name is not None and specification is not None:
             target = self.extract_type(specification) or "i16"
             self.text += f"/// IEC reference type `{name['value']}`.\n"
-            self.text += f"pub type {name['value']} = *mut {target};\n\n"
+            self.text += self.generator_engine.render("reference_type", name=name["value"], referenced_type=target)
 
     def visit_subrange_type_declaration(self, node):
         name = self._first_named(node, "subrange_type_name")
@@ -1287,12 +1307,13 @@ class RustCodeGenerator(NodeVisitor):
         for range_node in self._named_nodes(spec, "subrange"):
             ints = self._named_nodes(range_node, "signed_integer")
             if len(ints) == 2:
-                dimensions.append(f"({self.render(ints[1])} - ({self.render(ints[0])}) + 1) as usize")
+                size = f"{self.render(ints[1])} - ({self.render(ints[0])}) + 1"
+                dimensions.append(self.generator_engine.render("cast", Cast("", "usize", size)))
         element = self.declaration_type(spec)
         for size in reversed(dimensions):
-            element = f"[{element}; {size}]"
+            element = self.generator_engine.render("array_dimension", value=element, size=size, lower="", upper="")
         self.text += f"/// IEC array type `{name}`.\n"
-        self.text += f"pub type {name} = {element};\n\n"
+        self.text += self.generator_engine.render("array_type", name=name, element_type=self.declaration_type(spec), dimensions=element)
 
     def visit_string_type_declaration(self, node):
         name = self._first_named(node, "string_type_name")
@@ -1330,29 +1351,29 @@ class RustCodeGenerator(NodeVisitor):
         )
         if trunc_match:
             argument = self._first_named(node, "expression")
-            self.text += f"({self.render(argument)}) as {self.iecType2Rust(trunc_match.group(1))}"
+            self.text += self.generator_engine.render(
+                "cast", Cast(self.rust_type_for_node(argument) or "", self.iecType2Rust(trunc_match.group(1)), self.render(argument))
+            )
             return
 
         resolved = self.context.resolved_calls.get(id(node)) if self.context is not None else None
-        if resolved is not None:
-            self.text += self.context.generated_names.get(id(resolved), resolved.name)
-        else:
-            self.visit(children[0])
-        self.text += "("
+        name = self.context.generated_names.get(id(resolved), resolved.name) if resolved is not None else self.render(children[0])
         resolved_arguments = (
             self.context.resolved_arguments.get(id(node)) if self.context is not None else None
         )
         arguments = resolved_arguments or [child for child in children[1:] if child.get("name") == "param_assignment"]
-        for index, argument in enumerate(arguments):
-            if index:
-                self.text += ", "
+        rendered_arguments = []
+        for argument in arguments:
             if resolved_arguments is not None:
-                self.visit(argument)
+                rendered_arguments.append({"value": self.render(argument)})
             else:
                 expressions = [child for child in argument.get("children", []) if child.get("name") == "expression"]
                 if expressions:
-                    self.visit(expressions[-1])
-        self.text += ")"
+                    rendered_arguments.append({"value": self.render(expressions[-1])})
+        argument_text = self.generator_engine.render("parameter", items=rendered_arguments)
+        self.text += self.generator_engine.render(
+            "call", Call(name, tuple(item["value"] for item in rendered_arguments)), arguments=argument_text
+        )
 
     def visit_standard_function_name(self, node):
         self.text += node["value"]
@@ -1361,10 +1382,12 @@ class RustCodeGenerator(NodeVisitor):
         self.text += node["value"]
 
     def visit_integer_literal(self, node):
-        self.text += node["value"].replace("_", "")
+        value = node["value"].replace("_", "")
+        self.text += self.generator_engine.render("integer_literal", Literal(value, self.rust_type_for_node(node)))
 
     def visit_real_literal(self, node):
-        self.text += node["value"].replace("_", "")
+        value = node["value"].replace("_", "")
+        self.text += self.generator_engine.render("real_literal", Literal(value, self.rust_type_for_node(node)))
 
     def visit_integer(self, node):
         self.text += node["value"].replace("_", "")
@@ -1390,7 +1413,7 @@ class RustCodeGenerator(NodeVisitor):
         self._visit_based_integer(node, 16, "0x")
 
     def visit_boolean_literal(self, node):
-        self.text += node["value"].lower()
+        self.text += self.generator_engine.map("boolean_literal", node["value"].upper())
 
     def _iec_string(self, node):
         token = self._first_named(node, "token")
@@ -1601,32 +1624,35 @@ class RustCodeGenerator(NodeVisitor):
             self.accept(node)
             return
         lower_bounds = self._array_lower_bounds(self._first_named(subscripted, "variable_name"))
-        self.visit(subscripted)
+        array = self.render(subscripted)
         subscripts = [child for child in subscript_list.get("children", []) if isinstance(child, dict) and child.get("name") == "subscript"]
+        indices = []
         for dimension, subscript in enumerate(subscripts):
             index = self.render(subscript)
             lower = lower_bounds[dimension] if dimension < len(lower_bounds) else "0"
             adjusted = index if lower == "0" else f"({index}) - ({lower})"
-            self.text += f"[({adjusted}) as usize]"
+            indices.append({"value": adjusted})
+        rendered_indices = self.generator_engine.render("array_index", items=indices)
+        self.text += self.generator_engine.render("array_access", array=array, indices=rendered_indices)
 
     def visit_subscript_list(self, node):
         for subscript in self._named_nodes(node, "subscript"):
             self.text += f"[({self.render(subscript)}) as usize]"
 
     def visit_expression(self, node):
-        self._join_children(node, " || ")
+        self._join_children(node, f" {self.generator_engine.map('operator', 'OR')} ")
 
     def visit_xor_expression(self, node):
-        self._join_children(node, " ^ ")
+        self._join_children(node, f" {self.generator_engine.map('operator', 'XOR')} ")
 
     def visit_and_expression(self, node):
-        self._join_children(node, " && ")
+        self._join_children(node, f" {self.generator_engine.map('operator', 'AND')} ")
 
     def visit_comparison(self, node):
         self._visit_infix_coerced(node)
 
     def visit_comparison_equality_operator(self, node):
-        op = {"=": "==", "NEQ": "!=", "<>": "!="}.get(node["value"], node["value"])
+        op = self.generator_engine.map("operator", node["value"])
         self.text += f" {op} "
 
     def visit_equ_expression(self, node):
@@ -1641,26 +1667,34 @@ class RustCodeGenerator(NodeVisitor):
             return
         self.visit(children[0])
         for child in children[1:]:
-            op = {"MOD": "%"}.get(child.get("value"), child.get("value"))
+            op = self.generator_engine.map("operator", child.get("value"))
             self.text += f" {op} "
             self.visit(child)
 
     def visit_power_expression(self, node):
-        self._join_children(node, " /* ** */ ")
+        children = node.get("children", [])
+        if not children:
+            return
+        expression = self.render(children[-1])
+        for child in reversed(children[:-1]):
+            expression = self.generator_engine.render(
+                "power_expression", left=self.render(child), right=expression
+            )
+        self.text += expression
 
     def visit_unary_expression(self, node):
         op = node.get("value")
-        if op == "NOT":
-            self.text += "!"
-        elif op:
-            self.text += op
-        self.accept(node)
+        child = next((item for item in node.get("children", []) if isinstance(item, dict)), None)
+        operator = self.generator_engine.map("operator", op) if op else ""
+        self.text += self.generator_engine.render(
+            "unary_expression", UnaryExpression(operator, self.render(child) if child else "")
+        )
 
     def visit_add_operator(self, node):
-        self.text += f" {node['value']} "
+        self.text += f" {self.generator_engine.map('operator', node['value'])} "
 
     def visit_comparison_operator(self, node):
-        op = {"LE_EQ": "<=", "GE_EQ": ">="}.get(node["value"], node["value"])
+        op = self.generator_engine.map("operator", node["value"])
         self.text += f" {op} "
 
     def visit_assignment_statement(self, node):
@@ -1682,9 +1716,13 @@ class RustCodeGenerator(NodeVisitor):
         )
         enum_value = isinstance(target_datatype, EnumType) and "::" in rendered
         if target_type is not None and expression_type is not None and target_type != expression_type and not enum_value:
-            rendered = f"({rendered}) as {target_type}"
+            rendered = self.generator_engine.render(
+                "cast", Cast(expression_type, target_type, rendered)
+            )
         elif target_type is not None and expression_type is None and target_type not in {"bool", "&'static str"} and not enum_value:
-            rendered = f"({rendered}) as {target_type}"
+            rendered = self.generator_engine.render(
+                "cast", Cast("", target_type, rendered)
+            )
         variable_name = self._first_named(variable, "variable_name")
         symbol = (
             self.context.symbols.symbol_for_reference(variable_name)
@@ -1694,15 +1732,17 @@ class RustCodeGenerator(NodeVisitor):
         if symbol is not None and symbol.storage in {"external", "global"}:
             self.text += f"{self.indent}unsafe {{ {variable_name['value']} = {rendered}; }}\n"
         else:
-            self.text += f"{self.indent}{self.render(variable)} = {rendered};\n"
+            self.text += self.generator_engine.render(
+                "assignment", Assignment(self.render(variable), rendered, self.indent)
+            )
 
     def visit_reference_constructor(self, node):
         variable = self._first_named(node, "variable")
-        self.text += f"&mut {self.render(variable)} as *mut _"
+        self.text += self.generator_engine.render("reference", value=self.render(variable))
 
     def visit_reference_value(self, node):
         if node.get("value") == "NULL":
-            self.text += "std::ptr::null_mut()"
+            self.text += self.generator_engine.render("null_reference")
         else:
             self.accept(node)
 
@@ -1711,60 +1751,61 @@ class RustCodeGenerator(NodeVisitor):
             (child for child in node.get("children", []) if isinstance(child, dict)),
             None,
         )
-        self.text += f"(*unsafe {{ stc_deref({self.render(referenced)}) }})"
+        self.text += self.generator_engine.render("dereference", value=self.render(referenced))
 
     def visit_assert_statement(self, node):
         expression = next(child for child in node.get("children", []) if isinstance(child, dict))
         self.text += f"{self.indent}ASSERT({self.render(expression)});\n"
 
     def visit_exit_statement(self, node):
-        self.text += f"{self.indent}break;\n"
+        self.text += self.generator_engine.render("exit", indent=self.indent)
+
+    def visit_continue_statement(self, node):
+        self.text += self.generator_engine.render("continue", indent=self.indent)
+
+    def visit_return_statement(self, node):
+        expression = self._first_named(node, "expression")
+        value = " " + self.render(expression) if expression is not None else ""
+        self.text += self.generator_engine.render(
+            "return", indent=self.indent, value=value, has_value=bool(value)
+        )
+
+    def _render_nested_body(self, node):
+        self.indent_inc()
+        try:
+            return self.render(node)
+        finally:
+            self.indent_dec()
 
     def visit_if_statement(self, node):
-        self.text += self.indent + "if "
-        self.visit(node["children"][0])
-        self.text += " {\n"
-        self.indent_inc()
-        self.visit(node["children"][1])
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = IfBranch(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
+        self.text += self.generator_engine.render("if", lowered)
         self.accept(node, lambda name: name == "elseif_statement_list")
         self.accept(node, lambda name: name == "else_statement")
 
     def visit_elseif_statement(self, node):
-        self.text += self.indent + "else if "
-        self.visit(node["children"][0])
-        self.text += " {\n"
-        self.indent_inc()
-        self.visit(node["children"][1])
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = IfBranch(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
+        self.text += self.generator_engine.render("elseif", lowered)
 
     def visit_else_statement(self, node):
-        self.text += self.indent + "else {\n"
         self.indent_inc()
-        self.accept(node)
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        previous = self.text
+        self.text = ""
+        try:
+            self.accept(node)
+            body = self.text
+        finally:
+            self.text = previous
+            self.indent_dec()
+        self.text += self.generator_engine.render("else", body=body, indent=self.indent)
 
     def visit_while_statement(self, node):
-        self.text += self.indent + "while "
-        self.visit(node["children"][0])
-        self.text += " {\n"
-        self.indent_inc()
-        self.visit(node["children"][1])
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = WhileLoop(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
+        self.text += self.generator_engine.render("while", lowered)
 
     def visit_repeat_statement(self, node):
-        self.text += self.indent + "loop {\n"
-        self.indent_inc()
-        self.visit(node["children"][0])
-        self.text += self.indent + "if "
-        self.visit(node["children"][1])
-        self.text += " { break; }\n"
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = RepeatLoop(self.render(node["children"][1]), self._render_nested_body(node["children"][0]), self.indent)
+        self.text += self.generator_engine.render("repeat", lowered)
 
     def visit_token(self, node):
         self.text += str(node.get("value", ""))
@@ -1786,35 +1827,57 @@ class RustCodeGenerator(NodeVisitor):
         end = parts[2] if len(parts) > 2 else parts[-1]
         by = parts[4] if len(parts) > 4 and parts[3].get("value") == "BY" else None
         variable = self.render(control)
-        self.text += f"{self.indent}{variable} = {self.render(start)};\n"
         comparator = ">=" if direction == "DOWNTO" else "<="
-        self.text += f"{self.indent}while {variable} {comparator} {self.render(end)} {{\n"
-        self.indent_inc()
-        self.visit(body)
         operator = "-=" if direction == "DOWNTO" else "+="
         step = self.render(by) if by is not None else "1"
-        self.text += f"{self.indent}{variable} {operator} {step};\n"
-        self.indent_dec()
-        self.text += f"{self.indent}}}\n"
+        lowered_body = self._render_nested_body(body)
+        self.text += self.generator_engine.render(
+            "for", variable=variable, start=self.render(start), end=self.render(end),
+            step=step, direction="descending" if direction == "DOWNTO" else "ascending",
+            comparator=comparator, update=f"{variable} {operator} {step}",
+            body=lowered_body, indent=self.indent,
+        )
 
     def visit_case_statement(self, node):
         children = node.get("children", [])
         expression = next(child for child in children if child.get("name") == "expression")
-        self.text += f"{self.indent}match {self.render(expression)} {{\n"
+        selector = self.render(expression)
+        elements = []
+        default_statements = None
         self.indent_inc()
-        for child in children:
-            if child.get("name") == "case_element":
-                self.visit(child)
-            elif child.get("name") == "statement_list":
-                self.text += f"{self.indent}_ => {{\n"
-                self.indent_inc()
-                self.visit(child)
-                self.indent_dec()
-                self.text += f"{self.indent}}},\n"
-        if not any(child.get("name") == "statement_list" for child in children):
-            self.text += f"{self.indent}_ => {{}},\n"
-        self.indent_dec()
-        self.text += f"{self.indent}}}\n"
+        try:
+            for child in children:
+                if child.get("name") == "case_element":
+                    case_list = next(item for item in child["children"] if item.get("name") == "case_list")
+                    statements = next(item for item in child["children"] if item.get("name") == "statement_list")
+                    labels = []
+                    for label in (item for item in case_list.get("children", []) if item.get("name") == "case_list_element"):
+                        subrange = self._first_named(label, "subrange")
+                        if subrange is not None:
+                            bounds = self._named_nodes(subrange, "signed_integer")
+                            if len(bounds) == 2:
+                                labels.append({"value": self.generator_engine.render("case_range", selector=selector, lower=self.render(bounds[0]), upper=self.render(bounds[1]))})
+                        else:
+                            labels.append({"value": self.generator_engine.render("case_value", selector=selector, value=self.render(label))})
+                    label_text = self.generator_engine.render("case_labels", items=labels)
+                    body = self._render_nested_body(statements)
+                    rule = "case_element_first" if not elements else "case_element"
+                    elements.append(self.generator_engine.render(rule, labels=label_text, body=body, indent=self.indent))
+                elif child.get("name") == "statement_list":
+                    default_statements = child
+            if default_statements is not None:
+                default_body = self._render_nested_body(default_statements)
+            else:
+                default_body = ""
+            else_body = self.generator_engine.render(
+                "case_else" if elements else "case_else_first",
+                body=default_body, indent=self.indent, has_elements=bool(elements),
+            )
+        finally:
+            self.indent_dec()
+        self.text += self.generator_engine.render(
+            "case", selector=selector, elements="".join(elements), else_body=else_body, indent=self.indent
+        )
 
     def visit_case_element(self, node):
         case_list = next(child for child in node["children"] if child.get("name") == "case_list")

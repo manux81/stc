@@ -6,12 +6,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from .frontend.ast_builder import AstBuilder, ParseNode
 from .semantic.enum_conversions import inject_enum_conversion_functions
 from .codegen.c import CCodeGenerator
 from .codegen.rust import RustCodeGenerator
+from .codegen.generator.loader import bundled_generator, load_generator
 from .frontend.lexer import IECLexer
 from .frontend.languages import normalize_source_language, prepare_textual_source
 from .frontend.parser import IECParser, ParsingError
@@ -23,8 +24,7 @@ from .source_map import SourceMap, build_source_map
 
 
 AstNode = dict[str, Any]
-CompilationTarget = Literal["c", "rust", "ast", "tree"]
-SUPPORTED_TARGETS = frozenset(("c", "rust", "ast", "tree"))
+CompilationTarget = str
 BUNDLED_LIBRARY_DIRECTORY = Path(__file__).resolve().parent / "stdlib"
 
 
@@ -180,11 +180,20 @@ def compile_source(
     generate_code: bool = True,
     standard: str | int = "iec61131-3:ed3",
     language: str = "auto",
+    generator_path: str | Path | None = None,
 ) -> CompilationResult:
     """Compile source and return its products and diagnostics."""
-    if target not in SUPPORTED_TARGETS:
-        supported = ", ".join(sorted(SUPPORTED_TARGETS))
-        raise ValueError(f"Unsupported compilation target {target!r}; expected one of: {supported}")
+    generator_bundle = None
+    if generator_path is not None:
+        generator_bundle = load_generator(generator_path)
+    elif target not in {"c", "rust", "ast", "tree"}:
+        candidates = (Path.cwd() / "generators" / target, bundled_generator(target))
+        generator_directory = next((candidate for candidate in candidates if candidate.is_dir()), None)
+        if generator_directory is None:
+            raise ValueError(
+                f"Unknown target {target!r}; create generators/{target}/ or use --generator-path"
+            )
+        generator_bundle = load_generator(generator_directory)
     standard_edition = normalize_standard_edition(standard)
     source_language = normalize_source_language(language)
 
@@ -298,6 +307,12 @@ def compile_source(
             libraries=libraries,
         )
 
+    # The two visitors are transitional AST-to-IR adapters.  The bundle's
+    # declared output extension selects the matching reference adapter while
+    # Phase 3/4 are still being migrated; rendering itself remains in .gen.
+    rust_adapter = target == "rust" or (
+        generator_bundle is not None and generator_bundle.extension == "rs"
+    )
     generator = (
         RustCodeGenerator(
             context=context,
@@ -307,8 +322,9 @@ def compile_source(
                 for (implementation_target, name), implementation in native_sections.items()
                 if implementation_target == "rust"
             },
+            generator_bundle=generator_bundle,
         )
-        if target == "rust"
+        if rust_adapter
         else CCodeGenerator(
             context=context,
             source_name=source_name,
@@ -317,6 +333,7 @@ def compile_source(
                 for (implementation_target, name), implementation in native_sections.items()
                 if implementation_target == "c"
             },
+            generator_bundle=generator_bundle,
         )
     )
     generator.visit(ast)

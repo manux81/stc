@@ -6,6 +6,9 @@ import re
 
 from .visitor import NodeVisitor
 from .sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
+from .generator.engine import GeneratorEngine
+from .generator.ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop, UnaryExpression, WhileLoop
+from .generator.loader import GeneratorBundle, bundled_generator, load_generator
 from ..runtime.loader import render_primitives
 
 
@@ -581,7 +584,14 @@ class CCodeGenerator(NodeVisitor):
             target = self.render({"name": "variable_name", "value": self.current_function, "children": []})
             self._il_emit_line(self._il_assignment(target, accumulator))
 
-    def __init__(self, context=None, source_name="<stdin>", native_implementations=None):
+    def __init__(
+        self,
+        context=None,
+        source_name="<stdin>",
+        native_implementations=None,
+        generator_bundle: GeneratorBundle | None = None,
+        use_data_generator: bool = True,
+    ):
         self.context = context
         self.source_name = source_name
         self.native_implementations = native_implementations or {}
@@ -616,8 +626,14 @@ class CCodeGenerator(NodeVisitor):
         self.current_pointer_params = set()
         self._types_pre_emitted = False
         self.oop = OOPCEmitter(self)
+        self.generator_engine = (
+            GeneratorEngine(generator_bundle or load_generator(bundled_generator("c")))
+            if use_data_generator else None
+        )
 
     def iecType2C(self, typein):
+        if self.generator_engine is not None:
+            return self.generator_engine.map("type", str(typein))
         conv = {
             "SINT": "int8_t", "INT": "int16_t", "DINT": "int32_t", "LINT": "int64_t",
             "USINT": "uint8_t", "UINT": "uint16_t", "UDINT": "uint32_t", "ULINT": "uint64_t",
@@ -735,13 +751,16 @@ class CCodeGenerator(NodeVisitor):
         return "0"
 
     def _array_dimensions(self, specification):
-        dimensions = []
+        dimensions = ""
         for range_node in self._named_nodes(specification, "subrange"):
             bounds = self._named_nodes(range_node, "signed_integer")
             if len(bounds) == 2:
                 lower, upper = self.render(bounds[0]), self.render(bounds[1])
-                dimensions.append(f"[{upper} - ({lower}) + 1]")
-        return "".join(dimensions)
+                size = f"{upper} - ({lower}) + 1"
+                dimensions = self.generator_engine.render(
+                    "array_dimension", value=dimensions, size=size, lower=lower, upper=upper
+                )
+        return dimensions
 
     def _declaration_type(self, node):
         reference = self._first_named(node, "reference_specification")
@@ -906,6 +925,15 @@ class CCodeGenerator(NodeVisitor):
                     self.text += f"    self->{field} = {initializers[field.casefold()]};\n"
         self.text += "}\n\n"
 
+    def _capture_emission(self, callback):
+        previous = self.text
+        self.text = ""
+        try:
+            callback()
+            return self.text
+        finally:
+            self.text = previous
+
     def text_append(self, value):
         self.text += value
 
@@ -922,14 +950,18 @@ class CCodeGenerator(NodeVisitor):
         return declarations
 
     def visit_integer_literal(self, node):
-        self.text += node["value"].replace("_", "")
+        value = node["value"].replace("_", "")
+        self.text += self.generator_engine.render(
+            "integer_literal", Literal(value=value, type_name=self.c_type_for_node(node))
+        ) if self.generator_engine is not None else value
 
     def visit_real_literal(self, node):
         value = node["value"].replace("_", "")
         c_type = self.c_type_for_node(node)
-        if c_type == "float" and not value.lower().endswith("f"):
-            value += "f"
-        self.text += value
+        suffix = "f" if c_type == "float" and not value.lower().endswith("f") else ""
+        self.text += self.generator_engine.render(
+            "real_literal", Literal(value=value, type_name=c_type, suffix=suffix)
+        ) if self.generator_engine is not None else value + suffix
 
     def visit_integer(self, node):
         self.text += node["value"].replace("_", "")
@@ -957,7 +989,10 @@ class CCodeGenerator(NodeVisitor):
         self._visit_based_integer(node, 16, "0x")
 
     def visit_boolean_literal(self, node):
-        self.text += node["value"].lower()
+        self.text += (
+            self.generator_engine.map("boolean_literal", node["value"].upper())
+            if self.generator_engine is not None else node["value"].lower()
+        )
 
     def visit_bit_string_literal(self, node):
         for child in node["children"]:
@@ -1223,7 +1258,7 @@ class CCodeGenerator(NodeVisitor):
         variable_name = self._first_named(subscripted, "variable_name")
         lower_bounds = self._array_lower_bounds(variable_name)
 
-        self.visit(subscripted)
+        array = self.render(subscripted)
 
         subscripts = [
             child
@@ -1231,6 +1266,7 @@ class CCodeGenerator(NodeVisitor):
             if isinstance(child, dict) and child.get("name") == "subscript"
         ]
 
+        indices = []
         for dimension, subscript in enumerate(subscripts):
             index = self.render(subscript)
             lower = (
@@ -1239,9 +1275,12 @@ class CCodeGenerator(NodeVisitor):
                 else "0"
             )
             if lower == "0":
-                self.text += f"[{index}]"
+                adjusted = index
             else:
-                self.text += f"[({index}) - ({lower})]"
+                adjusted = f"({index}) - ({lower})"
+            indices.append({"value": adjusted})
+        rendered_indices = self.generator_engine.render("array_index", items=indices)
+        self.text += self.generator_engine.render("array_access", array=array, indices=rendered_indices)
 
     def visit_subscript_list(self, node):
         for subscript in self._named_nodes(node, "subscript"):
@@ -1377,31 +1416,32 @@ class CCodeGenerator(NodeVisitor):
         )
         if trunc_match:
             argument = self._first_named(node, "expression")
-            self.text += f"(({self.iecType2C(trunc_match.group(1))})({self.render(argument)}))"
+            self.text += self.generator_engine.render(
+                "cast",
+                Cast(self.c_type_for_node(argument) or "", self.iecType2C(trunc_match.group(1)), self.render(argument)),
+            )
             return
 
         resolved = self.context.resolved_calls.get(id(node)) if self.context is not None else None
-        if resolved is not None:
-            self.text += self.context.generated_names.get(id(resolved), resolved.name)
-        else:
-            self.visit(children[0])
-        self.text += "("
+        name = self.context.generated_names.get(id(resolved), resolved.name) if resolved is not None else self.render(children[0])
         resolved_arguments = (
             self.context.resolved_arguments.get(id(node)) if self.context is not None else None
         )
         arguments = resolved_arguments or [
             child for child in children[1:] if child.get("name") == "param_assignment"
         ]
-        for index, argument in enumerate(arguments):
-            if index:
-                self.text += ", "
+        rendered_arguments = []
+        for argument in arguments:
             if resolved_arguments is not None:
-                self.visit(argument)
+                rendered_arguments.append({"value": self.render(argument)})
             else:
                 expressions = [child for child in argument.get("children", []) if child.get("name") == "expression"]
                 if expressions:
-                    self.visit(expressions[-1])
-        self.text += ")"
+                    rendered_arguments.append({"value": self.render(expressions[-1])})
+        argument_text = self.generator_engine.render("parameter", items=rendered_arguments)
+        self.text += self.generator_engine.render(
+            "call", Call(name, tuple(item["value"] for item in rendered_arguments)), arguments=argument_text
+        )
 
     def visit_function_declaration(self, node):
         name = node["children"][0]["value"]
@@ -1412,26 +1452,32 @@ class CCodeGenerator(NodeVisitor):
 
         local_decls = self.collect_sections(node["children"][2], "function_var_decls")
 
-        if node.get("synthetic") and node.get("generated_by") == "enum-conversions":
-            self.text += f"/* Automatically generated conversion for enum {node.get('enum_type')}. */\n"
-        else:
-            self.text += f"/* IEC function: {name}. */\n"
-        self.text += f"{return_type} {emitted_name}({', '.join(params) or 'void'})\n{{\n"
-        self.indent_inc()
+        comment = (
+            f"/* Automatically generated conversion for enum {node.get('enum_type')}. */\n"
+            if node.get("synthetic") and node.get("generated_by") == "enum-conversions"
+            else f"/* IEC function: {name}. */\n"
+        )
+        locals_text = ""
         if return_type != "void":
-            self.text += f"{self.indent}{self._format_declarator(return_type, name)} = {{0}};\n"
+            locals_text += f"    {self._format_declarator(return_type, name)} = {{0}};\n"
         for var_type, var_name in local_decls:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)} = {{0}};\n"
+            locals_text += f"    {self._format_declarator(var_type, var_name)} = {{0}};\n"
         if local_decls or return_type != "void":
-            self.text += "\n"
+            locals_text += "\n"
+        old_indent = self.indent
+        self.indent = "    "
         if native is not None:
-            self._emit_native_code(native.section("body") or "")
+            body = "".join(f"    {line.rstrip()}\n" if line.strip() else "\n" for line in (native.section("body") or "").splitlines())
         else:
-            self.accept(node, lambda child_name: child_name == "function_body")
-        if return_type != "void":
-            self.text += f"{self.indent}return {name};\n"
-        self.indent_dec()
-        self.text += "}\n\n"
+            function_body = self._first_named(node, "function_body")
+            body = self.render(function_body) if function_body is not None else ""
+        self.indent = old_indent
+        return_value = f"    return {name};\n" if return_type != "void" else ""
+        self.text += self.generator_engine.render(
+            "function", name=name, emitted_name=emitted_name, comment=comment, attributes="",
+            return_type=return_type, parameters=", ".join(params) or "void",
+            locals=locals_text, body=body, return_value=return_value,
+        )
         self.current_function = None
         self.current_return_type = None
 
@@ -1452,59 +1498,48 @@ class CCodeGenerator(NodeVisitor):
                 if step["initial"]:
                     initializers[sfc_field(step["name"], "active").casefold()] = "true"
 
-        self.text += f"/* Persistent state for IEC function block {name}. */\n"
-        self.text += f"typedef struct {name} {{\n"
-        self.indent_inc()
-        for var_type, var_name in declarations:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)};\n"
-        if not declarations:
-            self.text += f"{self.indent}uint8_t _stc_empty;\n"
-        self.indent_dec()
-        self.text += f"}} {name};\n\n"
-
-        self._emit_function_block_properties(name, node, declarations)
-
-        self.text += f"/* Initialize function block {name}. */\n"
-        self.text += f"void {name}_setup({name} *self)\n{{\n"
-        self.indent_inc()
-        self.text += f"{self.indent}memset(self, 0, sizeof(*self));\n"
+        fields = "".join(f"    {self._format_declarator(t, n)};\n" for t, n in declarations) or "    uint8_t _stc_empty;\n"
+        properties = self._capture_emission(lambda: self._emit_function_block_properties(name, node, declarations))
+        setup_text = "    memset(self, 0, sizeof(*self));\n"
         for chart in sfc_charts(node):
             for step in chart["steps"]:
                 if step["initial"]:
-                    self.text += f"{self.indent}self->{sfc_field(step['name'], 'active')} = true;\n"
+                    setup_text += f"    self->{sfc_field(step['name'], 'active')} = true;\n"
         for _, field in declarations:
             if field.casefold() in initializers:
-                self.text += f"{self.indent}self->{field} = {initializers[field.casefold()]};\n"
+                setup_text += f"    self->{field} = {initializers[field.casefold()]};\n"
         setup = native.section("setup") if native is not None and native.kind == "function_block" else None
         if setup:
-            self._emit_native_code(setup)
-        self.indent_dec()
-        self.text += "}\n\n"
-
-        self._emit_instance_initializers(name, declarations, retained, initializers)
+            setup_text += "".join(f"    {line.rstrip()}\n" if line.strip() else "\n" for line in setup.splitlines())
+        instance_initializers = self._capture_emission(lambda: self._emit_instance_initializers(name, declarations, retained, initializers))
 
         inouts = self.collect_sections(node, "input_output_declarations")
         parameters = [f"{name} *self"] + [self._format_declarator(var_type, var_name, pointer=True) for var_type, var_name in inouts]
         entrypoint = "loop" if native is not None and native.kind == "function_block" else "step"
-        self.text += f"/* Execute one invocation of function block {name}. */\n"
-        self.text += f"void {name}_{entrypoint}({', '.join(parameters)})\n{{\n"
-        self.indent_inc()
         previous_instance, previous_fields, previous_pointers = self.current_instance, self.current_instance_fields, self.current_pointer_params
         self.current_instance = "self"
         self.current_instance_fields = {field.casefold() for _, field in declarations if field.casefold() not in {item.casefold() for _, item in inouts}}
         self.current_pointer_params = {field.casefold() for _, field in inouts}
-        self.text += f"{self.indent}(void)self;\n"
+        old_indent = self.indent
+        self.indent = "    "
+        temporaries_text = "    (void)self;\n"
         for var_type, var_name in temporaries:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)} = {{0}};\n"
+            temporaries_text += f"    {self._format_declarator(var_type, var_name)} = {{0}};\n"
         if temporaries:
-            self.text += "\n"
+            temporaries_text += "\n"
         if native is not None and native.kind == "function_block":
-            self._emit_native_code(native.section("loop") or "")
+            body = "".join(f"    {line.rstrip()}\n" if line.strip() else "\n" for line in (native.section("loop") or "").splitlines())
         else:
-            self.accept(node, lambda child_name: child_name == "function_block_body")
+            body_node = self._first_named(node, "function_block_body")
+            body = self.render(body_node) if body_node is not None else ""
         self.current_instance, self.current_instance_fields, self.current_pointer_params = previous_instance, previous_fields, previous_pointers
-        self.indent_dec()
-        self.text += "}\n\n"
+        self.indent = old_indent
+        self.text += self.generator_engine.render(
+            "function_block", name=name, fields=fields, properties=properties,
+            setup=setup_text, cold_init=instance_initializers, warm_init="",
+            parameters=", ".join(parameters), entrypoint=entrypoint,
+            temporaries=temporaries_text, body=body,
+        )
 
     def _emit_function_block_properties(self, owner_name, node, declarations):
         field_paths = {field.casefold(): field for _, field in declarations}
@@ -1567,30 +1602,29 @@ class CCodeGenerator(NodeVisitor):
             for step in chart["steps"]:
                 if step["initial"]:
                     initializers[sfc_field(step["name"], "active").casefold()] = "true"
-        self.text += f"/* Persistent state for IEC program {name}. */\n"
-        self.text += f"typedef struct {name} {{\n"
-        self.indent_inc()
-        for var_type, var_name in declarations:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)};\n"
-        if not declarations:
-            self.text += f"{self.indent}uint8_t _stc_empty;\n"
-        self.indent_dec()
-        self.text += f"}} {name};\n\n"
-        self._emit_instance_initializers(name, declarations, retained, initializers)
-        self.text += f"/* Execute one scan cycle of IEC program {name}. */\n"
-        self.text += f"void {name}_run({name} *self)\n{{\n"
-        self.indent_inc()
+        fields = "".join(f"    {self._format_declarator(var_type, var_name)};\n" for var_type, var_name in declarations)
+        if not fields:
+            fields = "    uint8_t _stc_empty;\n"
+        initializers_text = self._capture_emission(
+            lambda: self._emit_instance_initializers(name, declarations, retained, initializers)
+        )
         previous_instance, previous_fields, previous_pointers = self.current_instance, self.current_instance_fields, self.current_pointer_params
         self.current_instance, self.current_instance_fields = "self", {field.casefold() for _, field in declarations}
-        self.text += f"{self.indent}(void)self;\n"
+        old_indent = self.indent
+        self.indent = "    "
+        temporaries_text = "    (void)self;\n"
         for var_type, var_name in temporaries:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)} = {{0}};\n"
+            temporaries_text += f"    {self._format_declarator(var_type, var_name)} = {{0}};\n"
         if temporaries:
-            self.text += "\n"
-        self.accept(node, lambda child_name: child_name == "function_block_body")
+            temporaries_text += "\n"
+        body_node = self._first_named(node, "function_block_body")
+        body = self.render(body_node) if body_node is not None else ""
         self.current_instance, self.current_instance_fields, self.current_pointer_params = previous_instance, previous_fields, previous_pointers
-        self.indent_dec()
-        self.text += "}\n\n"
+        self.indent = old_indent
+        self.text += self.generator_engine.render(
+            "program", name=name, fields=fields, cold_init=initializers_text, warm_init="",
+            temporaries=temporaries_text, body=body,
+        )
 
     def visit_action(self, node):
         name_node = self._first_named(node, "action_name")
@@ -1774,7 +1808,7 @@ class CCodeGenerator(NodeVisitor):
         specification = self._first_named(node, "reference_specification")
         if name is not None and specification is not None:
             target = self.extract_type(specification) or "int16_t"
-            self.text += f"typedef {target} *{name['value']};\n"
+            self.text += self.generator_engine.render("reference_type", name=name["value"], referenced_type=target)
 
     def visit_subrange_type_declaration(self, node):
         name = self._first_named(node, "subrange_type_name")
@@ -1804,7 +1838,7 @@ class CCodeGenerator(NodeVisitor):
     def _emit_array_type(self, name, spec):
         sizes = self._array_dimensions(spec)
         element = self.declaration_type(spec)
-        self.text += f"typedef {element} {name}{sizes};\n"
+        self.text += self.generator_engine.render("array_type", name=name, element_type=element, dimensions=sizes)
 
     def visit_string_type_declaration(self, node):
         name = self._first_named(node, "string_type_name")
@@ -1859,15 +1893,29 @@ class CCodeGenerator(NodeVisitor):
         self.text += f"{var_type} {', '.join(names)}"
 
     def visit_expression(self, node):
-        separator = " | " if self._is_bitwise_expression(node) else " || "
-        self._join_children(node, separator, parenthesize_operands=True)
+        key = "BIT_OR" if self._is_bitwise_expression(node) else "OR"
+        operator = self.generator_engine.map("operator", key) if self.generator_engine is not None else ("|" if key == "BIT_OR" else "||")
+        self._render_binary_chain(node["children"], operator)
 
     def visit_xor_expression(self, node):
-        self._join_children(node, " ^ ", parenthesize_operands=True)
+        operator = self.generator_engine.map("operator", "XOR") if self.generator_engine is not None else "^"
+        self._render_binary_chain(node["children"], operator)
 
     def visit_and_expression(self, node):
-        separator = " & " if self._is_bitwise_expression(node) else " && "
-        self._join_children(node, separator, parenthesize_operands=True)
+        key = "BIT_AND" if self._is_bitwise_expression(node) else "AND"
+        operator = self.generator_engine.map("operator", key) if self.generator_engine is not None else ("&" if key == "BIT_AND" else "&&")
+        self._render_binary_chain(node["children"], operator)
+
+    def _render_binary_chain(self, children, operator):
+        if not children:
+            return
+        expression = self.render(children[0])
+        for child in children[1:]:
+            right = self.render(child)
+            expression = self.generator_engine.render(
+                "binary_expression", left=expression, operator=operator, right=right
+            ) if self.generator_engine is not None else f"({expression} {operator} {right})"
+        self.text += expression
 
     def _is_bitwise_expression(self, node):
         bit_types = {"uint8_t", "uint16_t", "uint32_t", "uint64_t"}
@@ -1898,14 +1946,31 @@ class CCodeGenerator(NodeVisitor):
         self._visit_infix(node)
 
     def visit_comparison_equality_operator(self, node):
-        op = {"=": "==", "NEQ": "!=", "<>": "!="}.get(node["value"], node["value"])
+        op = self.generator_engine.map("operator", node["value"]) if self.generator_engine is not None else {"=": "==", "NEQ": "!=", "<>": "!="}.get(node["value"], node["value"])
         self.text += f" {op} "
 
     def visit_equ_expression(self, node):
-        self._visit_infix(node)
+        self._render_alternating_infix(node)
 
     def visit_add_expression(self, node):
-        self._visit_infix(node)
+        self._render_alternating_infix(node)
+
+    def _render_alternating_infix(self, node):
+        children = node.get("children", [])
+        if not children:
+            return
+        expression = self.render(children[0])
+        index = 1
+        while index + 1 < len(children):
+            operator = self.render(children[index]).strip()
+            right = self.render(children[index + 1])
+            expression = self.generator_engine.render(
+                "binary_expression", left=expression, operator=operator, right=right
+            ) if self.generator_engine is not None else f"({expression} {operator} {right})"
+            index += 2
+        if index < len(children):
+            expression += self.render(children[index])
+        self.text += expression
 
     def visit_term(self, node):
         self._visit_infix_from_child_value(node)
@@ -1919,7 +1984,9 @@ class CCodeGenerator(NodeVisitor):
             # equivalent to a ** (b ** c).
             expression = self.render(children[-1])
             for child in reversed(children[:-1]):
-                expression = f"pow({self.render(child)}, {expression})"
+                expression = self.generator_engine.render(
+                    "power_expression", left=self.render(child), right=expression
+                ) if self.generator_engine is not None else f"pow({self.render(child)}, {expression})"
             self.text += expression
 
     def visit_unary_expression(self, node):
@@ -1928,16 +1995,20 @@ class CCodeGenerator(NodeVisitor):
             self.accept(node)
             return
         child = next((item for item in node.get("children", []) if isinstance(item, dict)), None)
-        symbol = ("~" if child is not None and self._is_bitwise_expression(child) else "!") if op == "NOT" else op
-        self.text += f"({symbol}("
-        self.accept(node)
-        self.text += "))"
+        operator_key = "BIT_NOT" if op == "NOT" and child is not None and self._is_bitwise_expression(child) else op
+        symbol = self.generator_engine.map("operator", operator_key) if self.generator_engine is not None else (("~" if operator_key == "BIT_NOT" else "!") if op == "NOT" else op)
+        operand = self.render(child) if child is not None else ""
+        self.text += self.generator_engine.render(
+            "unary_expression", UnaryExpression(symbol, operand)
+        ) if self.generator_engine is not None else f"({symbol}({operand}))"
 
     def visit_add_operator(self, node):
-        self.text += f" {node['value']} "
+        value = node["value"]
+        mapped = self.generator_engine.map("operator", value) if self.generator_engine is not None else value
+        self.text += f" {mapped} "
 
     def visit_comparison_operator(self, node):
-        op = {"LE_EQ": "<=", "GE_EQ": ">="}.get(node["value"], node["value"])
+        op = self.generator_engine.map("operator", node["value"]) if self.generator_engine is not None else {"LE_EQ": "<=", "GE_EQ": ">="}.get(node["value"], node["value"])
         self.text += f" {op} "
 
     def visit_assignment_statement(self, node):
@@ -1945,19 +2016,18 @@ class CCodeGenerator(NodeVisitor):
             return
         if self.oop.emit_assignment(node):
             return
-        self.text += self.indent
-        self.accept(node, lambda name: name == "variable")
-        self.text += " = "
-        self.accept(node, lambda name: name == "expression")
-        self.text += ";\n"
+        variable = next(child for child in node["children"] if child.get("name") == "variable")
+        expression = next(child for child in node["children"] if child.get("name") == "expression")
+        lowered = Assignment(self.render(variable), self.render(expression), self.indent)
+        self.text += self.generator_engine.render("assignment", lowered) if self.generator_engine is not None else f"{lowered.indent}{lowered.target} = {lowered.value};\n"
 
     def visit_reference_constructor(self, node):
         variable = self._first_named(node, "variable")
-        self.text += f"&({self.render(variable)})"
+        self.text += self.generator_engine.render("reference", value=self.render(variable))
 
     def visit_reference_value(self, node):
         if node.get("value") == "NULL":
-            self.text += "NULL"
+            self.text += self.generator_engine.render("null_reference")
         else:
             self.accept(node)
 
@@ -1966,59 +2036,59 @@ class CCodeGenerator(NodeVisitor):
             (child for child in node.get("children", []) if isinstance(child, dict)),
             None,
         )
-        self.text += f"STC_DEREF({self.render(referenced)})"
+        self.text += self.generator_engine.render("dereference", value=self.render(referenced))
 
     def visit_assert_statement(self, node):
         expression = next(child for child in node.get("children", []) if isinstance(child, dict))
         self.text += f"{self.indent}ASSERT({self.render(expression)});\n"
 
     def visit_exit_statement(self, node):
-        self.text += f"{self.indent}break;\n"
+        self.text += self.generator_engine.render("exit", indent=self.indent) if self.generator_engine is not None else f"{self.indent}break;\n"
+
+    def visit_continue_statement(self, node):
+        self.text += self.generator_engine.render("continue", indent=self.indent) if self.generator_engine is not None else f"{self.indent}continue;\n"
+
+    def visit_return_statement(self, node):
+        expression = self._first_named(node, "expression")
+        value = " " + self.render(expression) if expression is not None else ""
+        self.text += self.generator_engine.render("return", indent=self.indent, value=value, has_value=bool(value)) if self.generator_engine is not None else f"{self.indent}return{value};\n"
+
+    def _render_nested_body(self, node):
+        self.indent_inc()
+        try:
+            return self.render(node)
+        finally:
+            self.indent_dec()
 
     def visit_if_statement(self, node):
-        self.text += self.indent + "if ("
-        self.visit(node["children"][0])
-        self.text += ") {\n"
-        self.indent_inc()
-        self.visit(node["children"][1])
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = IfBranch(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
+        self.text += self.generator_engine.render("if", lowered) if self.generator_engine is not None else f"{self.indent}if ({lowered.condition}) {{\n{lowered.body}{self.indent}}}\n"
         self.accept(node, lambda name: name == "elseif_statement_list")
         self.accept(node, lambda name: name == "else_statement")
 
     def visit_elseif_statement(self, node):
-        self.text += self.indent + "else if ("
-        self.visit(node["children"][0])
-        self.text += ") {\n"
-        self.indent_inc()
-        self.visit(node["children"][1])
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = IfBranch(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
+        self.text += self.generator_engine.render("elseif", lowered) if self.generator_engine is not None else f"{self.indent}else if ({lowered.condition}) {{\n{lowered.body}{self.indent}}}\n"
 
     def visit_else_statement(self, node):
-        self.text += self.indent + "else {\n"
         self.indent_inc()
-        self.accept(node)
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        previous = self.text
+        self.text = ""
+        try:
+            self.accept(node)
+            body = self.text
+        finally:
+            self.text = previous
+            self.indent_dec()
+        self.text += self.generator_engine.render("else", body=body, indent=self.indent) if self.generator_engine is not None else f"{self.indent}else {{\n{body}{self.indent}}}\n"
 
     def visit_while_statement(self, node):
-        self.text += self.indent + "while ("
-        self.visit(node["children"][0])
-        self.text += ") {\n"
-        self.indent_inc()
-        self.visit(node["children"][1])
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = WhileLoop(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
+        self.text += self.generator_engine.render("while", lowered) if self.generator_engine is not None else f"{self.indent}while ({lowered.condition}) {{\n{lowered.body}{self.indent}}}\n"
 
     def visit_repeat_statement(self, node):
-        self.text += self.indent + "do {\n"
-        self.indent_inc()
-        self.visit(node["children"][0])
-        self.indent_dec()
-        self.text += self.indent + "} while (!("
-        self.visit(node["children"][1])
-        self.text += "));\n"
+        lowered = RepeatLoop(self.render(node["children"][1]), self._render_nested_body(node["children"][0]), self.indent)
+        self.text += self.generator_engine.render("repeat", lowered) if self.generator_engine is not None else f"{self.indent}do {{\n{lowered.body}{self.indent}}} while (!({lowered.condition}));\n"
 
     def visit_token(self, node):
         self.text += str(node.get("value", ""))
@@ -2048,48 +2118,54 @@ class CCodeGenerator(NodeVisitor):
         else:
             operator = "-=" if direction == "DOWNTO" else "+="
             step = f"{variable} {operator} {self.render(by)}"
+        lowered_body = self._render_nested_body(body)
         self.text += self.source_line_directive(node)
-        self.text += f"{self.indent}for ({variable} = {start_text}; {variable} {comparator} {end_text}; {step}) {{\n"
-        self.indent_inc()
-        self.visit(body)
-        self.indent_dec()
-        self.text += f"{self.indent}}}\n"
+        self.text += self.generator_engine.render(
+            "for", variable=variable, start=start_text, end=end_text,
+            step=self.render(by) if by is not None else "1",
+            direction="descending" if direction == "DOWNTO" else "ascending",
+            comparator=comparator, update=step, body=lowered_body, indent=self.indent,
+        )
 
     def visit_case_statement(self, node):
         children = node.get("children", [])
         expression = next(child for child in children if child.get("name") == "expression")
         expression_text = self.render(expression)
-        self.text += self.source_line_directive(node)
-        emitted = False
+        elements = []
         default_statements = None
         for child in children:
             if child.get("name") == "case_element":
                 case_list = next(item for item in child["children"] if item.get("name") == "case_list")
                 statements = next(item for item in child["children"] if item.get("name") == "statement_list")
-                conditions = []
+                labels = []
                 for label in (item for item in case_list.get("children", []) if item.get("name") == "case_list_element"):
                     subrange = self._first_named(label, "subrange")
                     if subrange is not None:
                         bounds = self._named_nodes(subrange, "signed_integer")
                         if len(bounds) == 2:
-                            conditions.append(f"(({expression_text}) >= ({self.render(bounds[0])}) && ({expression_text}) <= ({self.render(bounds[1])}))")
+                            labels.append({"value": self.generator_engine.render(
+                                "case_range", selector=expression_text,
+                                lower=self.render(bounds[0]), upper=self.render(bounds[1]),
+                            )})
                     else:
-                        conditions.append(f"({expression_text}) == ({self.render(label)})")
-                keyword = "if" if not emitted else "else if"
-                self.text += f"{self.indent}{keyword} ({' || '.join(conditions) or 'false'}) {{\n"
-                self.indent_inc()
-                self.visit(statements)
-                self.indent_dec()
-                self.text += f"{self.indent}}}\n"
-                emitted = True
+                        labels.append({"value": self.generator_engine.render(
+                            "case_value", selector=expression_text, value=self.render(label)
+                        )})
+                label_text = self.generator_engine.render("case_labels", items=labels) or "false"
+                body = self._render_nested_body(statements)
+                rule = "case_element_first" if not elements else "case_element"
+                elements.append(self.generator_engine.render(rule, labels=label_text, body=body, indent=self.indent))
             elif child.get("name") == "statement_list":
                 default_statements = child
+        else_body = ""
         if default_statements is not None:
-            self.text += f"{self.indent}{'else ' if emitted else ''}{{\n"
-            self.indent_inc()
-            self.visit(default_statements)
-            self.indent_dec()
-            self.text += f"{self.indent}}}\n"
+            body = self._render_nested_body(default_statements)
+            rule = "case_else" if elements else "case_else_first"
+            else_body = self.generator_engine.render(rule, body=body, indent=self.indent, has_elements=bool(elements))
+        self.text += self.source_line_directive(node)
+        self.text += self.generator_engine.render(
+            "case", selector=expression_text, elements="".join(elements), else_body=else_body, indent=self.indent
+        )
 
     def visit_case_element(self, node):
         case_list = next(child for child in node["children"] if child.get("name") == "case_list")
@@ -2313,7 +2389,8 @@ class CCodeGenerator(NodeVisitor):
             return
         self.visit(children[0])
         for child in children[1:]:
-            op = {"MOD": "%"}.get(child.get("value"), child.get("value"))
+            raw_op = child.get("value")
+            op = self.generator_engine.map("operator", raw_op) if self.generator_engine is not None else {"MOD": "%"}.get(raw_op, raw_op)
             self.text += f" {op} "
             if op == "%":
                 self.text += "((int64_t)("

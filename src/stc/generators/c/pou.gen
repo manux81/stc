@@ -1,0 +1,39 @@
+[function]
+description = "Generate an IEC FUNCTION as a C function."
+template = """
+{comment}{return_type} {emitted_name}({parameters})
+{
+{locals}{body}{return_value}}
+
+"""
+
+[function_block]
+template = """
+/* Persistent state for IEC function block {name}. */
+typedef struct {name} {
+{fields}} {name};
+
+{properties}/* Initialize function block {name}. */
+void {name}_setup({name} *self)
+{
+{setup}}
+
+{cold_init}{warm_init}/* Execute one invocation of function block {name}. */
+void {name}_{entrypoint}({parameters})
+{
+{temporaries}{body}}
+
+"""
+
+[program]
+template = """
+/* Persistent state for IEC program {name}. */
+typedef struct {name} {
+{fields}} {name};
+
+{cold_init}{warm_init}/* Execute one scan cycle of IEC program {name}. */
+void {name}_run({name} *self)
+{
+{temporaries}{body}}
+
+"""

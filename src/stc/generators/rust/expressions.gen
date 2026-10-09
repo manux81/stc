@@ -1,0 +1,54 @@
+[integer_literal]
+template = "{value}"
+
+[real_literal]
+template = "{value}{suffix}"
+
+[boolean_literal]
+mapping = { TRUE = "true", FALSE = "false" }
+
+[operator]
+mapping = { OR = "||", XOR = "^", AND = "&&", NOT = "!", "=" = "==", EQ = "==", NEQ = "!=", "<>" = "!=", LE_EQ = "<=", GE_EQ = ">=", MOD = "%", ADD = "+", SUB = "-", MUL = "*", DIV = "/", LT = "<", GT = ">", LE = "<=", GE = ">=" }
+
+[binary_expression]
+template = "{left} {operator} {right}"
+
+[power_expression]
+template = "{left} /* ** */ {right}"
+
+[unary_expression]
+template = "{operator}{operand}"
+
+[cast]
+template = "({value}) as {target_type}"
+
+[call]
+template = "{name}({arguments})"
+
+[parameter]
+each = "{value}"
+separator = ", "
+
+[array_type]
+template = "pub type {name} = {dimensions};\n\n"
+
+[array_dimension]
+template = "[{value}; {size}]"
+
+[array_access]
+template = "{array}{indices}"
+
+[array_index]
+each = "[({value}) as usize]"
+
+[reference_type]
+template = "pub type {name} = *mut {referenced_type};\n\n"
+
+[reference]
+template = "&mut {value} as *mut _"
+
+[null_reference]
+template = "std::ptr::null_mut()"
+
+[dereference]
+template = "(*unsafe { stc_deref({value}) })"

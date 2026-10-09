@@ -1,0 +1,4 @@
+# Reference C generator metadata. Comments are internal and are not emitted.
+[generator]
+name = "c"
+extension = "c"

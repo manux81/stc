@@ -1,0 +1,4 @@
+# Variables: {name}
+[type]
+description = "Map IEC primitive types to portable C11 types."
+mapping = { SINT = "int8_t", INT = "int16_t", DINT = "int32_t", LINT = "int64_t", USINT = "uint8_t", UINT = "uint16_t", UDINT = "uint32_t", ULINT = "uint64_t", REAL = "float", LREAL = "double", BOOL = "bool", BYTE = "uint8_t", WORD = "uint16_t", DWORD = "uint32_t", LWORD = "uint64_t", TIME = "int64_t", LTIME = "int64_t", DATE = "int64_t", LDATE = "int64_t", TOD = "int64_t", LTOD = "int64_t", TIME_OF_DAY = "int64_t", DT = "int64_t", LDT = "int64_t", DATE_AND_TIME = "int64_t", CHAR = "uint8_t", WCHAR = "uint16_t", UCHAR = "uint32_t", STRING = "const char *", WSTRING = "const char *", USTRING = "const char *" }

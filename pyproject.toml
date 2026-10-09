@@ -25,7 +25,7 @@ where = ["src"]
 include = ["stc*"]
 
 [tool.setuptools.package-data]
-stc = ["runtime/*.c", "runtime/*.rs", "stdlib/*.st", "stdlib/*.json"]
+stc = ["runtime/*.c", "runtime/*.rs", "stdlib/*.st", "stdlib/*.json", "generators/**/*.gen"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

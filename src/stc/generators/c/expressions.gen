@@ -1,0 +1,58 @@
+# The frontend has normalized separators and the lowering adapter supplies a
+# target-independent operator key.
+[integer_literal]
+description = "Render an integer after IEC separator removal."
+template = "{value}"
+
+[real_literal]
+description = "Render a real literal with a lowering-selected suffix."
+template = "{value}{suffix}"
+
+[boolean_literal]
+mapping = { TRUE = "true", FALSE = "false" }
+
+[operator]
+mapping = { OR = "||", XOR = "^", AND = "&&", NOT = "!", "=" = "==", EQ = "==", NEQ = "!=", "<>" = "!=", LE_EQ = "<=", GE_EQ = ">=", MOD = "%", ADD = "+", SUB = "-", MUL = "*", DIV = "/", LT = "<", GT = ">", LE = "<=", GE = ">=", BIT_OR = "|", BIT_AND = "&", BIT_NOT = "~" }
+
+[binary_expression]
+template = "{left} {operator} {right}"
+
+[power_expression]
+template = "pow({left}, {right})"
+
+[unary_expression]
+template = "({operator}({operand}))"
+
+[cast]
+template = "(({target_type})({value}))"
+
+[call]
+template = "{name}({arguments})"
+
+[parameter]
+each = "{value}"
+separator = ", "
+
+[array_type]
+template = "typedef {element_type} {name}{dimensions};\n"
+
+[array_dimension]
+template = "{value}[{size}]"
+
+[array_access]
+template = "{array}{indices}"
+
+[array_index]
+each = "[{value}]"
+
+[reference_type]
+template = "typedef {referenced_type} *{name};\n"
+
+[reference]
+template = "&({value})"
+
+[null_reference]
+template = "NULL"
+
+[dereference]
+template = "STC_DEREF({value})"

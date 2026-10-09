@@ -1,0 +1,3 @@
+[generator]
+name = "rust"
+extension = "rs"
