@@ -4,6 +4,7 @@
 
 import re
 
+from .byte_arrays import emit_store as emit_byte_array_store, emit_call as emit_byte_array_call
 from .visitor import NodeVisitor
 from .lowering import OopModel, SharedLowering
 from .sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
@@ -877,6 +878,8 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
             return "const char *"
         if self._first_named(node, "double_byte_string_spec") is not None:
             return "const char *"
+        if self._first_named(node, "unicode_string_spec") is not None:
+            return "const char *"
         found = self.extract_type(node)
         if found:
             return found
@@ -896,7 +899,7 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
         if variable is None:
             return None
         symbol = self.context.symbols.symbol_for_reference(variable)
-        if symbol is None or symbol.type_ref.name is None:
+        if symbol is None or symbol.type_ref is None:
             return None
         type_name = str(symbol.type_ref.name or "").upper()
         if type_name not in {"STRING", "WSTRING", "USTRING"}:
@@ -930,6 +933,8 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
         if self._first_named(node, "single_byte_string_spec") is not None:
             return "const char *"
         if self._first_named(node, "double_byte_string_spec") is not None:
+            return "const char *"
+        if self._first_named(node, "unicode_string_spec") is not None:
             return "const char *"
         array = self._first_named(node, "array_specification")
         if array is not None:
@@ -1302,6 +1307,20 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
         for subscript in self._named_nodes(node, "subscript"):
             self.text += f"[{self.render(subscript)}]"
 
+    def _is_wstring_expression(self, expression):
+        """Return True when an expression statically refers to WSTRING."""
+        if expression is None or self.context is None:
+            return False
+        datatype = self.context.type_of(expression)
+        if datatype is not None and getattr(datatype, "name", "").upper() == "WSTRING":
+            return True
+        variable = self._first_named(expression, "variable_name")
+        if variable is not None:
+            symbol = self.context.symbols.symbol_for_reference(variable)
+            if symbol is not None and symbol.type_ref is not None:
+                return str(symbol.type_ref.name or "").upper() == "WSTRING"
+        return False
+
     def visit_library(self, node):
         self._emit_section("IEC 61131-3 runtime support")
         self.oop.prepare(node)
@@ -1311,6 +1330,8 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
         }
         if self._named_nodes(node, "assert_statement"):
             requested.add("ASSERT")
+        if "LEN_CODE_UNIT" in requested:
+            requested.add("WSTRING_LEN_CODE_UNIT")
         bundle = self.generator_engine.bundle if self.generator_engine is not None else None
         if self.generator_engine is not None and bundle is not None:
             self.text += render_primitives(
@@ -1407,6 +1428,8 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
 
 
     def visit_primary_expression(self, node):
+        if emit_byte_array_call(self, node):
+            return
         children = node.get("children", [])
         if not children or children[0].get("name") != "function_name":
             self.accept(node)
@@ -1424,6 +1447,12 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
             length = self._string_max_length(argument)
             if length is not None:
                 self.text += str(length)
+                return
+
+        if standard_name_value == "LEN_CODE_UNIT":
+            argument = self._first_named(node, "expression")
+            if self._is_wstring_expression(argument):
+                self.text += f"WSTRING_LEN_CODE_UNIT({self.render(argument)})"
                 return
 
         trunc_match = re.fullmatch(
@@ -1896,6 +1925,8 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
         self.text += f" {op} "
 
     def visit_assignment_statement(self, node):
+        if emit_byte_array_store(self, node):
+            return
         if self._emit_property_assignment(node):
             return
         if self.oop.emit_assignment(node):

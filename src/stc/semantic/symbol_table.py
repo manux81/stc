@@ -477,6 +477,14 @@ class SymbolTableBuilder:
                 leaf = self._first_value_descendant(candidate)
                 if leaf is not None:
                     return TypeRef(leaf.get("value"), candidate)
+        for spec_name, type_name in (
+            ("single_byte_string_spec", "STRING"),
+            ("double_byte_string_spec", "WSTRING"),
+            ("unicode_string_spec", "USTRING"),
+        ):
+            spec = self._first_descendant(node, spec_name)
+            if spec is not None:
+                return TypeRef(type_name, spec)
         for value in self._raw_strings(node):
             if value.upper() in {"STRING", "WSTRING", "USTRING", "CHAR", "WCHAR", "UCHAR"}:
                 return TypeRef(value.upper(), node)

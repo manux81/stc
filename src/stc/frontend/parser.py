@@ -172,7 +172,7 @@ class IECParser(Parser):
 
     @_('[ "+" ] integer', ' [ "-" ] integer')
     def signed_integer(self, p):
-        return { "name": self.production.name, "value": p[1]["value"], "children": [ ] }
+        return { "name": self.production.name, "value": ("-" if p[0] and p[0][0] == "-" else "") + p[1]["value"], "children": [ ] }
 
     @_('INTEGER')
     def integer(self, p):
@@ -648,6 +648,7 @@ class IECParser(Parser):
        'structure_element_name ":" array_spec_init',
        'structure_element_name ":" single_byte_string_spec',
        'structure_element_name ":" double_byte_string_spec',
+       'structure_element_name ":" unicode_string_spec',
        'structure_element_name ":" initialized_structure')
     def structure_element_declaration(self, p):
         return self._node_from_production(p)
@@ -672,7 +673,8 @@ class IECParser(Parser):
         return {"name": self.production.name, "value": p[0], "children": [ ]}
 
     @_('string_type_name ":" STRING [ "[" integer "]" ] [ ASSIGN character_string ]',
-       'string_type_name ":" WSTRING [ "[" integer "]" ] [ ASSIGN character_string ]')
+       'string_type_name ":" WSTRING [ "[" integer "]" ] [ ASSIGN character_string ]',
+       'string_type_name ":" USTRING [ "[" integer "]" ] [ ASSIGN character_string ]')
     def string_type_declaration(self, p):
         return self._node_from_production(p)
 
@@ -969,7 +971,7 @@ class IECParser(Parser):
 
     @_('simple_spec_init', 'subrange_spec_init',
        'enumerated_spec_init', 'array_spec_init', 'initialized_structure',
-       'single_byte_string_spec','double_byte_string_spec')
+       'single_byte_string_spec','double_byte_string_spec','unicode_string_spec')
     def located_var_spec_init(self, p):
         return self._node_from_production(p)
 
@@ -982,7 +984,8 @@ class IECParser(Parser):
         return self._node_from_production(p)
 
     @_('single_byte_string_var_declaration',
-       'double_byte_string_var_declaration')
+       'double_byte_string_var_declaration',
+       'unicode_string_var_declaration')
     def string_var_declaration(self, p):
         return self._node_from_production(p)
 
@@ -1000,6 +1003,14 @@ class IECParser(Parser):
 
     @_('WSTRING [ "[" integer "]" ] [ ASSIGN double_byte_character_string ]')
     def double_byte_string_spec(self, p):
+        return self._node_from_production(p)
+
+    @_('var1_list ":" unicode_string_spec')
+    def unicode_string_var_declaration(self, p):
+        return self._node_from_production(p)
+
+    @_('USTRING [ "[" integer "]" ] [ ASSIGN unicode_character_string ]')
+    def unicode_string_spec(self, p):
         return self._node_from_production(p)
 
     @_('VAR [ RETAIN ] incompl_located_var_decl ";" { incompl_located_var_decl ";" } END_VAR',
@@ -1020,7 +1031,7 @@ class IECParser(Parser):
     @_('simple_specification',
        'subrange_specification', 'enumerated_specification',
        'array_specification', 'structure_type_name',
-       'STRING [ "[" integer "]" ]', 'WSTRING [ "[" integer "]" ]')
+       'STRING [ "[" integer "]" ]', 'WSTRING [ "[" integer "]" ]', 'USTRING [ "[" integer "]" ]')
     def var_spec(self, p):
         return self._node_from_production(p)
 
@@ -1052,7 +1063,7 @@ class IECParser(Parser):
         return { "name": self.production.name, "value": p[0], "children": [ ] }
 
     @_('elementary_type_name', 'derived_type_name',
-       'single_byte_string_spec', 'double_byte_string_spec')
+       'single_byte_string_spec', 'double_byte_string_spec', 'unicode_string_spec')
     def function_return_type(self, p):
         return self._node_from_production(p)
 

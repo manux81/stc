@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 
+from .byte_arrays import emit_store as emit_byte_array_store, emit_call as emit_byte_array_call
 from .visitor import NodeVisitor
 from .lowering import OopModel, SharedLowering
 from .generator.engine import GeneratorEngine
@@ -369,7 +370,9 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
         if self._first_named(node, "single_byte_string_spec") is not None:
             return "&'static str"
         if self._first_named(node, "double_byte_string_spec") is not None:
-            return "Vec<u16>"
+            return "&'static str"
+        if self._first_named(node, "unicode_string_spec") is not None:
+            return "&'static str"
         return fallback
 
     def _array_dimensions(self, specification):
@@ -389,7 +392,9 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
         if self._first_named(node, "single_byte_string_spec") is not None:
             return "&'static str"
         if self._first_named(node, "double_byte_string_spec") is not None:
-            return "Vec<u16>"
+            return "&'static str"
+        if self._first_named(node, "unicode_string_spec") is not None:
+            return "&'static str"
         array = self._first_named(node, "array_specification")
         if array is not None:
             named = self._first_named(array, "array_type_name")
@@ -615,6 +620,19 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
             )
 
 
+    def _is_wstring_expression(self, expression):
+        if expression is None or self.context is None:
+            return False
+        datatype = self.context.type_of(expression)
+        if datatype is not None and getattr(datatype, "name", "").upper() == "WSTRING":
+            return True
+        variable = self._first_named(expression, "variable_name")
+        if variable is not None:
+            symbol = self.context.symbols.symbol_for_reference(variable)
+            if symbol is not None and symbol.type_ref is not None:
+                return str(symbol.type_ref.name or "").upper() == "WSTRING"
+        return False
+
     def visit_library(self, node):
         requested = {
             str(item.get("value", "")).upper()
@@ -622,6 +640,8 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
         }
         if self._named_nodes(node, "assert_statement"):
             requested.add("ASSERT")
+        if "LEN_CODE_UNIT" in requested:
+            requested.add("WSTRING_LEN_CODE_UNIT")
         self._emit_section("IEC 61131-3 runtime support")
         bundle = self.generator_engine.bundle
         self.text += render_primitives(
@@ -1081,7 +1101,28 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
         self.indent_dec()
         self.text += self.generator_engine.render("structure_type", name=name, fields="".join(fields))
 
+    def _string_max_length(self, expression):
+        """Return the declared maximum length of an IEC string expression."""
+        if expression is None or self.context is None:
+            return None
+        variable = self._first_named(expression, "variable_name")
+        if variable is None:
+            return None
+        symbol = self.context.symbols.symbol_for_reference(variable)
+        if symbol is None or symbol.type_ref is None:
+            return None
+        type_name = str(symbol.type_ref.name or "").upper()
+        if type_name not in {"STRING", "WSTRING", "USTRING"}:
+            return None
+        declaration = symbol.type_ref.node
+        size = self._first_named(declaration, "integer")
+        if size is not None and size.get("value") is not None:
+            return int(str(size["value"]).replace("_", ""))
+        return 80
+
     def visit_primary_expression(self, node):
+        if emit_byte_array_call(self, node):
+            return
         children = node.get("children", [])
         if not children or children[0].get("name") != "function_name":
             self.accept(node)
@@ -1089,6 +1130,22 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
 
 
         standard_name = self._first_named(children[0], "standard_function_name")
+        standard_name_value = (
+            str(standard_name.get("value", "")).upper()
+            if standard_name
+            else ""
+        )
+        if standard_name_value == "LEN_MAX":
+            argument = self._first_named(node, "expression")
+            length = self._string_max_length(argument)
+            if length is not None:
+                self.text += str(length)
+                return
+        if standard_name_value == "LEN_CODE_UNIT":
+            argument = self._first_named(node, "expression")
+            if self._is_wstring_expression(argument):
+                self.text += f"WSTRING_LEN_CODE_UNIT({self.render(argument)})"
+                return
         trunc_match = re.fullmatch(
             r"(?:(?:REAL|LREAL)_)?TRUNC_(SINT|INT|DINT|LINT|USINT|UINT|UDINT|ULINT)",
             str(standard_name.get("value", "")).upper() if standard_name else "",
@@ -1346,6 +1403,8 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
         self.text += f" {op} "
 
     def visit_assignment_statement(self, node):
+        if emit_byte_array_store(self, node):
+            return
         if self._emit_property_assignment(node):
             return
         variable = next(child for child in node["children"] if child.get("name") == "variable")

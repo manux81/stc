@@ -174,6 +174,8 @@ _RULES = (
     _rule('zero_reference', "Render zero reference.", (), "types", required=True, phase=5),
     _rule('zero_vector', "Render zero vector.", (), "types", required=True, phase=5),
     _rule("layout_patterns", "Match rendered type shapes for declarator and default selection.", ("value",), "types", required=True, mapping=True, phase=5),
+    _rule("byte_array_store", "Encode a string into a checked byte-array destination.", ("name", "source", "target", "size", "indent"), "conversions", required=True, required_values=("name", "source", "target", "size"), phase=5),
+    _rule("byte_array_load", "Decode a checked byte array into a string.", ("name", "source", "size"), "conversions", required=True, required_values=("name", "source"), phase=5),
 )
 
 GENERATOR_API = {rule.name: rule for rule in _RULES}

@@ -160,13 +160,19 @@ static STC_MAYBE_UNUSED inline const char *stc_string_compose(
     const char *suffix,
     size_t suffix_size)
 {
-    char *buffer = stc_string_buffer();
+    /* Each composed value owns its buffer so earlier results stay valid
+       while later concatenations run. Callers intentionally leak these
+       temporaries, matching the previous ring-buffer lifetime. */
+    size_t total = prefix_size + middle_size + suffix_size;
+    char *buffer = (char *)malloc(total + 1u);
     size_t used = 0u;
     const char *parts[] = {prefix, middle, suffix};
     const size_t sizes[] = {prefix_size, middle_size, suffix_size};
+    if (buffer == NULL) {
+        return "";
+    }
     for (size_t index = 0u; index < 3u; ++index) {
-        size_t available = STC_STRING_BUFFER_SIZE - 1u - used;
-        size_t count = sizes[index] < available ? sizes[index] : available;
+        size_t count = sizes[index];
         if (count > 0u && parts[index] != NULL) {
             memcpy(buffer + used, parts[index], count);
             used += count;
@@ -180,7 +186,10 @@ static STC_MAYBE_UNUSED inline const char *stc_string_compose(
 // STC_PRIMITIVE_BEGIN INT_TO_STRING STRING_SUPPORT
 static STC_MAYBE_UNUSED inline const char *INT_TO_STRING(int16_t value)
 {
-    char *buffer = stc_string_buffer();
+    char *buffer = (char *)malloc(STC_STRING_BUFFER_SIZE);
+    if (buffer == NULL) {
+        return "";
+    }
     snprintf(buffer, STC_STRING_BUFFER_SIZE, "%d", value);
     return buffer;
 }
@@ -206,6 +215,35 @@ static STC_MAYBE_UNUSED inline int16_t LEN_CODE_UNIT(const char *text)
     return text == NULL ? 0 : (int16_t)strlen(text);
 }
 // STC_PRIMITIVE_END LEN_CODE_UNIT
+
+// STC_PRIMITIVE_BEGIN WSTRING_LEN_CODE_UNIT
+static STC_MAYBE_UNUSED inline int16_t WSTRING_LEN_CODE_UNIT(const char *text)
+{
+    /* WSTRING stores UTF-16 code units; the backend keeps UTF-8 bytes, so
+       count UTF-16 units (astral scalars need a surrogate pair). */
+    size_t units = 0u;
+    const unsigned char *cursor = (const unsigned char *)(text == NULL ? "" : text);
+    while (*cursor != '\0') {
+        unsigned char lead = *cursor;
+        if ((lead & 0x80u) == 0u) {
+            units += 1u;
+            cursor += 1;
+        } else if ((lead & 0xE0u) == 0xC0u) {
+            units += 1u;
+            cursor += 2;
+        } else if ((lead & 0xF0u) == 0xE0u) {
+            units += 1u;
+            cursor += 3;
+        } else if ((lead & 0xF8u) == 0xF0u) {
+            units += 2u;
+            cursor += 4;
+        } else {
+            cursor += 1;
+        }
+    }
+    return (int16_t)units;
+}
+// STC_PRIMITIVE_END WSTRING_LEN_CODE_UNIT
 
 // STC_PRIMITIVE_BEGIN MID STRING_SUPPORT
 static STC_MAYBE_UNUSED inline const char *MID(const char *text, int length, int position)

@@ -64,3 +64,9 @@ template = "NULL"
 
 [dereference]
 template = "STC_DEREF({value})"
+
+[byte_array_store]
+template = "{indent}{name}({source}, {target}, {size});\n"
+
+[byte_array_load]
+template = "{name}({source}, {size})"

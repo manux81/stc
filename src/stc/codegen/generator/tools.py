@@ -57,6 +57,7 @@ def create_generator_skeleton(name: str, destination: str | Path | None = None, 
     runtime = Path(__file__).resolve().parents[2] / "runtime"
     extension = "rs" if base == "rust" else "c"
     shutil.copy2(runtime / f"primitives.{extension}", root / f"primitives.{extension}")
+    shutil.copy2(runtime / f"byte_arrays.{extension}", root / f"byte_arrays.{extension}")
     load_generator(root)
     return root
 

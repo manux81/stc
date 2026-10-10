@@ -40,6 +40,8 @@ def generate_standard_function_name():
         r'SEL', r'MAX', r'MIN', r'LIMIT', r'MUX',
         r'CONCAT', r'INSERT', r'DELETE', r'REPLACE', r'FIND',
         r'LEN', r'LEN_MAX', r'LEN_CODE_UNIT', r'LEFT', r'RIGHT', r'MID',
+        r'STRING_TO_ARRAY_OF_BYTE', r'WSTRING_TO_ARRAY_OF_BYTE', r'USTRING_TO_ARRAY_OF_BYTE',
+        r'ARRAY_OF_BYTE_TO_STRING', r'ARRAY_OF_BYTE_TO_WSTRING', r'ARRAY_OF_BYTE_TO_USTRING',
 
         r'ASSERT',
 
@@ -222,14 +224,14 @@ class IECLexer(Lexer):
 ##############################
     TYPED_CHARACTER_STRING_LITERAL = before(
         "IDENTIFIER",
-        r"(?:(?:STRING|CHAR)\s*#\s*'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{2}))*'|(?:WSTRING|WCHAR)\s*#\s*(?:\"([^\"$]|(\$\$)|(\$\"\")|(\"\")|(\$\")|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{4}))*\"|'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{4}))*'))",
+        r"(?:(?:STRING|CHAR)\s*#\s*'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$\{[0-9A-Fa-f]{1,6}\})|(\$[0-9A-Fa-f]{2}))*'|(?:WSTRING|WCHAR)\s*#\s*(?:\"([^\"$]|(\$\$)|(\$\"\")|(\"\")|(\$\")|(\$[LlNnPpRrTt])|(\$\{[0-9A-Fa-f]{1,6}\})|(\$[0-9A-Fa-f]{4}))*\"|'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$\{[0-9A-Fa-f]{1,6}\})|(\$[0-9A-Fa-f]{4}))*'))",
     )
     UNICODE_STRING_LITERAL = before(
         "IDENTIFIER",
         r"(?:USTRING|UCHAR|U)\s*#\s*'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$\{[0-9A-Fa-f]{1,6}\})|(\$[0-9A-Fa-f]{2}))*'",
     )
-    SINGLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r"'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{2}))*'")
-    DOUBLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r'"([^"$]|(\$\$)|(\$"")|("")|(\$")|(\$[LlNnPpRrTt])|(\$[0-9A-Fa-f]{4}))*"')
+    SINGLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r"'([^'$]|(\$\$)|(\$'')|('')|(\$')|(\$[LlNnPpRrTt])|(\$\{[0-9A-Fa-f]{1,6}\})|(\$[0-9A-Fa-f]{2}))*'")
+    DOUBLE_BYTE_STRING_LITERAL = before("IDENTIFIER", r'"([^"$]|(\$\$)|(\$"")|("")|(\$")|(\$[LlNnPpRrTt])|(\$\{[0-9A-Fa-f]{1,6}\})|(\$[0-9A-Fa-f]{4}))*"')
     DOLLAR_APC = r'\$\''
     DOLLAR_QOT = r'\$"'
     PRINTABLE_CHAR = r'ppppppp'

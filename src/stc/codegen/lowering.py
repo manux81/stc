@@ -289,6 +289,16 @@ class SharedLowering:
         token = self._first_named(node, "token")
         raw = str(token.get("value", "''")) if token else "''"
         content = raw[1:-1] if len(raw) >= 2 else raw
+        content = re.sub(
+            r"\$\{([0-9A-Fa-f]{1,6})\}",
+            lambda match: (
+                chr(int(match.group(1), 16))
+                if int(match.group(1), 16) <= 0x10FFFF
+                and not 0xD800 <= int(match.group(1), 16) <= 0xDFFF
+                else "\ufffd"
+            ),
+            content,
+        )
         content = content.replace("$N", "\n").replace("$n", "\n")
         content = content.replace("$T", "\t").replace("$t", "\t")
         content = content.replace("$$", "$").replace("$''", "'").replace("$'", "'")
@@ -321,7 +331,8 @@ class SharedLowering:
         token = self._first_named(node, "token")
         raw = str(token.get("value", "U#''")) if token else "U#''"
         content = self._unicode_content(raw)
-        if raw.lstrip().upper().startswith("UCHAR"):
+        prefix = raw[:raw.find("#")].strip().upper() if "#" in raw else ""
+        if prefix == "UCHAR" or (prefix == "U" and len(content) == 1):
             self.text += str(ord(content[0]) if content else 0)
             return
         escaped = content.replace("\\", "\\\\").replace('"', '\\"')
@@ -333,6 +344,16 @@ class SharedLowering:
     def _typed_character_content(raw):
         quoted = raw[raw.find("#") + 1:].strip()
         content = quoted[1:-1] if len(quoted) >= 2 else quoted
+        content = re.sub(
+            r"\$\{([0-9A-Fa-f]{1,6})\}",
+            lambda match: (
+                chr(int(match.group(1), 16))
+                if int(match.group(1), 16) <= 0x10FFFF
+                and not 0xD800 <= int(match.group(1), 16) <= 0xDFFF
+                else "\ufffd"
+            ),
+            content,
+        )
         content = re.sub(
             r"\$([0-9A-Fa-f]{2}|[0-9A-Fa-f]{4})",
             lambda match: chr(int(match.group(1), 16)),

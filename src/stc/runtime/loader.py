@@ -75,6 +75,11 @@ def _primitive_source(extension: str, bundle_path: str | Path | None) -> str:
 def _load_primitives(target: str, bundle_path: str = "") -> tuple[Primitive, ...]:
     extension = {"c": "c", "rust": "rs"}.get(target, target)
     source = _primitive_source(extension, bundle_path or None)
+    byte_arrays = Path(bundle_path) / f"byte_arrays.{extension}" if bundle_path else None
+    if byte_arrays is None or not byte_arrays.is_file():
+        byte_arrays = Path(__file__).with_name(f"byte_arrays.{extension}")
+    if byte_arrays.is_file():
+        source += "\n" + byte_arrays.read_text(encoding="utf-8")
     return _parse_primitives(source, extension)
 
 
