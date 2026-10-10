@@ -40,6 +40,8 @@ the supported subset.
 - Target declarations for aliases, arrays, structures, strings, subranges,
   and enumerations when represented by the parser AST.
 - JSON AST output for downstream tooling and regression tests.
+- Data-driven C/Rust backends with validated `.gen` templates and CLI tools
+  for inspecting, checking, and scaffolding external generators.
 - Minimal semantic checks for undeclared variables before code generation.
 - Structural AST output for every parser production currently present in the
   grammar.
@@ -55,9 +57,9 @@ python3 -m stc examples/inter.st -g c -o build/inter.c
 python3 -m stc examples/inter.st -g c --no-semantic-check
 ```
 
-`stc.cli` is the compiler CLI entry point: `-g c` selects
-`CCodeGenerator`, while `-g rust` selects `RustCodeGenerator` through the
-shared `compile_source()` pipeline. The generated files contain IEC functions
+`stc.cli` is the compiler CLI entry point: `-g c` and `-g rust` select the
+bundled generators through the shared `compile_source()` pipeline. The
+generated files contain IEC functions
 as reusable C/Rust functions; they intentionally do not synthesize an
 application `main()`, because a PLC runtime must decide how and when to invoke
 the program cycle.
@@ -73,6 +75,64 @@ readable built-in layout.
 each POU. Use `--language il` when an IL body begins with a derived function
 name and is therefore intentionally ambiguous with ST. Generated C or Rust is
 always emitted as one self-contained source file.
+
+## Data-driven code generation
+
+The `gen-codedriven` work moves target rendering into editable `.gen` bundles.
+The bundled C and Rust definitions live in `src/stc/generators/c/` and
+`src/stc/generators/rust/`. Each bundle separates language metadata and the
+file preamble, types, expressions, statements, POUs, OOP, SFC, IL, and runtime
+rendering into nine files.
+
+Compilation still parses IEC source and runs semantic analysis first. The
+C/Rust adapters then lower the AST and semantic context into records for
+operations such as assignments, calls, loops, properties, and transitions.
+`GeneratorEngine` renders those records using the selected bundle. Primitive
+implementations and their dependency closure are loaded from runtime files.
+
+The `.gen` files use TOML with named Generator API sections. Rules support
+`template` placeholders, `mapping` lookups, `each` with a `separator`,
+conditional `when`, and acyclic composition through `uses`. They render
+compiler-provided data and do not execute Python or traverse the AST.
+For example, a C assignment rule is:
+
+```toml
+[assignment]
+description = "Render an assignment statement."
+template = "{indent}{target} = {value};\n"
+```
+
+Inspect the contract, validate a bundle, or create a new skeleton:
+
+```sh
+python3 -m stc --gen-help
+python3 -m stc --gen-help assignment
+python3 -m stc --check-generator src/stc/generators/c
+python3 -m stc --new-generator mybackend
+```
+
+`--new-generator` creates `generators/mybackend/` with documented sections and
+empty rules to fill in; it is a starting point, not a working backend. For an
+immediately usable customization, copy a bundled generator and edit its
+templates. Select a local bundle by name or load an external directory:
+
+```sh
+python3 -m stc examples/inter.st -g mybackend
+python3 -m stc examples/inter.st --generator-path /path/to/mybackend
+python3 -m stc --check-generator /path/to/mybackend
+```
+
+Named generators are searched under `generators/` in the current directory
+before the bundled definitions. External bundles require no Python
+registration. A `rust` target or a bundle declaring `extension = "rs"` uses
+the Rust adapter; other bundles use the C adapter. New languages therefore
+still depend on the lowering and layout supported by those adapters.
+
+Both bundled backends implement all sections of the current Generator API.
+This measures template API coverage, not full IEC language support: some
+declarator details, named-type layouts, and configuration schedulers still
+use Python helpers. See [the generator architecture guide](docs/data-driven-generators.md)
+for the full contract, implementation boundaries, and extension details.
 
 ## Python compilation API
 

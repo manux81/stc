@@ -1,0 +1,56 @@
+# Variables: {target}, {value}, {indent}
+[assignment]
+description = "Generate a lowered assignment as a C statement."
+template = "{indent}{target} = {value};\n"
+
+[if]
+template = "{indent}if ({condition}) {\n{body}{indent}}\n"
+
+[elseif]
+template = "{indent}else if ({condition}) {\n{body}{indent}}\n"
+
+[else]
+template = "{indent}else {\n{body}{indent}}\n"
+
+[while]
+template = "{indent}while ({condition}) {\n{body}{indent}}\n"
+
+[repeat]
+template = "{indent}do {\n{body}{indent}} while (!({condition}));\n"
+
+[exit]
+template = "{indent}break;\n"
+
+[continue]
+template = "{indent}continue;\n"
+
+[return]
+template = "{indent}return{value};\n"
+
+[for]
+template = "{indent}for ({variable} = {start}; {variable} {comparator} {end}; {update}) {\n{body}{indent}}\n"
+
+[case]
+template = "{elements}{else_body}"
+
+[case_element_first]
+template = "{indent}if ({labels}) {\n{body}{indent}}\n"
+
+[case_element]
+template = "{indent}else if ({labels}) {\n{body}{indent}}\n"
+
+[case_value]
+template = "({selector}) == ({value})"
+
+[case_range]
+template = "(({selector}) >= ({lower}) && ({selector}) <= ({upper}))"
+
+[case_labels]
+each = "{value}"
+separator = " || "
+
+[case_else]
+template = "{indent}else {\n{body}{indent}}\n"
+
+[case_else_first]
+template = "{indent}{\n{body}{indent}}\n"

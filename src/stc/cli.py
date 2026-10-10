@@ -12,6 +12,9 @@ from .diagnostics import DiagnosticRenderer, DiagnosticStyle, should_use_color
 from .frontend.parser import ParsingError
 from .libraries import LibraryError
 from .native import NativePragmaError
+from .codegen.generator.loader import GeneratorError, load_generator
+from .codegen.generator.schema import GENERATOR_API, generator_help
+from .codegen.generator.tools import create_generator_skeleton, validation_report
 
 
 VERSION = "0.2.0"
@@ -65,9 +68,31 @@ def build_arg_parser():
     parser.add_argument(
         "-g",
         "--generator",
-        choices=("c", "rust", "ast", "tree"),
+        "--target",
         default="c",
-        help="Output generator.",
+        help="Output generator name (bundled or discovered under generators/).",
+    )
+    parser.add_argument(
+        "--generator-path",
+        metavar="DIRECTORY",
+        help="Load an external data-driven generator without installing Python code.",
+    )
+    parser.add_argument(
+        "--gen-help",
+        nargs="?",
+        const="",
+        metavar="SECTION",
+        help="Describe the Generator API, optionally for one section.",
+    )
+    parser.add_argument(
+        "--check-generator",
+        metavar="DIRECTORY",
+        help="Validate a .gen backend and report its API coverage.",
+    )
+    parser.add_argument(
+        "--new-generator",
+        metavar="NAME",
+        help="Create a generators/NAME backend skeleton.",
     )
     parser.add_argument(
         "-o",
@@ -210,6 +235,42 @@ def main(argv=None):
         print(f"stc {VERSION}")
         return 0
 
+    if args.gen_help is not None:
+        if args.gen_help and args.gen_help not in GENERATOR_API:
+            print(f"stc: unknown Generator API section: {args.gen_help}", file=sys.stderr)
+            return 2
+        descriptions = None
+        if args.generator_path:
+            try:
+                bundle = load_generator(args.generator_path)
+            except GeneratorError as exc:
+                print(f"stc: invalid generator: {exc}", file=sys.stderr)
+                return 2
+            descriptions = {
+                name: rule.description for name, rule in bundle.rules.items()
+                if rule.description
+            }
+        print(generator_help(args.gen_help or None, descriptions), end="")
+        return 0
+
+    if args.check_generator:
+        try:
+            bundle = load_generator(args.check_generator)
+            print(validation_report(bundle), end="")
+            return 0 if bundle.is_complete else 1
+        except GeneratorError as exc:
+            print(f"stc: invalid generator: {exc}", file=sys.stderr)
+            return 2
+
+    if args.new_generator:
+        try:
+            destination = create_generator_skeleton(args.new_generator)
+        except (OSError, ValueError) as exc:
+            print(f"stc: cannot create generator: {exc}", file=sys.stderr)
+            return 2
+        print(destination)
+        return 0
+
     try:
         source = read_source(args.source)
         started_at = perf_counter()
@@ -223,9 +284,10 @@ def main(argv=None):
             generate_code=not args.fskip_code_gen,
             standard=args.std,
             language=args.language,
+            generator_path=args.generator_path,
         )
         elapsed_ms = (perf_counter() - started_at) * 1000.0
-    except (OSError, ValueError, LibraryError, NativePragmaError) as exc:
+    except (OSError, ValueError, GeneratorError, LibraryError, NativePragmaError) as exc:
         print(f"stc: {exc}", file=sys.stderr)
         return 2
 

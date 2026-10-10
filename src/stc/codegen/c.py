@@ -6,6 +6,9 @@ import re
 
 from .visitor import NodeVisitor
 from .sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
+from .generator.engine import GeneratorEngine
+from .generator.ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop, UnaryExpression, WhileLoop
+from .generator.loader import GeneratorBundle, bundled_generator, load_generator
 from ..runtime.loader import render_primitives
 
 
@@ -42,13 +45,14 @@ class OOPCEmitter:
 
         # Forward declarations break the class/interface naming cycle while
         # keeping by-value class instances strongly typed.
+        engine = self.g.generator_engine
         for cls in self.classes.values():
-            self.g.text += f"typedef struct {cls['name']} {cls['name']};\n"
+            self.g.text += engine.render(
+                "class_predecl", name=cls["name"], kind="class"
+            )
         for iface in self.interfaces.values():
-            self.g.text += f"typedef struct {iface['name']} {iface['name']};\n"
-            self.g.text += (
-                f"typedef struct {iface['name']}__vtable "
-                f"{iface['name']}__vtable;\n"
+            self.g.text += engine.render(
+                "class_predecl", name=iface["name"], kind="interface"
             )
         self.g.text += "\n"
 
@@ -58,158 +62,219 @@ class OOPCEmitter:
             self._emit_class(cls)
 
     def _emit_interface(self, iface):
+        engine = self.g.generator_engine
         methods = self._all_interface_methods(iface)
-        self.g.text += f"struct {iface['name']}__vtable {{\n"
+        rendered = []
         for method in methods:
-            ret, params = self._method_signature(method["node"])
-            suffix = ", " + ", ".join(params) if params else ""
-            self.g.text += (
-                f"    {ret} (*{method['name']})(void *instance{suffix});\n"
+            ret, suffix = self._method_signature(method["node"])
+            rendered.append(
+                engine.render(
+                    "interface_method",
+                    name=method["name"],
+                    return_type=ret,
+                    parameters=suffix,
+                )
             )
+        methods_text = "".join(rendered)
         if not methods:
-            self.g.text += "    uint8_t _stc_empty;\n"
-        self.g.text += "};\n"
-        self.g.text += f"struct {iface['name']} {{\n"
-        self.g.text += "    void *instance;\n"
-        self.g.text += f"    const {iface['name']}__vtable *vtable;\n"
-        self.g.text += "};\n\n"
+            methods_text = engine.render("class_empty_field", empty="1")
+        self.g.text += engine.render(
+            "interface", name=iface["name"], bases="", methods=methods_text
+        )
 
     def _emit_class(self, cls):
+        engine = self.g.generator_engine
         name = cls["name"]
         base = self._class(cls.get("base"))
+        has_base = "1" if base is not None else ""
+        no_base = "" if base is not None else "1"
         own_fields = self._own_fields(cls)
 
         # Prototypes must precede vtable initializers.
+        prototypes = ""
         for method in cls["methods"]:
             if method["abstract"]:
                 continue
-            ret, params = self._method_signature(method["node"])
-            suffix = ", " + ", ".join(params) if params else ""
-            self.g.text += (
-                f"static {ret} {name}__{method['name']}"
-                f"(void *instance{suffix});\n"
+            ret, suffix = self._method_signature(method["node"])
+            prototypes += engine.render(
+                "class_prototype",
+                **{"class": name},
+                name=method["name"],
+                return_type=ret,
+                parameters=suffix,
             )
-        if cls["methods"]:
-            self.g.text += "\n"
 
-        self.g.text += f"struct {name} {{\n"
-        if base is None:
-            self.g.text += "    const void *__vptr;\n"
-        else:
-            self.g.text += f"    {base['name']} __base;\n"
-        for var_type, field in own_fields:
-            self.g.text += f"    {self.g._format_declarator(var_type, field)};\n"
-        if base is None and not own_fields:
-            self.g.text += "    uint8_t _stc_empty;\n"
-        self.g.text += "};\n\n"
+        fields_text = engine.render(
+            "class_fields",
+            items=[{"type": var_type, "name": field} for var_type, field in own_fields],
+        )
+        base_field = engine.render(
+            "class_base_field", base=base["name"] if base else "", has_base=has_base
+        )
+        vptr_field = engine.render("class_vptr_field", no_base=no_base)
+        empty_field = engine.render(
+            "class_empty_field",
+            empty="1" if (base is None and not own_fields) else "",
+        )
 
         all_methods = self._all_class_methods(cls)
-        self.g.text += f"typedef struct {name}__vtable {{\n"
+        vtable_entries = []
         for method in all_methods:
-            ret, params = self._method_signature(method["node"])
-            suffix = ", " + ", ".join(params) if params else ""
-            self.g.text += (
-                f"    {ret} (*{method['name']})(void *instance{suffix});\n"
+            ret, suffix = self._method_signature(method["node"])
+            vtable_entries.append(
+                engine.render(
+                    "vtable_entry",
+                    return_type=ret,
+                    name=method["name"],
+                    parameters=suffix,
+                )
             )
+        vtable_text = "".join(vtable_entries)
         if not all_methods:
-            self.g.text += "    uint8_t _stc_empty;\n"
-        self.g.text += f"}} {name}__vtable;\n"
+            vtable_text = engine.render("class_empty_field", empty="1")
 
-        self.g.text += f"static const {name}__vtable {name}__dispatch = {{\n"
+        dispatch_entries = []
         for method in all_methods:
             impl = self._implementation_for(cls, method["key"])
-            value = (
-                "NULL"
-                if impl is None or impl["abstract"]
-                else f"{impl['owner']}__{impl['name']}"
-            )
-            self.g.text += f"    .{method['name']} = {value},\n"
+            if impl is None or impl["abstract"]:
+                dispatch_entries.append(
+                    engine.render("dispatch_entry_null", name=method["name"])
+                )
+            else:
+                dispatch_entries.append(
+                    engine.render(
+                        "dispatch_entry",
+                        name=method["name"],
+                        implementation=f"{impl['owner']}__{impl['name']}",
+                        is_null="",
+                    )
+                )
+        dispatch_text = "".join(dispatch_entries)
         if not all_methods:
-            self.g.text += "    ._stc_empty = 0,\n"
-        self.g.text += "};\n\n"
+            dispatch_text = engine.render("empty_dispatch")
 
+        adapters = ""
         for iface in ([] if cls["abstract"] else self._implemented_interfaces(cls)):
             methods = self._all_interface_methods(iface)
-            self.g.text += (
-                f"static const {iface['name']}__vtable "
-                f"{name}__{iface['name']}__dispatch = {{\n"
-            )
+            entries = []
             for method in methods:
                 impl = self._implementation_for(cls, method["key"])
-                value = (
-                    "NULL"
-                    if impl is None or impl["abstract"]
-                    else f"{impl['owner']}__{impl['name']}"
-                )
-                self.g.text += f"    .{method['name']} = {value},\n"
+                if impl is None or impl["abstract"]:
+                    entries.append(
+                        engine.render("adapter_entry_null", name=method["name"])
+                    )
+                else:
+                    entries.append(
+                        engine.render(
+                            "adapter_entry",
+                            **{"class": name, "interface": iface["name"]},
+                            name=method["name"],
+                            implementation=f"{impl['owner']}__{impl['name']}",
+                            parameters="",
+                            arguments="",
+                            return_type="",
+                        )
+                    )
+            adapter_methods = "".join(entries)
             if not methods:
-                self.g.text += "    ._stc_empty = 0,\n"
-            self.g.text += "};\n"
-            self.g.text += (
-                f"static inline {iface['name']} "
-                f"{name}__as_{iface['name']}({name} *self)\n{{\n"
-                f"    return ({iface['name']}){{ self, "
-                f"&{name}__{iface['name']}__dispatch }};\n"
-                "}\n\n"
+                adapter_methods = engine.render("empty_dispatch")
+            adapters += engine.render(
+                "interface_adapter",
+                **{"class": name, "interface": iface["name"]},
+                methods=adapter_methods,
             )
 
-        self._emit_class_initializer(cls, own_fields)
+        init_text = self._emit_class_initializer(cls, own_fields)
+        methods_text = ""
         for method in cls["methods"]:
             if not method["abstract"]:
-                self._emit_method(cls, method)
+                methods_text += self._emit_method(cls, method)
+
+        self.g.text += engine.render(
+            "class",
+            name=name,
+            base=base["name"] if base else "",
+            has_base=has_base,
+            no_base=no_base,
+            has_fields="1" if own_fields else "",
+            no_fields="" if own_fields else "1",
+            fields=fields_text,
+            base_field=base_field,
+            vptr_field=vptr_field,
+            empty_field=empty_field,
+            prototypes=prototypes,
+            vtable=vtable_text,
+            dispatch=dispatch_text,
+            adapters=adapters,
+            init=init_text,
+            methods=methods_text,
+            interfaces="",
+        )
 
     def _emit_class_initializer(self, cls, own_fields):
+        engine = self.g.generator_engine
         name = cls["name"]
         base = self._class(cls.get("base"))
-        self.g.text += f"void {name}__init({name} *self)\n{{\n"
-        if base is None:
-            self.g.text += "    memset(self, 0, sizeof(*self));\n"
-        else:
-            self.g.text += "    memset(self, 0, sizeof(*self));\n"
-            self.g.text += f"    {base['name']}__init(&self->__base);\n"
-        self.g.text += (
-            f"    self->{self._vptr_path(cls)} = &{name}__dispatch;\n"
+        base_init = (
+            engine.render("class_base_init", base=base["name"]) if base else ""
         )
-        for var_type, field in own_fields:
-            self.emit_field_initializer(
-                var_type,
-                f"&self->{field}",
-                self.g.text_append,
-                indent="    ",
-            )
-        self.g.text += "}\n\n"
+        statements = self.g._capture_emission(
+            lambda: [
+                self.emit_field_initializer(
+                    var_type,
+                    f"&self->{field}",
+                    self.g.text_append,
+                    indent="    ",
+                )
+                for var_type, field in own_fields
+            ]
+        )
+        return engine.render(
+            "class_init",
+            name=name,
+            base=base["name"] if base else "",
+            has_base="1" if base else "",
+            vptr=self._vptr_path(cls),
+            base_init=base_init,
+            statements=statements,
+            defaults="",
+        )
 
     def _emit_method(self, cls, method):
+        engine = self.g.generator_engine
         name = cls["name"]
-        ret, params = self._method_signature(method["node"])
-        suffix = ", " + ", ".join(params) if params else ""
-        self.g.text += (
-            f"static {ret} {name}__{method['name']}"
-            f"(void *instance{suffix})\n{{\n"
-        )
-        self.g.text += f"    {name} *self = ({name} *)instance;\n"
-        self.g.text += "    (void)self;\n"
+        ret, suffix = self._method_signature(method["node"])
 
         return_type_node = self.g._first_named(
             method["node"], "function_return_type"
         )
+        locals_text = ""
         if return_type_node is not None:
-            self.g.text += (
+            locals_text += (
                 f"    {self.g._format_declarator(ret, method['name'])} = "
                 f"{self.g.zero_value(ret)};\n"
             )
         locals_ = self.g.collect_sections(method["node"], "function_var_decls")
         temps = self.g.collect_sections(method["node"], "temp_var_decls")
+        nested_inits = []
         for var_type, var_name in locals_ + temps:
-            self.g.text += (
+            locals_text += (
                 f"    {self.g._format_declarator(var_type, var_name)} = {{0}};\n"
             )
-            self.emit_field_initializer(
-                var_type,
-                f"&{var_name}",
-                self.g.text_append,
-                indent="    ",
-            )
+            nested = self._class(var_type)
+            if nested is not None:
+                nested_inits.append(
+                    engine.render(
+                        "class_init_statement",
+                        address=f"&{var_name}",
+                        type=var_type,
+                        field=var_name,
+                        nested=nested["name"],
+                        indent="    ",
+                        **{"class": nested["name"]},
+                    )
+                )
+        locals_text += "".join(nested_inits)
 
         previous_instance = self.g.current_instance
         previous_fields = self.g.current_instance_fields
@@ -227,21 +292,37 @@ class OOPCEmitter:
             item.casefold() for _, item in inouts + outputs
         }
 
-        body = self.g._first_named(method["node"], "function_body")
-        if body is not None:
-            old_indent = self.g.indent
-            self.g.indent = "    "
-            self.g.visit(body)
-            self.g.indent = old_indent
+        body_node = self.g._first_named(method["node"], "function_body")
+        old_indent = self.g.indent
+        self.g.indent = "    "
+        if body_node is not None:
+            body = self.g._capture_emission(lambda: self.g.visit(body_node))
+        else:
+            body = ""
+        self.g.indent = old_indent
 
         self.g.current_instance = previous_instance
         self.g.current_instance_fields = previous_fields
         self.g.current_instance_field_paths = previous_paths
         self.g.current_pointer_params = previous_pointers
 
-        if return_type_node is not None:
-            self.g.text += f"    return {method['name']};\n"
-        self.g.text += "}\n\n"
+        return_stmt = (
+            engine.render("method_return", name=method["name"], indent="    ")
+            if return_type_node is not None
+            else ""
+        )
+        return engine.render(
+            "class_method",
+            **{"class": name},
+            name=method["name"],
+            return_type=ret,
+            receiver="",
+            parameters=suffix,
+            locals=locals_text,
+            body=body,
+            has_return="1" if return_type_node is not None else "",
+            return_stmt=return_stmt,
+        )
 
     def emit_assignment(self, node):
         if self.g.context is None:
@@ -257,11 +338,27 @@ class OOPCEmitter:
             return False
         target = self.g.render(children[0])
         source = self.g.render(children[-1])
-        self.g.text += (
-            f"{self.g.indent}{target} = "
-            f"{info['class']}__as_{info['interface']}(&({source}));\n"
+        self.g.text += self.g.generator_engine.render(
+            "interface_assignment",
+            target=target,
+            source=source,
+            indent=self.g.indent,
+            **{"class": info["class"], "interface": info["interface"]},
         )
         return True
+
+    def _invocation_arguments(self, node):
+        args = [
+            child for child in node.get("children", [])
+            if isinstance(child, dict) and child.get("name") == "param_assignment"
+        ]
+        arg_text = []
+        for arg in args:
+            expressions = self.g._named_nodes(arg, "expression")
+            if expressions:
+                arg_text.append(self.g.render(expressions[-1]))
+        bare = ", ".join(arg_text)
+        return bare, (", " + bare if bare else "")
 
     def render_invocation(self, node):
         if node is None or self.g.context is None:
@@ -272,52 +369,78 @@ class OOPCEmitter:
 
         receiver = self.g._first_named(node, "method_receiver")
         method = resolution["method"]
-        args = [
-            child for child in node.get("children", [])
-            if isinstance(child, dict) and child.get("name") == "param_assignment"
-        ]
-        arg_text = []
-        for arg in args:
-            expressions = self.g._named_nodes(arg, "expression")
-            if expressions:
-                arg_text.append(self.g.render(expressions[-1]))
-        suffix = ", " + ", ".join(arg_text) if arg_text else ""
+        bare, suffix = self._invocation_arguments(node)
 
         receiver_kind = resolution["receiver_kind"]
         static_type = resolution["receiver_type"]
+        engine = self.g.generator_engine
         if receiver_kind == "SUPER":
-            return (
-                f"{static_type}__{method['name']}((void *)self{suffix})"
+            return engine.render(
+                "virtual_call_super",
+                receiver="self",
+                method=method["name"],
+                static_type=static_type,
+                vptr="",
+                arguments=bare,
+                extra_arguments=suffix,
             )
 
         if receiver_kind == "THIS":
             cls = self._class(static_type)
-            vptr = f"self->{self._vptr_path(cls)}"
-            return (
-                f"((const {static_type}__vtable *)({vptr}))"
-                f"->{method['name']}((void *)self{suffix})"
+            vptr = self._vptr_path(cls)
+            return engine.render(
+                "virtual_call_this",
+                receiver="self",
+                method=method["name"],
+                static_type=static_type,
+                vptr=vptr,
+                arguments=bare,
+                extra_arguments=suffix,
             )
 
         variable = self.g._first_named(receiver, "variable_name")
         expression = self.g.render(variable) if variable is not None else "0"
         if resolution["interface"]:
-            return (
-                f"({expression}).vtable->{method['name']}"
-                f"(({expression}).instance{suffix})"
+            return engine.render(
+                "virtual_call_interface",
+                receiver=expression,
+                method=method["name"],
+                static_type=static_type,
+                vptr="",
+                arguments=bare,
+                extra_arguments=suffix,
             )
 
         cls = self._class(static_type)
         vptr_path = self._vptr_path(cls)
-        return (
-            f"((const {static_type}__vtable *)"
-            f"(({expression}).{vptr_path}))->{method['name']}"
-            f"((void *)&({expression}){suffix})"
+        return engine.render(
+            "virtual_call",
+            receiver=expression,
+            method=method["name"],
+            static_type=static_type,
+            vptr=vptr_path,
+            arguments=bare,
+            extra_arguments=suffix,
         )
 
     def emit_field_initializer(self, var_type, address, append, indent="    "):
         cls = self._class(var_type)
         if cls is not None:
-            append(f"{indent}{cls['name']}__init({address});\n")
+            engine = self.g.generator_engine
+            if engine is not None:
+                append(
+                    engine.render(
+                        "class_init_statement",
+                        address=address,
+                        type=var_type,
+                        field="",
+                        nested=cls["name"],
+                        indent=indent,
+                        **{"class": cls["name"]},
+                    )
+                )
+            else:
+                append(f"{indent}{cls['name']}__init({address});\n")
 
     def _method_signature(self, node):
         return_node = self.g._first_named(node, "function_return_type")
@@ -333,7 +456,14 @@ class OOPCEmitter:
             self.g._format_declarator(var_type, var_name, pointer=True)
             for var_type, var_name in outputs + inouts
         ]
-        return ret, params
+        engine = self.g.generator_engine
+        if engine is not None:
+            joined = engine.render(
+                "method_parameters", items=[{"value": item} for item in params]
+            )
+        else:
+            joined = ", ".join(params)
+        return ret, (", " + joined if joined else "")
 
     def _own_fields(self, cls):
         result = []
@@ -457,7 +587,6 @@ class OOPCEmitter:
 
 
 class CCodeGenerator(NodeVisitor):
-    il_target = "c"
     def _il_descendants(self, node, name):
         if not isinstance(node, dict):
             return []
@@ -488,8 +617,29 @@ class CCodeGenerator(NodeVisitor):
             operand = {"name": "variable_name", "value": operand.get("value", ""), "children": []}
         return self.render(operand)
 
+    def _il_opcode_key(self, opcode):
+        """Map an IL opcode to a backend-agnostic operator key.
+
+        IL conjunction is bitwise; the backend operator mapping supplies the
+        actual spelling, so no target keyword appears here.
+        """
+        table = {
+            "AND": "BIT_AND", "&": "BIT_AND", "AN": "BIT_AND", "ANDN": "BIT_AND",
+            "OR": "BIT_OR", "ORN": "BIT_OR", "XOR": "XOR", "XORN": "XOR",
+            "ADD": "ADD", "SUB": "SUB", "MUL": "MUL", "DIV": "DIV", "MOD": "MOD",
+            "GT": "GT", "GE": "GE", "EQ": "EQ", "LT": "LT", "LE": "LE",
+            "NE": "NE",
+        }
+        return table.get(opcode, opcode)
+
     def _il_boolean_not(self, expression):
-        return f"!({expression})"
+        return f"{self.generator_engine.map('operator', 'NOT')}({expression})"
+
+    def _il_true(self):
+        return self.generator_engine.map("boolean_literal", "TRUE")
+
+    def _il_false(self):
+        return self.generator_engine.map("boolean_literal", "FALSE")
 
     def _il_assignment(self, target, expression):
         return f"{target} = {expression};"
@@ -497,58 +647,101 @@ class CCodeGenerator(NodeVisitor):
     def _il_emit_line(self, statement):
         self.text += f"{self.indent}{statement}\n"
 
+    def _il_has_jumps(self, instructions):
+        jump_opcodes = {"JMP", "JMPC", "JMPCN"}
+        for instruction in instructions:
+            for child in instruction.get("children", []):
+                if isinstance(child, dict) and self._il_token(child) in jump_opcodes:
+                    return True
+        return False
+
+    def _il_operation(self, instruction):
+        return next(
+            (child for child in instruction.get("children", []) if isinstance(child, dict) and child.get("name") != "label" and child.get("name") != "token"),
+            None,
+        )
+
+    def _il_labels(self, instruction):
+        return [
+            item for item in instruction.get("children", [])
+            if isinstance(item, dict) and item.get("name") == "label"
+        ]
+
+    def _il_call_arguments(self, operation, accumulator):
+        arguments = [accumulator] if accumulator is not None else []
+        for item in self._il_descendants(operation, "il_operand"):
+            child = next((c for c in item.get("children", []) if isinstance(c, dict)), None)
+            if child is not None:
+                if child.get("name") == "enumerated_value":
+                    child = {"name": "variable_name", "value": child.get("value", ""), "children": []}
+                arguments.append(self.render(child))
+        return arguments
+
     def visit_instruction_list(self, node):
+        instructions = self._il_descendants(node, "il_instruction")
+        if self._il_has_jumps(instructions):
+            self._visit_il_dispatch(node, instructions)
+        else:
+            self._visit_il_linear(node, instructions)
+
+    def _visit_il_linear(self, node, instructions):
+        engine = self.generator_engine
         accumulator = None
         terminated = False
         stored_function_result = False
-        binary = {
-            "AND": "&", "&": "&", "OR": "|", "XOR": "^",
-            "ADD": "+", "SUB": "-", "MUL": "*", "DIV": "/", "MOD": "%",
-            "GT": ">", "GE": ">=", "EQ": "==", "LT": "<", "LE": "<=", "NE": "!=",
-        }
-
-        for instruction in self._il_descendants(node, "il_instruction"):
-            labels = [item for item in instruction.get("children", []) if isinstance(item, dict) and item.get("name") == "label"]
-            if labels:
-                label = labels[0].get("value", "")
-                if self.il_target == "c":
-                    self._il_emit_line(f"{label}: ;")
-                else:
-                    self._il_emit_line(f"// IL label {label}")
-
-            operation = next(
-                (child for child in instruction.get("children", []) if isinstance(child, dict) and child.get("name") != "label" and child.get("name") != "token"),
-                None,
-            )
+        for instruction in instructions:
+            for label in self._il_labels(instruction):
+                self.text += engine.render(
+                    "il_label", name=label.get("value", ""), indent=self.indent
+                )
+            operation = self._il_operation(instruction)
             if operation is None:
                 continue
             opcode = self._il_token(operation)
             operand = self._il_render_operand(operation)
-
             if opcode in {"LD", "LDN"} and operand is not None:
                 accumulator = self._il_boolean_not(operand) if opcode == "LDN" else operand
             elif opcode in {"ST", "STN"} and operand is not None and accumulator is not None:
                 value = self._il_boolean_not(accumulator) if opcode == "STN" else accumulator
-                self._il_emit_line(self._il_assignment(operand, value))
+                self.text += engine.render(
+                    "il_assign", target=operand, value=value, indent=self.indent
+                )
                 stored_function_result = bool(self.current_function) and operand.casefold() == self.current_function.casefold()
             elif opcode == "NOT" and accumulator is not None:
                 accumulator = self._il_boolean_not(accumulator)
             elif opcode in {"ANDN", "AN", "ORN", "XORN"} and accumulator is not None and operand is not None:
-                base = {"ANDN": "&", "AN": "&", "ORN": "|", "XORN": "^"}[opcode]
-                accumulator = f"({accumulator} {base} {self._il_boolean_not(operand)})"
-            elif opcode in binary and accumulator is not None and operand is not None:
-                accumulator = f"({accumulator} {binary[opcode]} {operand})"
+                key = {"ANDN": "BIT_AND", "AN": "BIT_AND", "ORN": "BIT_OR", "XORN": "XOR"}[opcode]
+                operator = engine.map("operator", key)
+                accumulator = f"({accumulator} {operator} {self._il_boolean_not(operand)})"
+            elif opcode in {"AND", "&", "OR", "XOR", "ADD", "SUB", "MUL", "DIV", "MOD", "GT", "GE", "EQ", "LT", "LE", "NE"} and accumulator is not None and operand is not None:
+                operator = engine.map("operator", self._il_opcode_key(opcode))
+                accumulator = f"({accumulator} {operator} {operand})"
             elif opcode in {"S", "S1", "R", "R1"} and accumulator is not None and operand is not None:
-                value = "true" if opcode in {"S", "S1"} else "false"
-                self._il_emit_line(f"if ({accumulator}) {{ {self._il_assignment(operand, value)} }}")
+                value = self._il_true() if opcode in {"S", "S1"} else self._il_false()
+                inner = engine.render(
+                    "il_assign", target=operand, value=value, indent=self.indent + "    "
+                )
+                self.text += engine.render(
+                    "il_guarded", condition=accumulator, body=inner, indent=self.indent
+                )
             elif opcode in {"JMP", "JMPC", "JMPCN"}:
                 labels = self._il_descendants(operation, "label")
                 destination = labels[0].get("value", "") if labels else ""
+                target_index = self._il_label_index(instructions, destination)
                 if opcode == "JMP":
-                    self._il_emit_line(f"goto {destination};")
+                    self.text += engine.render(
+                        "il_jump", target_label=destination, target_index=target_index,
+                        condition="", has_condition="", indent=self.indent,
+                    )
                 elif accumulator is not None:
                     condition = accumulator if opcode == "JMPC" else self._il_boolean_not(accumulator)
-                    self._il_emit_line(f"if ({condition}) goto {destination};")
+                    inner = engine.render(
+                        "il_jump", target_label=destination, target_index=target_index,
+                        condition="", has_condition="", indent=self.indent + "    ",
+                    )
+                    self.text += engine.render(
+                        "il_guarded", condition=condition, body=inner, indent=self.indent
+                    )
             elif opcode in {"RET", "RETC", "RETCN"}:
                 condition = None
                 if opcode == "RETC" and accumulator is not None:
@@ -556,57 +749,169 @@ class CCodeGenerator(NodeVisitor):
                 elif opcode == "RETCN" and accumulator is not None:
                     condition = self._il_boolean_not(accumulator)
                 if self.current_function and accumulator is not None:
-                    statement = f"return {accumulator};"
+                    value = f" {accumulator}"
                 else:
-                    statement = "return;"
-                self._il_emit_line(statement if condition is None else f"if ({condition}) {{ {statement} }}")
+                    value = ""
+                statement = engine.render(
+                    "il_return", value=value, has_value="1" if value else "",
+                    condition=condition or "", has_condition="1" if condition else "",
+                    indent=self.indent + "    " if condition else self.indent,
+                )
+                if condition is None:
+                    self.text += statement
+                else:
+                    self.text += engine.render(
+                        "il_guarded", condition=condition, body=statement,
+                        indent=self.indent,
+                    )
                 terminated = opcode == "RET"
             else:
                 function_names = self._il_descendants(operation, "il_function_name")
                 if function_names:
                     name = function_names[0].get("value", "")
-                    arguments = [accumulator] if accumulator is not None else []
-                    for item in self._il_descendants(operation, "il_operand"):
-                        child = next((c for c in item.get("children", []) if isinstance(c, dict)), None)
-                        if child is not None:
-                            if child.get("name") == "enumerated_value":
-                                child = {"name": "variable_name", "value": child.get("value", ""), "children": []}
-                            arguments.append(self.render(child))
-                    accumulator = f"{name}({', '.join(arguments)})"
-
-        # IEC functions return the current result when physical end-of-body is
-        # reached. Assigning the generated return variable preserves the normal
-        # backend epilogue and works for both C and Rust.
+                    arguments = self._il_call_arguments(operation, accumulator)
+                    accumulator = engine.render(
+                        "il_call", name=name, arguments=", ".join(arguments)
+                    )
         if self.current_function and accumulator is not None and not terminated and not stored_function_result:
             target = self.render({"name": "variable_name", "value": self.current_function, "children": []})
-            self._il_emit_line(self._il_assignment(target, accumulator))
+            self.text += engine.render(
+                "il_assign", target=target, value=accumulator, indent=self.indent
+            )
 
-    def __init__(self, context=None, source_name="<stdin>", native_implementations=None):
+    def _il_label_index(self, instructions, destination):
+        wanted = str(destination or "").casefold()
+        for index, instruction in enumerate(instructions):
+            for label in self._il_labels(instruction):
+                if str(label.get("value", "")).casefold() == wanted:
+                    return index
+        return len(instructions)
+
+    def _visit_il_dispatch(self, node, instructions):
+        engine = self.generator_engine
+        labels = {}
+        for index, instruction in enumerate(instructions):
+            for label in self._il_labels(instruction):
+                labels[str(label.get("value", "")).casefold()] = index
+        accumulator = None
+        terminated = False
+        stored_function_result = False
+        arms = []
+        for index, instruction in enumerate(instructions):
+            body_indent = self.indent + "    "
+            body = ""
+            for label in self._il_labels(instruction):
+                body += engine.render(
+                    "il_label", name=label.get("value", ""), indent=body_indent
+                )
+            operation = self._il_operation(instruction)
+            advances = True
+            if operation is not None:
+                opcode = self._il_token(operation)
+                operand = self._il_render_operand(operation)
+                if opcode in {"LD", "LDN"} and operand is not None:
+                    accumulator = self._il_boolean_not(operand) if opcode == "LDN" else operand
+                elif opcode in {"ST", "STN"} and operand is not None and accumulator is not None:
+                    value = self._il_boolean_not(accumulator) if opcode == "STN" else accumulator
+                    body += engine.render(
+                        "il_assign", target=operand, value=value, indent=body_indent
+                    )
+                    stored_function_result = bool(self.current_function) and operand.casefold() == self.current_function.casefold()
+                elif opcode == "NOT" and accumulator is not None:
+                    accumulator = self._il_boolean_not(accumulator)
+                elif opcode in {"ANDN", "AN", "ORN", "XORN"} and accumulator is not None and operand is not None:
+                    key = {"ANDN": "BIT_AND", "AN": "BIT_AND", "ORN": "BIT_OR", "XORN": "XOR"}[opcode]
+                    operator = engine.map("operator", key)
+                    accumulator = f"({accumulator} {operator} {self._il_boolean_not(operand)})"
+                elif opcode in {"AND", "&", "OR", "XOR", "ADD", "SUB", "MUL", "DIV", "MOD", "GT", "GE", "EQ", "LT", "LE", "NE"} and accumulator is not None and operand is not None:
+                    operator = engine.map("operator", self._il_opcode_key(opcode))
+                    accumulator = f"({accumulator} {operator} {operand})"
+                elif opcode in {"S", "S1", "R", "R1"} and accumulator is not None and operand is not None:
+                    value = self._il_true() if opcode in {"S", "S1"} else self._il_false()
+                    inner = engine.render(
+                        "il_assign", target=operand, value=value, indent=body_indent + "    "
+                    )
+                    body += engine.render(
+                        "il_guarded", condition=accumulator, body=inner, indent=body_indent
+                    )
+                elif opcode in {"JMP", "JMPC", "JMPCN"}:
+                    targets = self._il_descendants(operation, "label")
+                    destination = targets[0].get("value", "") if targets else ""
+                    target_index = labels.get(str(destination).casefold(), len(instructions))
+                    jump = engine.render(
+                        "il_jump", target_label=destination, target_index=target_index,
+                        condition="", has_condition="", indent=body_indent + "    " if opcode != "JMP" else body_indent,
+                    )
+                    if opcode == "JMP":
+                        body += jump
+                        advances = False
+                    elif accumulator is not None:
+                        condition = accumulator if opcode == "JMPC" else self._il_boolean_not(accumulator)
+                        body += engine.render(
+                            "il_guarded", condition=condition, body=jump, indent=body_indent
+                        )
+                elif opcode in {"RET", "RETC", "RETCN"}:
+                    condition = None
+                    if opcode == "RETC" and accumulator is not None:
+                        condition = accumulator
+                    elif opcode == "RETCN" and accumulator is not None:
+                        condition = self._il_boolean_not(accumulator)
+                    if self.current_function and accumulator is not None:
+                        value = f" {accumulator}"
+                    else:
+                        value = ""
+                    statement = engine.render(
+                        "il_return", value=value, has_value="1" if value else "",
+                        condition="", has_condition="", indent=body_indent + "    " if condition else body_indent,
+                    )
+                    if condition is None:
+                        body += statement
+                        advances = opcode != "RET"
+                        if opcode == "RET":
+                            terminated = True
+                    else:
+                        body += engine.render(
+                            "il_guarded", condition=condition, body=statement, indent=body_indent
+                        )
+                else:
+                    function_names = self._il_descendants(operation, "il_function_name")
+                    if function_names:
+                        name = function_names[0].get("value", "")
+                        arguments = self._il_call_arguments(operation, accumulator)
+                        accumulator = engine.render(
+                            "il_call", name=name, arguments=", ".join(arguments)
+                        )
+            if advances:
+                body += engine.render("il_next", index=index + 1, indent=body_indent)
+            arms.append(
+                engine.render(
+                    "il_instruction", index=index,
+                    label="", has_label="", body=body, indent=self.indent,
+                )
+            )
+        self.text += engine.render(
+            "il_dispatch", instructions="".join(arms), labels="",
+            indent=self.indent, acc="",
+        )
+        if self.current_function and accumulator is not None and not terminated and not stored_function_result:
+            target = self.render({"name": "variable_name", "value": self.current_function, "children": []})
+            self.text += engine.render(
+                "il_assign", target=target, value=accumulator, indent=self.indent
+            )
+
+    def __init__(
+        self,
+        context=None,
+        source_name="<stdin>",
+        native_implementations=None,
+        generator_bundle: GeneratorBundle | None = None,
+        use_data_generator: bool = True,
+    ):
         self.context = context
         self.source_name = source_name
         self.native_implementations = native_implementations or {}
         display_source = str(source_name).replace("*/", "* /")
         standard_edition = context.standard_edition if context is not None else 3
-        self.text = (
-            "/*\n"
-            " * Portable C generated by STC.\n"
-            f" * Source: {display_source}\n"
-            f" * IEC profile: IEC 61131-3 Edition {standard_edition}\n"
-            " *\n"
-            " * This file contains the translated IEC 61131-3 program and its runtime glue.\n"
-            " * Regenerate it from the Structured Text source instead of editing it directly.\n"
-            " */\n\n"
-            "/* Standard C library headers. */\n"
-            "#include <stdbool.h>\n"
-            "#include <stdint.h>\n"
-            "#include <math.h>\n"
-            "#include <stdio.h>\n"
-            "#include <stdlib.h>\n"
-            "#include <string.h>\n\n"
-            "/* Checked IEC reference dereference: NULL is a runtime error. */\n"
-            "#define STC_DEREF(pointer) "
-            "(*((pointer) != NULL ? (pointer) : (abort(), (pointer))))\n\n"
-        )
         self.indent = ""
         self.current_function = None
         self.current_return_type = None
@@ -616,8 +921,39 @@ class CCodeGenerator(NodeVisitor):
         self.current_pointer_params = set()
         self._types_pre_emitted = False
         self.oop = OOPCEmitter(self)
+        self.generator_engine = (
+            GeneratorEngine(generator_bundle or load_generator(bundled_generator("c")))
+            if use_data_generator else None
+        )
+        if self.generator_engine is not None:
+            self.text = self.generator_engine.render(
+                "preamble", source=display_source, edition=str(standard_edition)
+            )
+        else:
+            self.text = (
+                "/*\n"
+                " * Portable C generated by STC.\n"
+                f" * Source: {display_source}\n"
+                f" * IEC profile: IEC 61131-3 Edition {standard_edition}\n"
+                " *\n"
+                " * This file contains the translated IEC 61131-3 program and its runtime glue.\n"
+                " * Regenerate it from the Structured Text source instead of editing it directly.\n"
+                " */\n\n"
+                "/* Standard C library headers. */\n"
+                "#include <stdbool.h>\n"
+                "#include <stdint.h>\n"
+                "#include <math.h>\n"
+                "#include <stdio.h>\n"
+                "#include <stdlib.h>\n"
+                "#include <string.h>\n\n"
+                "/* Checked IEC reference dereference: NULL is a runtime error. */\n"
+                "#define STC_DEREF(pointer) "
+                "(*((pointer) != NULL ? (pointer) : (abort(), (pointer))))\n\n"
+            )
 
     def iecType2C(self, typein):
+        if self.generator_engine is not None:
+            return self.generator_engine.map("type", str(typein))
         conv = {
             "SINT": "int8_t", "INT": "int16_t", "DINT": "int32_t", "LINT": "int64_t",
             "USINT": "uint8_t", "UINT": "uint16_t", "UDINT": "uint32_t", "ULINT": "uint64_t",
@@ -735,13 +1071,16 @@ class CCodeGenerator(NodeVisitor):
         return "0"
 
     def _array_dimensions(self, specification):
-        dimensions = []
+        dimensions = ""
         for range_node in self._named_nodes(specification, "subrange"):
             bounds = self._named_nodes(range_node, "signed_integer")
             if len(bounds) == 2:
                 lower, upper = self.render(bounds[0]), self.render(bounds[1])
-                dimensions.append(f"[{upper} - ({lower}) + 1]")
-        return "".join(dimensions)
+                size = f"{upper} - ({lower}) + 1"
+                dimensions = self.generator_engine.render(
+                    "array_dimension", value=dimensions, size=size, lower=lower, upper=upper
+                )
+        return dimensions
 
     def _declaration_type(self, node):
         reference = self._first_named(node, "reference_specification")
@@ -906,6 +1245,15 @@ class CCodeGenerator(NodeVisitor):
                     self.text += f"    self->{field} = {initializers[field.casefold()]};\n"
         self.text += "}\n\n"
 
+    def _capture_emission(self, callback):
+        previous = self.text
+        self.text = ""
+        try:
+            callback()
+            return self.text
+        finally:
+            self.text = previous
+
     def text_append(self, value):
         self.text += value
 
@@ -922,14 +1270,18 @@ class CCodeGenerator(NodeVisitor):
         return declarations
 
     def visit_integer_literal(self, node):
-        self.text += node["value"].replace("_", "")
+        value = node["value"].replace("_", "")
+        self.text += self.generator_engine.render(
+            "integer_literal", Literal(value=value, type_name=self.c_type_for_node(node))
+        ) if self.generator_engine is not None else value
 
     def visit_real_literal(self, node):
         value = node["value"].replace("_", "")
         c_type = self.c_type_for_node(node)
-        if c_type == "float" and not value.lower().endswith("f"):
-            value += "f"
-        self.text += value
+        suffix = "f" if c_type == "float" and not value.lower().endswith("f") else ""
+        self.text += self.generator_engine.render(
+            "real_literal", Literal(value=value, type_name=c_type, suffix=suffix)
+        ) if self.generator_engine is not None else value + suffix
 
     def visit_integer(self, node):
         self.text += node["value"].replace("_", "")
@@ -940,24 +1292,38 @@ class CCodeGenerator(NodeVisitor):
         else:
             self.accept(node)
 
-    def _visit_based_integer(self, node, base, prefix=""):
+    def _visit_based_integer(self, node, base):
         value = self.render(node["children"][0]).replace("_", "")
         digits = value.split("#", 1)[-1]
-        # C11 has no binary literal syntax, so binary values are emitted as
-        # decimal. Octal and hexadecimal literals retain their readable form.
-        self.text += str(int(digits, base)) if base == 2 else prefix + digits
+        # The backend declares its own per-base prefix; an empty prefix means
+        # the target has no literal syntax for that base, so the lowering pass
+        # normalizes the value to decimal. No target name appears here.
+        prefix = (
+            self.generator_engine.map("based_prefix", str(base))
+            if self.generator_engine is not None else ""
+        )
+        normalized = str(int(digits, base)) if prefix == "" else digits
+        if self.generator_engine is not None:
+            self.text += self.generator_engine.render(
+                "based_literal", value=normalized, base=str(base), prefix=prefix
+            )
+        else:
+            self.text += prefix + normalized
 
     def visit_binary_integer(self, node):
         self._visit_based_integer(node, 2)
 
     def visit_octal_integer(self, node):
-        self._visit_based_integer(node, 8, "0")
+        self._visit_based_integer(node, 8)
 
     def visit_hex_integer(self, node):
-        self._visit_based_integer(node, 16, "0x")
+        self._visit_based_integer(node, 16)
 
     def visit_boolean_literal(self, node):
-        self.text += node["value"].lower()
+        self.text += (
+            self.generator_engine.map("boolean_literal", node["value"].upper())
+            if self.generator_engine is not None else node["value"].lower()
+        )
 
     def visit_bit_string_literal(self, node):
         for child in node["children"]:
@@ -1108,15 +1474,22 @@ class CCodeGenerator(NodeVisitor):
         receiver = self._first_named(node, "variable_name")
         expression = self.render(receiver)
         method_name = info["method"]["name"]
-        if info["interface"]:
-            self.text += (
-                f"({expression}).vtable->{method_name}"
-                f"(({expression}).instance)"
-            )
-        elif info["owner_kind"] == "class":
-            self.text += f"{info['owner']}__{method_name}((void *)&({expression}))"
-        else:
-            self.text += f"{info['owner']}__{method_name}(&({expression}))"
+        rule = (
+            "property_get_interface"
+            if info["interface"]
+            else "property_get_class"
+            if info["owner_kind"] == "class"
+            else "property_get"
+        )
+        self.text += self.generator_engine.render(
+            rule,
+            receiver=expression,
+            method=method_name,
+            owner=info["owner"],
+            arguments="",
+            extra_arguments="",
+            base_path="".join(f".{item}" for item in info.get("base_path", ())),
+        )
 
     def _emit_property_assignment(self, node):
         if self.context is None:
@@ -1131,16 +1504,22 @@ class CCodeGenerator(NodeVisitor):
         receiver_text = self.render(receiver)
         value = self.render(expression_node)
         method_name = info["method"]["name"]
-        if info["interface"]:
-            call = (
-                f"({receiver_text}).vtable->{method_name}"
-                f"(({receiver_text}).instance, {value})"
-            )
-        elif info["owner_kind"] == "class":
-            call = f"{info['owner']}__{method_name}((void *)&({receiver_text}), {value})"
-        else:
-            call = f"{info['owner']}__{method_name}(&({receiver_text}), {value})"
-        self.text += f"{self.indent}{call};\n"
+        rule = (
+            "property_set_interface"
+            if info["interface"]
+            else "property_set_class"
+            if info["owner_kind"] == "class"
+            else "property_set"
+        )
+        self.text += self.generator_engine.render(
+            rule,
+            receiver=receiver_text,
+            method=method_name,
+            owner=info["owner"],
+            value=value,
+            indent=self.indent,
+            base_path="".join(f".{item}" for item in info.get("base_path", ())),
+        )
         return True
 
     def _array_lower_bounds(self, variable_name):
@@ -1223,7 +1602,7 @@ class CCodeGenerator(NodeVisitor):
         variable_name = self._first_named(subscripted, "variable_name")
         lower_bounds = self._array_lower_bounds(variable_name)
 
-        self.visit(subscripted)
+        array = self.render(subscripted)
 
         subscripts = [
             child
@@ -1231,6 +1610,7 @@ class CCodeGenerator(NodeVisitor):
             if isinstance(child, dict) and child.get("name") == "subscript"
         ]
 
+        indices = []
         for dimension, subscript in enumerate(subscripts):
             index = self.render(subscript)
             lower = (
@@ -1239,9 +1619,12 @@ class CCodeGenerator(NodeVisitor):
                 else "0"
             )
             if lower == "0":
-                self.text += f"[{index}]"
+                adjusted = index
             else:
-                self.text += f"[({index}) - ({lower})]"
+                adjusted = f"({index}) - ({lower})"
+            indices.append({"value": adjusted})
+        rendered_indices = self.generator_engine.render("array_index", items=indices)
+        self.text += self.generator_engine.render("array_access", array=array, indices=rendered_indices)
 
     def visit_subscript_list(self, node):
         for subscript in self._named_nodes(node, "subscript"):
@@ -1256,7 +1639,13 @@ class CCodeGenerator(NodeVisitor):
         }
         if self._named_nodes(node, "assert_statement"):
             requested.add("ASSERT")
-        self.text += render_primitives("c", requested) + "\n"
+        bundle = self.generator_engine.bundle if self.generator_engine is not None else None
+        if self.generator_engine is not None and bundle is not None:
+            self.text += render_primitives(
+                bundle.extension, requested, self.generator_engine, bundle.path
+            ) + "\n"
+        else:
+            self.text += render_primitives("c", requested) + "\n"
         type_declarations = self._named_nodes(node, "data_type_declaration")
         if type_declarations:
             self._emit_section("User-defined IEC data types")
@@ -1377,31 +1766,32 @@ class CCodeGenerator(NodeVisitor):
         )
         if trunc_match:
             argument = self._first_named(node, "expression")
-            self.text += f"(({self.iecType2C(trunc_match.group(1))})({self.render(argument)}))"
+            self.text += self.generator_engine.render(
+                "cast",
+                Cast(self.c_type_for_node(argument) or "", self.iecType2C(trunc_match.group(1)), self.render(argument)),
+            )
             return
 
         resolved = self.context.resolved_calls.get(id(node)) if self.context is not None else None
-        if resolved is not None:
-            self.text += self.context.generated_names.get(id(resolved), resolved.name)
-        else:
-            self.visit(children[0])
-        self.text += "("
+        name = self.context.generated_names.get(id(resolved), resolved.name) if resolved is not None else self.render(children[0])
         resolved_arguments = (
             self.context.resolved_arguments.get(id(node)) if self.context is not None else None
         )
         arguments = resolved_arguments or [
             child for child in children[1:] if child.get("name") == "param_assignment"
         ]
-        for index, argument in enumerate(arguments):
-            if index:
-                self.text += ", "
+        rendered_arguments = []
+        for argument in arguments:
             if resolved_arguments is not None:
-                self.visit(argument)
+                rendered_arguments.append({"value": self.render(argument)})
             else:
                 expressions = [child for child in argument.get("children", []) if child.get("name") == "expression"]
                 if expressions:
-                    self.visit(expressions[-1])
-        self.text += ")"
+                    rendered_arguments.append({"value": self.render(expressions[-1])})
+        argument_text = self.generator_engine.render("parameter", items=rendered_arguments)
+        self.text += self.generator_engine.render(
+            "call", Call(name, tuple(item["value"] for item in rendered_arguments)), arguments=argument_text
+        )
 
     def visit_function_declaration(self, node):
         name = node["children"][0]["value"]
@@ -1412,26 +1802,32 @@ class CCodeGenerator(NodeVisitor):
 
         local_decls = self.collect_sections(node["children"][2], "function_var_decls")
 
-        if node.get("synthetic") and node.get("generated_by") == "enum-conversions":
-            self.text += f"/* Automatically generated conversion for enum {node.get('enum_type')}. */\n"
-        else:
-            self.text += f"/* IEC function: {name}. */\n"
-        self.text += f"{return_type} {emitted_name}({', '.join(params) or 'void'})\n{{\n"
-        self.indent_inc()
+        comment = (
+            f"/* Automatically generated conversion for enum {node.get('enum_type')}. */\n"
+            if node.get("synthetic") and node.get("generated_by") == "enum-conversions"
+            else f"/* IEC function: {name}. */\n"
+        )
+        locals_text = ""
         if return_type != "void":
-            self.text += f"{self.indent}{self._format_declarator(return_type, name)} = {{0}};\n"
+            locals_text += f"    {self._format_declarator(return_type, name)} = {{0}};\n"
         for var_type, var_name in local_decls:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)} = {{0}};\n"
+            locals_text += f"    {self._format_declarator(var_type, var_name)} = {{0}};\n"
         if local_decls or return_type != "void":
-            self.text += "\n"
+            locals_text += "\n"
+        old_indent = self.indent
+        self.indent = "    "
         if native is not None:
-            self._emit_native_code(native.section("body") or "")
+            body = "".join(f"    {line.rstrip()}\n" if line.strip() else "\n" for line in (native.section("body") or "").splitlines())
         else:
-            self.accept(node, lambda child_name: child_name == "function_body")
-        if return_type != "void":
-            self.text += f"{self.indent}return {name};\n"
-        self.indent_dec()
-        self.text += "}\n\n"
+            function_body = self._first_named(node, "function_body")
+            body = self.render(function_body) if function_body is not None else ""
+        self.indent = old_indent
+        return_value = f"    return {name};\n" if return_type != "void" else ""
+        self.text += self.generator_engine.render(
+            "function", name=name, emitted_name=emitted_name, comment=comment, attributes="",
+            return_type=return_type, parameters=", ".join(params) or "void",
+            locals=locals_text, body=body, return_value=return_value,
+        )
         self.current_function = None
         self.current_return_type = None
 
@@ -1442,7 +1838,7 @@ class CCodeGenerator(NodeVisitor):
         name = name_node["value"]
         native = self.native_implementations.get(name.casefold())
         declarations = self._unique_declarations(
-            self._persistent_declarations(node) + sfc_state_declarations(node, "bool", "int64_t")
+            self._persistent_declarations(node) + sfc_state_declarations(node, *self._sfc_state_types())
         )
         temporaries = self._unique_declarations(self._temporary_declarations(node))
         retained = self._unique_declarations(self._retained_declarations(node))
@@ -1452,59 +1848,48 @@ class CCodeGenerator(NodeVisitor):
                 if step["initial"]:
                     initializers[sfc_field(step["name"], "active").casefold()] = "true"
 
-        self.text += f"/* Persistent state for IEC function block {name}. */\n"
-        self.text += f"typedef struct {name} {{\n"
-        self.indent_inc()
-        for var_type, var_name in declarations:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)};\n"
-        if not declarations:
-            self.text += f"{self.indent}uint8_t _stc_empty;\n"
-        self.indent_dec()
-        self.text += f"}} {name};\n\n"
-
-        self._emit_function_block_properties(name, node, declarations)
-
-        self.text += f"/* Initialize function block {name}. */\n"
-        self.text += f"void {name}_setup({name} *self)\n{{\n"
-        self.indent_inc()
-        self.text += f"{self.indent}memset(self, 0, sizeof(*self));\n"
+        fields = "".join(f"    {self._format_declarator(t, n)};\n" for t, n in declarations) or "    uint8_t _stc_empty;\n"
+        properties = self._capture_emission(lambda: self._emit_function_block_properties(name, node, declarations))
+        setup_text = "    memset(self, 0, sizeof(*self));\n"
         for chart in sfc_charts(node):
             for step in chart["steps"]:
                 if step["initial"]:
-                    self.text += f"{self.indent}self->{sfc_field(step['name'], 'active')} = true;\n"
+                    setup_text += f"    self->{sfc_field(step['name'], 'active')} = true;\n"
         for _, field in declarations:
             if field.casefold() in initializers:
-                self.text += f"{self.indent}self->{field} = {initializers[field.casefold()]};\n"
+                setup_text += f"    self->{field} = {initializers[field.casefold()]};\n"
         setup = native.section("setup") if native is not None and native.kind == "function_block" else None
         if setup:
-            self._emit_native_code(setup)
-        self.indent_dec()
-        self.text += "}\n\n"
-
-        self._emit_instance_initializers(name, declarations, retained, initializers)
+            setup_text += "".join(f"    {line.rstrip()}\n" if line.strip() else "\n" for line in setup.splitlines())
+        instance_initializers = self._capture_emission(lambda: self._emit_instance_initializers(name, declarations, retained, initializers))
 
         inouts = self.collect_sections(node, "input_output_declarations")
         parameters = [f"{name} *self"] + [self._format_declarator(var_type, var_name, pointer=True) for var_type, var_name in inouts]
         entrypoint = "loop" if native is not None and native.kind == "function_block" else "step"
-        self.text += f"/* Execute one invocation of function block {name}. */\n"
-        self.text += f"void {name}_{entrypoint}({', '.join(parameters)})\n{{\n"
-        self.indent_inc()
         previous_instance, previous_fields, previous_pointers = self.current_instance, self.current_instance_fields, self.current_pointer_params
         self.current_instance = "self"
         self.current_instance_fields = {field.casefold() for _, field in declarations if field.casefold() not in {item.casefold() for _, item in inouts}}
         self.current_pointer_params = {field.casefold() for _, field in inouts}
-        self.text += f"{self.indent}(void)self;\n"
+        old_indent = self.indent
+        self.indent = "    "
+        temporaries_text = "    (void)self;\n"
         for var_type, var_name in temporaries:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)} = {{0}};\n"
+            temporaries_text += f"    {self._format_declarator(var_type, var_name)} = {{0}};\n"
         if temporaries:
-            self.text += "\n"
+            temporaries_text += "\n"
         if native is not None and native.kind == "function_block":
-            self._emit_native_code(native.section("loop") or "")
+            body = "".join(f"    {line.rstrip()}\n" if line.strip() else "\n" for line in (native.section("loop") or "").splitlines())
         else:
-            self.accept(node, lambda child_name: child_name == "function_block_body")
+            body_node = self._first_named(node, "function_block_body")
+            body = self.render(body_node) if body_node is not None else ""
         self.current_instance, self.current_instance_fields, self.current_pointer_params = previous_instance, previous_fields, previous_pointers
-        self.indent_dec()
-        self.text += "}\n\n"
+        self.indent = old_indent
+        self.text += self.generator_engine.render(
+            "function_block", name=name, fields=fields, properties=properties,
+            setup=setup_text, cold_init=instance_initializers, warm_init="",
+            parameters=", ".join(parameters), entrypoint=entrypoint,
+            temporaries=temporaries_text, body=body,
+        )
 
     def _emit_function_block_properties(self, owner_name, node, declarations):
         field_paths = {field.casefold(): field for _, field in declarations}
@@ -1516,13 +1901,11 @@ class CCodeGenerator(NodeVisitor):
             if method_name_node is None:
                 continue
             method_name = method_name_node["value"]
-            ret, params = self.oop._method_signature(method)
-            suffix = ", " + ", ".join(params) if params else ""
-            self.text += f"static {ret} {owner_name}__{method_name}({owner_name} *self{suffix})\n{{\n"
-            self.text += "    (void)self;\n"
+            ret, suffix = self.oop._method_signature(method)
             return_type_node = self._first_named(method, "function_return_type")
+            locals_text = ""
             if return_type_node is not None:
-                self.text += (
+                locals_text += (
                     f"    {self._format_declarator(ret, method_name)} = "
                     f"{self.zero_value(ret)};\n"
                 )
@@ -1530,7 +1913,7 @@ class CCodeGenerator(NodeVisitor):
                 self.collect_sections(method, "function_var_decls")
                 + self.collect_sections(method, "temp_var_decls")
             ):
-                self.text += f"    {self._format_declarator(var_type, local)} = {{0}};\n"
+                locals_text += f"    {self._format_declarator(var_type, local)} = {{0}};\n"
 
             old_instance, old_fields = self.current_instance, self.current_instance_fields
             old_paths, old_pointers = self.current_instance_field_paths, self.current_pointer_params
@@ -1540,17 +1923,31 @@ class CCodeGenerator(NodeVisitor):
             inouts = self.collect_sections(method, "input_output_declarations")
             outputs = self.collect_sections(method, "output_declarations")
             self.current_pointer_params = {item.casefold() for _, item in inouts + outputs}
-            body = self._first_named(method, "function_body")
-            if body is not None:
-                old_indent = self.indent
-                self.indent = "    "
-                self.visit(body)
-                self.indent = old_indent
+            old_indent = self.indent
+            self.indent = "    "
+            body = self._capture_emission(
+                lambda: self.visit(self._first_named(method, "function_body"))
+                if self._first_named(method, "function_body") is not None
+                else None
+            )
+            self.indent = old_indent
             self.current_instance, self.current_instance_fields = old_instance, old_fields
             self.current_instance_field_paths, self.current_pointer_params = old_paths, old_pointers
-            if return_type_node is not None:
-                self.text += f"    return {method_name};\n"
-            self.text += "}\n\n"
+            return_stmt = (
+                self.generator_engine.render("method_return", name=method_name, indent="    ")
+                if return_type_node is not None
+                else ""
+            )
+            self.text += self.generator_engine.render(
+                "property_method",
+                owner=owner_name,
+                name=method_name,
+                return_type=ret,
+                parameters=suffix,
+                locals=locals_text,
+                body=body,
+                return_stmt=return_stmt,
+            )
 
     def visit_program_declaration(self, node):
         name_node = self._first_named(node, "program_type_name")
@@ -1558,7 +1955,7 @@ class CCodeGenerator(NodeVisitor):
             return
         name = name_node["value"]
         declarations = self._unique_declarations(
-            self._persistent_declarations(node) + sfc_state_declarations(node, "bool", "int64_t")
+            self._persistent_declarations(node) + sfc_state_declarations(node, *self._sfc_state_types())
         )
         temporaries = self._unique_declarations(self._temporary_declarations(node))
         retained = self._unique_declarations(self._retained_declarations(node))
@@ -1567,103 +1964,166 @@ class CCodeGenerator(NodeVisitor):
             for step in chart["steps"]:
                 if step["initial"]:
                     initializers[sfc_field(step["name"], "active").casefold()] = "true"
-        self.text += f"/* Persistent state for IEC program {name}. */\n"
-        self.text += f"typedef struct {name} {{\n"
-        self.indent_inc()
-        for var_type, var_name in declarations:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)};\n"
-        if not declarations:
-            self.text += f"{self.indent}uint8_t _stc_empty;\n"
-        self.indent_dec()
-        self.text += f"}} {name};\n\n"
-        self._emit_instance_initializers(name, declarations, retained, initializers)
-        self.text += f"/* Execute one scan cycle of IEC program {name}. */\n"
-        self.text += f"void {name}_run({name} *self)\n{{\n"
-        self.indent_inc()
+        fields = "".join(f"    {self._format_declarator(var_type, var_name)};\n" for var_type, var_name in declarations)
+        if not fields:
+            fields = "    uint8_t _stc_empty;\n"
+        initializers_text = self._capture_emission(
+            lambda: self._emit_instance_initializers(name, declarations, retained, initializers)
+        )
         previous_instance, previous_fields, previous_pointers = self.current_instance, self.current_instance_fields, self.current_pointer_params
         self.current_instance, self.current_instance_fields = "self", {field.casefold() for _, field in declarations}
-        self.text += f"{self.indent}(void)self;\n"
+        old_indent = self.indent
+        self.indent = "    "
+        temporaries_text = "    (void)self;\n"
         for var_type, var_name in temporaries:
-            self.text += f"{self.indent}{self._format_declarator(var_type, var_name)} = {{0}};\n"
+            temporaries_text += f"    {self._format_declarator(var_type, var_name)} = {{0}};\n"
         if temporaries:
-            self.text += "\n"
-        self.accept(node, lambda child_name: child_name == "function_block_body")
+            temporaries_text += "\n"
+        body_node = self._first_named(node, "function_block_body")
+        body = self.render(body_node) if body_node is not None else ""
         self.current_instance, self.current_instance_fields, self.current_pointer_params = previous_instance, previous_fields, previous_pointers
-        self.indent_dec()
-        self.text += "}\n\n"
+        self.indent = old_indent
+        self.text += self.generator_engine.render(
+            "program", name=name, fields=fields, cold_init=initializers_text, warm_init="",
+            temporaries=temporaries_text, body=body,
+        )
 
     def visit_action(self, node):
         name_node = self._first_named(node, "action_name")
         if name_node is None:
             return
-        self.text += f"/* IEC action: {name_node['value']}. */\n"
-        self.text += f"void {name_node['value']}(void)\n{{\n"
         self.indent_inc()
-        self.accept(node, lambda child_name: child_name == "function_block_body")
+        body = self._capture_emission(
+            lambda: self.accept(node, lambda child_name: child_name == "function_block_body")
+        )
         self.indent_dec()
-        self.text += "}\n\n"
+        self.text += self.generator_engine.render(
+            "sfc_action_decl", name=name_node["value"], body=body
+        )
+
+    def _sfc_flag(self, field):
+        return self.generator_engine.render("sfc_flag", field=field)
 
     def _sfc_step_condition(self, step, association):
-        active = f"self->{sfc_field(step['name'], 'active')}"
-        previous = f"self->{sfc_field(step['name'], 'previous')}"
-        elapsed = f"self->{sfc_field(step['name'], 'elapsed_ms')}"
+        engine = self.generator_engine
+        active = self._sfc_flag(sfc_field(step["name"], "active"))
+        previous = self._sfc_flag(sfc_field(step["name"], "previous"))
+        elapsed = self._sfc_flag(sfc_field(step["name"], "elapsed_ms"))
+        and_op = engine.map("operator", "AND")
+        not_op = engine.map("operator", "NOT")
         qualifier = association["qualifier"]
         time = self.render(association["time"]) if association["time"] is not None else "0"
         if qualifier in {"P", "P1"}:
-            return f"({active} && !{previous})"
+            return f"({active} {and_op} {not_op}{previous})"
         if qualifier == "P0":
-            return f"(!{active} && {previous})"
+            return f"({not_op}{active} {and_op} {previous})"
         if qualifier == "L":
-            return f"({active} && {elapsed} < ({time}))"
+            return f"({active} {and_op} {elapsed} {engine.map('operator', 'LT')} ({time}))"
         if qualifier in {"D", "SD", "DS"}:
-            return f"({active} && {elapsed} >= ({time}))"
+            return f"({active} {and_op} {elapsed} {engine.map('operator', 'GE')} ({time}))"
         if qualifier == "SL":
-            return f"({active} && {elapsed} < ({time}))"
+            return f"({active} {and_op} {elapsed} {engine.map('operator', 'LT')} ({time}))"
         return active
+
+    def _sfc_state_types(self):
+        """Return backend-spelled (bool, time) types for SFC state fields."""
+        if self.generator_engine is not None:
+            return (
+                self.generator_engine.map("type", "BOOL"),
+                self.generator_engine.map("type", "TIME"),
+            )
+        return ("bool", "int64_t")
 
     def _sfc_variable(self, name):
         return self.render({"name": "variable_name", "value": name, "children": []})
 
     def visit_sequential_function_chart(self, node):
         """Execute one deterministic SFC scan using persistent POU state."""
+        engine = self.generator_engine
+        and_op = engine.map("operator", "AND")
+        or_op = engine.map("operator", "OR")
+        not_op = engine.map("operator", "NOT")
+        false_value = engine.map("boolean_literal", "FALSE")
+        true_value = engine.map("boolean_literal", "TRUE")
         for chart_index, chart in enumerate(sfc_charts(node)):
             ordered = sorted(enumerate(chart["transitions"]), key=lambda item: (item[1]["priority"], item[0]))
             earlier_sources = []
             fire_names = {}
+            decls = {}
             for ordinal, transition in ordered:
                 fire = f"__sfc_{chart_index}_fire_{ordinal}"
                 fire_names[ordinal] = fire
-                sources = " && ".join(
-                    f"self->{sfc_field(name, 'active')}" for name in transition["sources"]
-                ) or "false"
-                condition = self.render(transition["condition"]) if transition["condition"] is not None else "false"
+                sources = f" {and_op} ".join(
+                    self._sfc_flag(sfc_field(name, "active")) for name in transition["sources"]
+                ) or false_value
+                condition = self.render(transition["condition"]) if transition["condition"] is not None else false_value
                 current_sources = {item.casefold() for item in transition["sources"]}
                 blocked = [
                     name for name, used in earlier_sources
                     if {item.casefold() for item in used} & current_sources
                 ]
-                gate = "" if not blocked else " && " + " && ".join(f"!{name}" for name in blocked)
-                self.text += f"{self.indent}bool {fire} = ({sources}) && ({condition}){gate};\n"
+                gate = "" if not blocked else f" {and_op} " + f" {and_op} ".join(f"{not_op}{name}" for name in blocked)
+                decls[ordinal] = engine.render(
+                    "sfc_fire",
+                    fire=fire,
+                    sources=sources,
+                    condition=condition,
+                    gate=gate,
+                    indent=self.indent,
+                )
                 earlier_sources.append((fire, transition["sources"]))
 
+            chunks = []
             for ordinal, transition in enumerate(chart["transitions"]):
                 fire = fire_names.get(ordinal)
                 if fire is None:
                     continue
-                self.text += f"{self.indent}if ({fire}) {{\n"
                 self.indent_inc()
+                body = ""
                 for name in transition["sources"]:
-                    self.text += f"{self.indent}self->{sfc_field(name, 'active')} = false;\n"
+                    body += engine.render(
+                        "sfc_step_assign",
+                        step=sfc_field(name, "active"),
+                        value=false_value,
+                        indent=self.indent,
+                    )
                 for name in transition["targets"]:
-                    self.text += f"{self.indent}self->{sfc_field(name, 'active')} = true;\n"
+                    body += engine.render(
+                        "sfc_step_assign",
+                        step=sfc_field(name, "active"),
+                        value=true_value,
+                        indent=self.indent,
+                    )
                 self.indent_dec()
-                self.text += f"{self.indent}}}\n"
+                chunks.append(
+                    engine.render(
+                        "sfc_transition",
+                        fire=fire,
+                        sources="",
+                        targets="",
+                        condition=(
+                            self.render(transition["condition"])
+                            if transition["condition"] is not None
+                            else false_value
+                        ),
+                        priority=transition["priority"],
+                        decl=decls[ordinal],
+                        body=body,
+                        indent=self.indent,
+                    )
+                )
 
             for step in chart["steps"]:
-                active = f"self->{sfc_field(step['name'], 'active')}"
-                previous = f"self->{sfc_field(step['name'], 'previous')}"
-                elapsed = f"self->{sfc_field(step['name'], 'elapsed_ms')}"
-                self.text += f"{self.indent}if ({active}) {{ {elapsed} = {previous} ? {elapsed} + 1 : 0; }} else {{ {elapsed} = 0; }}\n"
+                chunks.append(
+                    engine.render(
+                        "sfc_elapsed",
+                        step=step["name"],
+                        active=sfc_field(step["name"], "active"),
+                        previous=sfc_field(step["name"], "previous"),
+                        elapsed=sfc_field(step["name"], "elapsed_ms"),
+                        indent=self.indent,
+                    )
+                )
 
             variable_conditions = {}
             indicator_conditions = {}
@@ -1685,11 +2145,19 @@ class CCodeGenerator(NodeVisitor):
                             action_sets.setdefault(key, []).append(condition)
                             stored_actions.add(key)
                         else:
-                            self.text += f"{self.indent}if ({condition}) {{\n"
                             self.indent_inc()
-                            self.accept(action, lambda child_name: child_name == "function_block_body")
+                            action_body = self._capture_emission(
+                                lambda: self.accept(action, lambda child_name: child_name == "function_block_body")
+                            )
                             self.indent_dec()
-                            self.text += f"{self.indent}}}\n"
+                            chunks.append(
+                                engine.render(
+                                    "sfc_action",
+                                    condition=condition,
+                                    body=action_body,
+                                    indent=self.indent,
+                                )
+                            )
                     elif qualifier == "R":
                         variable_resets.setdefault(association["name"], []).append(condition)
                     elif qualifier in {"S", "SD", "DS"}:
@@ -1705,36 +2173,97 @@ class CCodeGenerator(NodeVisitor):
             for name, conditions in indicator_conditions.items():
                 combined_conditions.setdefault(name, []).extend(conditions)
             for name, conditions in combined_conditions.items():
-                enabled = conditions[0] if len(conditions) == 1 else " || ".join(f"({item})" for item in conditions)
+                enabled = conditions[0] if len(conditions) == 1 else f" {or_op} ".join(f"({item})" for item in conditions)
                 if name in variable_sets or name in variable_resets:
-                    self.text += f"{self.indent}if ({enabled}) {self._sfc_variable(name)} = true;\n"
+                    chunks.append(
+                        engine.render(
+                            "sfc_set",
+                            target=self._sfc_variable(name),
+                            condition=enabled,
+                            value=true_value,
+                            indent=self.indent,
+                        )
+                    )
                 else:
-                    self.text += f"{self.indent}{self._sfc_variable(name)} = {enabled};\n"
+                    chunks.append(
+                        engine.render(
+                            "sfc_assign",
+                            target=self._sfc_variable(name),
+                            condition=enabled,
+                            indent=self.indent,
+                        )
+                    )
             for name, conditions in variable_sets.items():
-                enabled = " || ".join(f"({item})" for item in conditions)
-                self.text += f"{self.indent}if ({enabled}) {self._sfc_variable(name)} = true;\n"
+                enabled = f" {or_op} ".join(f"({item})" for item in conditions)
+                chunks.append(
+                    engine.render(
+                        "sfc_set",
+                        target=self._sfc_variable(name),
+                        condition=enabled,
+                        value=true_value,
+                        indent=self.indent,
+                    )
+                )
             for name, conditions in variable_resets.items():
-                enabled = " || ".join(f"({item})" for item in conditions)
-                self.text += f"{self.indent}if ({enabled}) {self._sfc_variable(name)} = false;\n"
+                enabled = f" {or_op} ".join(f"({item})" for item in conditions)
+                chunks.append(
+                    engine.render(
+                        "sfc_set",
+                        target=self._sfc_variable(name),
+                        condition=enabled,
+                        value=false_value,
+                        indent=self.indent,
+                    )
+                )
             for key, conditions in action_sets.items():
-                enabled = " || ".join(f"({item})" for item in conditions)
-                self.text += f"{self.indent}if ({enabled}) self->{sfc_field('action_' + key, 'stored')} = true;\n"
+                enabled = f" {or_op} ".join(f"({item})" for item in conditions)
+                chunks.append(
+                    engine.render(
+                        "sfc_stored",
+                        action=sfc_field("action_" + key, "stored"),
+                        condition=enabled,
+                        value=true_value,
+                        indent=self.indent,
+                    )
+                )
             for key, conditions in action_resets.items():
-                enabled = " || ".join(f"({item})" for item in conditions)
-                self.text += f"{self.indent}if ({enabled}) self->{sfc_field('action_' + key, 'stored')} = false;\n"
+                enabled = f" {or_op} ".join(f"({item})" for item in conditions)
+                chunks.append(
+                    engine.render(
+                        "sfc_stored",
+                        action=sfc_field("action_" + key, "stored"),
+                        condition=enabled,
+                        value=false_value,
+                        indent=self.indent,
+                    )
+                )
             for key in sorted(stored_actions):
                 action = chart["actions"][key]
-                state = f"self->{sfc_field('action_' + key, 'stored')}"
-                self.text += f"{self.indent}if ({state}) {{\n"
+                state = self._sfc_flag(sfc_field("action_" + key, "stored"))
                 self.indent_inc()
-                self.accept(action, lambda child_name: child_name == "function_block_body")
-                self.indent_dec()
-                self.text += f"{self.indent}}}\n"
-            for step in chart["steps"]:
-                self.text += (
-                    f"{self.indent}self->{sfc_field(step['name'], 'previous')} = "
-                    f"self->{sfc_field(step['name'], 'active')};\n"
+                stored_body = self._capture_emission(
+                    lambda: self.accept(action, lambda child_name: child_name == "function_block_body")
                 )
+                self.indent_dec()
+                chunks.append(
+                    engine.render(
+                        "sfc_action", condition=state, body=stored_body, indent=self.indent
+                    )
+                )
+            for step in chart["steps"]:
+                chunks.append(
+                    engine.render(
+                        "sfc_previous",
+                        step=step["name"],
+                        active=sfc_field(step["name"], "active"),
+                        previous=sfc_field(step["name"], "previous"),
+                        indent=self.indent,
+                    )
+                )
+            self.text += engine.render(
+                "sfc_chart", body="".join(chunks), indent=self.indent,
+                steps="", transitions="", actions="",
+            )
 
     def visit_simple_type_declaration(self, node):
         name = self._first_named(node, "simple_type_name")
@@ -1774,7 +2303,7 @@ class CCodeGenerator(NodeVisitor):
         specification = self._first_named(node, "reference_specification")
         if name is not None and specification is not None:
             target = self.extract_type(specification) or "int16_t"
-            self.text += f"typedef {target} *{name['value']};\n"
+            self.text += self.generator_engine.render("reference_type", name=name["value"], referenced_type=target)
 
     def visit_subrange_type_declaration(self, node):
         name = self._first_named(node, "subrange_type_name")
@@ -1804,7 +2333,7 @@ class CCodeGenerator(NodeVisitor):
     def _emit_array_type(self, name, spec):
         sizes = self._array_dimensions(spec)
         element = self.declaration_type(spec)
-        self.text += f"typedef {element} {name}{sizes};\n"
+        self.text += self.generator_engine.render("array_type", name=name, element_type=element, dimensions=sizes)
 
     def visit_string_type_declaration(self, node):
         name = self._first_named(node, "string_type_name")
@@ -1859,15 +2388,29 @@ class CCodeGenerator(NodeVisitor):
         self.text += f"{var_type} {', '.join(names)}"
 
     def visit_expression(self, node):
-        separator = " | " if self._is_bitwise_expression(node) else " || "
-        self._join_children(node, separator, parenthesize_operands=True)
+        key = "BIT_OR" if self._is_bitwise_expression(node) else "OR"
+        operator = self.generator_engine.map("operator", key) if self.generator_engine is not None else ("|" if key == "BIT_OR" else "||")
+        self._render_binary_chain(node["children"], operator)
 
     def visit_xor_expression(self, node):
-        self._join_children(node, " ^ ", parenthesize_operands=True)
+        operator = self.generator_engine.map("operator", "XOR") if self.generator_engine is not None else "^"
+        self._render_binary_chain(node["children"], operator)
 
     def visit_and_expression(self, node):
-        separator = " & " if self._is_bitwise_expression(node) else " && "
-        self._join_children(node, separator, parenthesize_operands=True)
+        key = "BIT_AND" if self._is_bitwise_expression(node) else "AND"
+        operator = self.generator_engine.map("operator", key) if self.generator_engine is not None else ("&" if key == "BIT_AND" else "&&")
+        self._render_binary_chain(node["children"], operator)
+
+    def _render_binary_chain(self, children, operator):
+        if not children:
+            return
+        expression = self.render(children[0])
+        for child in children[1:]:
+            right = self.render(child)
+            expression = self.generator_engine.render(
+                "binary_expression", left=expression, operator=operator, right=right
+            ) if self.generator_engine is not None else f"({expression} {operator} {right})"
+        self.text += expression
 
     def _is_bitwise_expression(self, node):
         bit_types = {"uint8_t", "uint16_t", "uint32_t", "uint64_t"}
@@ -1898,14 +2441,31 @@ class CCodeGenerator(NodeVisitor):
         self._visit_infix(node)
 
     def visit_comparison_equality_operator(self, node):
-        op = {"=": "==", "NEQ": "!=", "<>": "!="}.get(node["value"], node["value"])
+        op = self.generator_engine.map("operator", node["value"]) if self.generator_engine is not None else {"=": "==", "NEQ": "!=", "<>": "!="}.get(node["value"], node["value"])
         self.text += f" {op} "
 
     def visit_equ_expression(self, node):
-        self._visit_infix(node)
+        self._render_alternating_infix(node)
 
     def visit_add_expression(self, node):
-        self._visit_infix(node)
+        self._render_alternating_infix(node)
+
+    def _render_alternating_infix(self, node):
+        children = node.get("children", [])
+        if not children:
+            return
+        expression = self.render(children[0])
+        index = 1
+        while index + 1 < len(children):
+            operator = self.render(children[index]).strip()
+            right = self.render(children[index + 1])
+            expression = self.generator_engine.render(
+                "binary_expression", left=expression, operator=operator, right=right
+            ) if self.generator_engine is not None else f"({expression} {operator} {right})"
+            index += 2
+        if index < len(children):
+            expression += self.render(children[index])
+        self.text += expression
 
     def visit_term(self, node):
         self._visit_infix_from_child_value(node)
@@ -1919,7 +2479,9 @@ class CCodeGenerator(NodeVisitor):
             # equivalent to a ** (b ** c).
             expression = self.render(children[-1])
             for child in reversed(children[:-1]):
-                expression = f"pow({self.render(child)}, {expression})"
+                expression = self.generator_engine.render(
+                    "power_expression", left=self.render(child), right=expression
+                ) if self.generator_engine is not None else f"pow({self.render(child)}, {expression})"
             self.text += expression
 
     def visit_unary_expression(self, node):
@@ -1928,16 +2490,20 @@ class CCodeGenerator(NodeVisitor):
             self.accept(node)
             return
         child = next((item for item in node.get("children", []) if isinstance(item, dict)), None)
-        symbol = ("~" if child is not None and self._is_bitwise_expression(child) else "!") if op == "NOT" else op
-        self.text += f"({symbol}("
-        self.accept(node)
-        self.text += "))"
+        operator_key = "BIT_NOT" if op == "NOT" and child is not None and self._is_bitwise_expression(child) else op
+        symbol = self.generator_engine.map("operator", operator_key) if self.generator_engine is not None else (("~" if operator_key == "BIT_NOT" else "!") if op == "NOT" else op)
+        operand = self.render(child) if child is not None else ""
+        self.text += self.generator_engine.render(
+            "unary_expression", UnaryExpression(symbol, operand)
+        ) if self.generator_engine is not None else f"({symbol}({operand}))"
 
     def visit_add_operator(self, node):
-        self.text += f" {node['value']} "
+        value = node["value"]
+        mapped = self.generator_engine.map("operator", value) if self.generator_engine is not None else value
+        self.text += f" {mapped} "
 
     def visit_comparison_operator(self, node):
-        op = {"LE_EQ": "<=", "GE_EQ": ">="}.get(node["value"], node["value"])
+        op = self.generator_engine.map("operator", node["value"]) if self.generator_engine is not None else {"LE_EQ": "<=", "GE_EQ": ">="}.get(node["value"], node["value"])
         self.text += f" {op} "
 
     def visit_assignment_statement(self, node):
@@ -1945,19 +2511,18 @@ class CCodeGenerator(NodeVisitor):
             return
         if self.oop.emit_assignment(node):
             return
-        self.text += self.indent
-        self.accept(node, lambda name: name == "variable")
-        self.text += " = "
-        self.accept(node, lambda name: name == "expression")
-        self.text += ";\n"
+        variable = next(child for child in node["children"] if child.get("name") == "variable")
+        expression = next(child for child in node["children"] if child.get("name") == "expression")
+        lowered = Assignment(self.render(variable), self.render(expression), self.indent)
+        self.text += self.generator_engine.render("assignment", lowered) if self.generator_engine is not None else f"{lowered.indent}{lowered.target} = {lowered.value};\n"
 
     def visit_reference_constructor(self, node):
         variable = self._first_named(node, "variable")
-        self.text += f"&({self.render(variable)})"
+        self.text += self.generator_engine.render("reference", value=self.render(variable))
 
     def visit_reference_value(self, node):
         if node.get("value") == "NULL":
-            self.text += "NULL"
+            self.text += self.generator_engine.render("null_reference")
         else:
             self.accept(node)
 
@@ -1966,59 +2531,59 @@ class CCodeGenerator(NodeVisitor):
             (child for child in node.get("children", []) if isinstance(child, dict)),
             None,
         )
-        self.text += f"STC_DEREF({self.render(referenced)})"
+        self.text += self.generator_engine.render("dereference", value=self.render(referenced))
 
     def visit_assert_statement(self, node):
         expression = next(child for child in node.get("children", []) if isinstance(child, dict))
         self.text += f"{self.indent}ASSERT({self.render(expression)});\n"
 
     def visit_exit_statement(self, node):
-        self.text += f"{self.indent}break;\n"
+        self.text += self.generator_engine.render("exit", indent=self.indent) if self.generator_engine is not None else f"{self.indent}break;\n"
+
+    def visit_continue_statement(self, node):
+        self.text += self.generator_engine.render("continue", indent=self.indent) if self.generator_engine is not None else f"{self.indent}continue;\n"
+
+    def visit_return_statement(self, node):
+        expression = self._first_named(node, "expression")
+        value = " " + self.render(expression) if expression is not None else ""
+        self.text += self.generator_engine.render("return", indent=self.indent, value=value, has_value=bool(value)) if self.generator_engine is not None else f"{self.indent}return{value};\n"
+
+    def _render_nested_body(self, node):
+        self.indent_inc()
+        try:
+            return self.render(node)
+        finally:
+            self.indent_dec()
 
     def visit_if_statement(self, node):
-        self.text += self.indent + "if ("
-        self.visit(node["children"][0])
-        self.text += ") {\n"
-        self.indent_inc()
-        self.visit(node["children"][1])
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = IfBranch(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
+        self.text += self.generator_engine.render("if", lowered) if self.generator_engine is not None else f"{self.indent}if ({lowered.condition}) {{\n{lowered.body}{self.indent}}}\n"
         self.accept(node, lambda name: name == "elseif_statement_list")
         self.accept(node, lambda name: name == "else_statement")
 
     def visit_elseif_statement(self, node):
-        self.text += self.indent + "else if ("
-        self.visit(node["children"][0])
-        self.text += ") {\n"
-        self.indent_inc()
-        self.visit(node["children"][1])
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = IfBranch(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
+        self.text += self.generator_engine.render("elseif", lowered) if self.generator_engine is not None else f"{self.indent}else if ({lowered.condition}) {{\n{lowered.body}{self.indent}}}\n"
 
     def visit_else_statement(self, node):
-        self.text += self.indent + "else {\n"
         self.indent_inc()
-        self.accept(node)
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        previous = self.text
+        self.text = ""
+        try:
+            self.accept(node)
+            body = self.text
+        finally:
+            self.text = previous
+            self.indent_dec()
+        self.text += self.generator_engine.render("else", body=body, indent=self.indent) if self.generator_engine is not None else f"{self.indent}else {{\n{body}{self.indent}}}\n"
 
     def visit_while_statement(self, node):
-        self.text += self.indent + "while ("
-        self.visit(node["children"][0])
-        self.text += ") {\n"
-        self.indent_inc()
-        self.visit(node["children"][1])
-        self.indent_dec()
-        self.text += self.indent + "}\n"
+        lowered = WhileLoop(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
+        self.text += self.generator_engine.render("while", lowered) if self.generator_engine is not None else f"{self.indent}while ({lowered.condition}) {{\n{lowered.body}{self.indent}}}\n"
 
     def visit_repeat_statement(self, node):
-        self.text += self.indent + "do {\n"
-        self.indent_inc()
-        self.visit(node["children"][0])
-        self.indent_dec()
-        self.text += self.indent + "} while (!("
-        self.visit(node["children"][1])
-        self.text += "));\n"
+        lowered = RepeatLoop(self.render(node["children"][1]), self._render_nested_body(node["children"][0]), self.indent)
+        self.text += self.generator_engine.render("repeat", lowered) if self.generator_engine is not None else f"{self.indent}do {{\n{lowered.body}{self.indent}}} while (!({lowered.condition}));\n"
 
     def visit_token(self, node):
         self.text += str(node.get("value", ""))
@@ -2048,48 +2613,54 @@ class CCodeGenerator(NodeVisitor):
         else:
             operator = "-=" if direction == "DOWNTO" else "+="
             step = f"{variable} {operator} {self.render(by)}"
+        lowered_body = self._render_nested_body(body)
         self.text += self.source_line_directive(node)
-        self.text += f"{self.indent}for ({variable} = {start_text}; {variable} {comparator} {end_text}; {step}) {{\n"
-        self.indent_inc()
-        self.visit(body)
-        self.indent_dec()
-        self.text += f"{self.indent}}}\n"
+        self.text += self.generator_engine.render(
+            "for", variable=variable, start=start_text, end=end_text,
+            step=self.render(by) if by is not None else "1",
+            direction="descending" if direction == "DOWNTO" else "ascending",
+            comparator=comparator, update=step, body=lowered_body, indent=self.indent,
+        )
 
     def visit_case_statement(self, node):
         children = node.get("children", [])
         expression = next(child for child in children if child.get("name") == "expression")
         expression_text = self.render(expression)
-        self.text += self.source_line_directive(node)
-        emitted = False
+        elements = []
         default_statements = None
         for child in children:
             if child.get("name") == "case_element":
                 case_list = next(item for item in child["children"] if item.get("name") == "case_list")
                 statements = next(item for item in child["children"] if item.get("name") == "statement_list")
-                conditions = []
+                labels = []
                 for label in (item for item in case_list.get("children", []) if item.get("name") == "case_list_element"):
                     subrange = self._first_named(label, "subrange")
                     if subrange is not None:
                         bounds = self._named_nodes(subrange, "signed_integer")
                         if len(bounds) == 2:
-                            conditions.append(f"(({expression_text}) >= ({self.render(bounds[0])}) && ({expression_text}) <= ({self.render(bounds[1])}))")
+                            labels.append({"value": self.generator_engine.render(
+                                "case_range", selector=expression_text,
+                                lower=self.render(bounds[0]), upper=self.render(bounds[1]),
+                            )})
                     else:
-                        conditions.append(f"({expression_text}) == ({self.render(label)})")
-                keyword = "if" if not emitted else "else if"
-                self.text += f"{self.indent}{keyword} ({' || '.join(conditions) or 'false'}) {{\n"
-                self.indent_inc()
-                self.visit(statements)
-                self.indent_dec()
-                self.text += f"{self.indent}}}\n"
-                emitted = True
+                        labels.append({"value": self.generator_engine.render(
+                            "case_value", selector=expression_text, value=self.render(label)
+                        )})
+                label_text = self.generator_engine.render("case_labels", items=labels) or "false"
+                body = self._render_nested_body(statements)
+                rule = "case_element_first" if not elements else "case_element"
+                elements.append(self.generator_engine.render(rule, labels=label_text, body=body, indent=self.indent))
             elif child.get("name") == "statement_list":
                 default_statements = child
+        else_body = ""
         if default_statements is not None:
-            self.text += f"{self.indent}{'else ' if emitted else ''}{{\n"
-            self.indent_inc()
-            self.visit(default_statements)
-            self.indent_dec()
-            self.text += f"{self.indent}}}\n"
+            body = self._render_nested_body(default_statements)
+            rule = "case_else" if elements else "case_else_first"
+            else_body = self.generator_engine.render(rule, body=body, indent=self.indent, has_elements=bool(elements))
+        self.text += self.source_line_directive(node)
+        self.text += self.generator_engine.render(
+            "case", selector=expression_text, elements="".join(elements), else_body=else_body, indent=self.indent
+        )
 
     def visit_case_element(self, node):
         case_list = next(child for child in node["children"] if child.get("name") == "case_list")
@@ -2313,7 +2884,8 @@ class CCodeGenerator(NodeVisitor):
             return
         self.visit(children[0])
         for child in children[1:]:
-            op = {"MOD": "%"}.get(child.get("value"), child.get("value"))
+            raw_op = child.get("value")
+            op = self.generator_engine.map("operator", raw_op) if self.generator_engine is not None else {"MOD": "%"}.get(raw_op, raw_op)
             self.text += f" {op} "
             if op == "%":
                 self.text += "((int64_t)("

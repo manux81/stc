@@ -1,0 +1,68 @@
+[function]
+description = "Generate an IEC FUNCTION as a Rust function."
+template = """
+{comment}{attributes}
+pub fn {emitted_name}({parameters}) -> {return_type} {
+{locals}{body}{return_value}}
+
+"""
+
+[function_block]
+template = """
+/// Persistent state for IEC function block `{name}`.
+#[allow(non_camel_case_types, non_snake_case)]
+pub struct {name} {
+{fields}}
+
+impl Default for {name} {
+    fn default() -> Self {
+        Self {
+{defaults}        }
+    }
+}
+
+impl {name} {
+    /// Reset all state, including retained variables.
+    pub fn cold_init(&mut self) {
+{cold_init}    }
+
+    /// Reset non-retained state while preserving retained variables.
+    pub fn warm_init(&mut self) {
+{warm_init}    }
+
+{properties}    /// Execute one invocation of `{name}`.
+    pub fn {entrypoint}(&mut self{parameters}) {
+{temporaries}{body}    }
+}
+
+"""
+
+[program]
+template = """
+/// Persistent state for IEC program `{name}`.
+#[allow(non_camel_case_types, non_snake_case)]
+pub struct {name} {
+{fields}}
+
+impl Default for {name} {
+    fn default() -> Self {
+        Self {
+{defaults}        }
+    }
+}
+
+impl {name} {
+    /// Reset all state, including retained variables.
+    pub fn cold_init(&mut self) {
+{cold_init}    }
+
+    /// Reset non-retained state while preserving retained variables.
+    pub fn warm_init(&mut self) {
+{warm_init}    }
+
+    /// Execute one program cycle of `{name}`.
+    pub fn {entrypoint}(&mut self{parameters}) {
+{temporaries}{body}    }
+}
+
+"""

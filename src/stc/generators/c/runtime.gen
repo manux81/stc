@@ -1,0 +1,8 @@
+# Target runtime primitives for C.
+# Each primitive body lives in primitives.c next to this backend; the
+# generic loader resolves dependencies and renders selected bodies through
+# [runtime_primitive]. No target selection lives in Python.
+
+[runtime_primitive]
+description = "Render a selected C runtime primitive."
+template = "{implementation}\n"

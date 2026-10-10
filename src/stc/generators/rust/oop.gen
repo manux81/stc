@@ -1,0 +1,173 @@
+# IEC 61131-3 Edition 3/4 object-oriented lowering for Rust.
+# Internal comments are not emitted. Target comments live in templates.
+# Convention: {arguments} is the bare ", "-joined list; {extra_arguments}
+# carries a leading ", " separator when non-empty (used by C-style ABIs).
+
+[property_get]
+description = "Render a function-block property getter call."
+template = "{receiver}{base_path}.{method}({arguments})"
+
+[property_get_class]
+description = "Render a class property getter call."
+template = "{receiver}{base_path}.{method}({arguments})"
+
+[property_get_interface]
+description = "Render an interface property getter call."
+template = "{receiver}{base_path}.{method}({arguments})"
+
+[property_set]
+description = "Render a function-block property setter call."
+template = "{indent}{receiver}{base_path}.{method}({value});\n"
+
+[property_set_class]
+description = "Render a class property setter call."
+template = "{indent}{receiver}{base_path}.{method}({value});\n"
+
+[property_set_interface]
+description = "Render an interface property setter call."
+template = "{indent}{receiver}{base_path}.{method}({value});\n"
+
+[interface_assignment]
+description = "Render a resolved class-to-interface assignment."
+template = "{indent}{target} = {interface}::from(&mut {source});\n"
+
+[virtual_call]
+description = "Render a virtual call on a class-typed variable."
+template = "{receiver}.{method}({arguments})"
+
+[virtual_call_this]
+description = "Render a virtual call on the current instance."
+template = "self.{method}({arguments})"
+
+[virtual_call_super]
+description = "Render a call on the base instance."
+template = "self.__base.{method}({arguments})"
+
+[virtual_call_interface]
+description = "Render a virtual call through an interface value."
+template = "{receiver}.{method}({arguments})"
+
+[class_predecl]
+description = "Rust needs no forward declarations."
+template = "// IEC type {name}.\n"
+
+[class_field]
+description = "Render one lowered class field."
+template = "    pub {name}: {type},"
+
+[class_fields]
+description = "Render a list of lowered class fields."
+each = "    pub {name}: {type},"
+separator = "\n"
+
+[class_base_field]
+description = "Render the embedded base-class field."
+when = "{has_base}"
+template = "    pub __base: {base},\n"
+
+[class_vptr_field]
+description = "Rust uses static dispatch; there is no vptr field."
+when = "{no_base}"
+template = ""
+
+[class_empty_field]
+description = "Rust unit-like structs need no placeholder field."
+when = "{empty}"
+template = ""
+
+[class_prototype]
+description = "Rust needs no method forward declarations."
+template = "// method {class}::{name}({parameters}) -> {return_type}.\n"
+
+[method_parameter]
+description = "Render one by-value method parameter."
+template = "{name}: {type}"
+
+[method_parameter_out]
+description = "Render one by-reference method parameter."
+template = "{name}: &mut {type}"
+
+[method_parameters]
+description = "Join already lowered method parameters."
+each = "{value}"
+separator = ", "
+
+[method_receiver]
+description = "Render the Rust method receiver parameter."
+template = "&mut self"
+
+[vtable_entry]
+description = "Rust keeps no C vtable; record the slot as documentation."
+template = "    // slot {name}({parameters}) -> {return_type}.\n"
+
+[dispatch_entry]
+description = "Rust keeps no C dispatch table; record the entry."
+template = "    // dispatch {name} = {implementation}.\n"
+
+[dispatch_entry_null]
+description = "Rust keeps no C dispatch table; record the null entry."
+template = "    // dispatch {name} = unimplemented.\n"
+
+[class_method]
+description = "Render one lowered class method implementation."
+template = "    pub fn {name}({receiver}{parameters}) -> {return_type} {\n{locals}{body}{return_stmt}    }\n"
+
+[interface_method]
+description = "Render one lowered interface method slot."
+template = "    {name}_fn: unsafe fn(*mut (){parameters}) -> {return_type},\n"
+
+[interface_default]
+description = "Render one interface default dispatch entry."
+template = "        {name}_fn: |_{parameters}| panic!(\"unbound interface {interface}\"),\n"
+
+[interface_impl]
+description = "Render one interface dispatch wrapper."
+template = "    pub fn {name}(&mut self{parameters}) -> {return_type} { unsafe { (self.{name}_fn)(self.instance{arguments}) } }\n"
+
+[interface_adapter]
+description = "Render one class-to-interface conversion."
+template = "impl From<&mut {class}> for {interface} {\n    fn from(value: &mut {class}) -> Self { Self {\n        instance: value as *mut {class} as *mut (),\n{methods}    } }\n}\n"
+
+[adapter_entry]
+description = "Render one adapter closure entry."
+template = "        {name}_fn: |instance{parameters}| unsafe { (&mut *(instance as *mut {class})).{name}({arguments}) },\n"
+
+[adapter_entry_null]
+description = "Record a null adapter entry."
+template = "        // {name} unimplemented.\n"
+
+[class_init_statement]
+description = "Render one class initializer statement."
+template = "{indent}{address} = {type}::default();\n"
+
+[class_base_init]
+description = "Render the base-class initializer entry."
+template = "        __base: {base}::default(),\n"
+
+[class_default]
+description = "Render one default field initializer."
+template = "        {field}: {value},\n"
+
+[empty_dispatch]
+description = "Rust keeps no C dispatch table."
+template = ""
+
+[property_method]
+description = "Render one property accessor implementation."
+template = "    fn {name}(&mut self{parameters}) -> {return_type} {\n{locals}{body}{return_stmt}    }\n\n"
+
+[method_return]
+description = "Render one method tail expression."
+template = "{indent}{name}\n"
+
+[class_init]
+description = "Render one class initializer."
+template = "impl Default for {name} {\n    fn default() -> Self { Self {\n{base_init}{defaults}    } }\n}\n"
+
+[class]
+description = "Render a lowered class layout."
+template = "/// Runtime representation of IEC class `{name}`.\n#[allow(non_snake_case)]\npub struct {name} {\n{base_field}{vptr_field}{fields}{empty_field}}\n\n{init}impl {name} {\n{methods}}\n\n{adapters}"
+
+[interface]
+description = "Render a lowered interface layout."
+template = "/// Type-erased dispatch table for IEC interface `{name}`.\n#[allow(non_snake_case)]\npub struct {name} {\n    instance: *mut (),\n{methods}}\nimpl Default for {name} {\n    fn default() -> Self { Self {\n        instance: core::ptr::null_mut(),\n{defaults}    } }\n}\nimpl {name} {\n{impls}}\n"

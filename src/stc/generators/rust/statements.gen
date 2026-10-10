@@ -1,0 +1,55 @@
+[assignment]
+description = "Generate a lowered assignment as a Rust statement."
+template = "{indent}{target} = {value};\n"
+
+[if]
+template = "{indent}if {condition} {\n{body}{indent}}\n"
+
+[elseif]
+template = "{indent}else if {condition} {\n{body}{indent}}\n"
+
+[else]
+template = "{indent}else {\n{body}{indent}}\n"
+
+[while]
+template = "{indent}while {condition} {\n{body}{indent}}\n"
+
+[repeat]
+template = "{indent}loop {\n{body}{indent}    if {condition} { break; }\n{indent}}\n"
+
+[exit]
+template = "{indent}break;\n"
+
+[continue]
+template = "{indent}continue;\n"
+
+[return]
+template = "{indent}return{value};\n"
+
+[for]
+template = "{indent}{variable} = {start};\n{indent}while {variable} {comparator} {end} {\n{body}{indent}    {update};\n{indent}}\n"
+
+[case]
+template = "{indent}match {selector} {\n{elements}{else_body}{indent}}\n"
+
+[case_element_first]
+template = "{indent}{labels} => {\n{body}{indent}},\n"
+
+[case_element]
+template = "{indent}{labels} => {\n{body}{indent}},\n"
+
+[case_value]
+template = "{value}"
+
+[case_range]
+template = "{lower}..={upper}"
+
+[case_labels]
+each = "{value}"
+separator = " | "
+
+[case_else]
+template = "{indent}_ => {\n{body}{indent}},\n"
+
+[case_else_first]
+template = "{indent}_ => {\n{body}{indent}},\n"
