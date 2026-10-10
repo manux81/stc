@@ -33,6 +33,7 @@ class GeneratorBundle:
     name: str
     extension: str
     rules: dict[str, GeneratorRule]
+    adapter: str = "c"
 
     @property
     def coverage(self) -> float:
@@ -108,9 +109,13 @@ def load_generator(path: str | Path, *, require_complete: bool = True) -> Genera
 
     if not isinstance(metadata, dict):
         raise GeneratorError("[generator] must be a table")
-    metadata_unknown = sorted(set(metadata) - {"name", "extension"})
+    metadata_unknown = sorted(set(metadata) - {"name", "extension", "adapter"})
     if metadata_unknown:
         raise GeneratorError("[generator] has unknown fields: " + ", ".join(metadata_unknown))
+
+    adapter = metadata.get("adapter", "rust" if metadata.get("extension") == "rs" else "c")
+    if adapter not in {"c", "rust"}:
+        raise GeneratorError("[generator].adapter must be c or rust")
 
     unknown = sorted(set(documents) - GENERATOR_API.keys())
     if unknown:
@@ -126,6 +131,19 @@ def load_generator(path: str | Path, *, require_complete: bool = True) -> Genera
         mapping = raw.get("mapping")
         if mapping is not None and (not isinstance(mapping, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in mapping.items())):
             raise GeneratorError(f"section [{name}].mapping must contain string keys and values")
+        if name == "layout_patterns" and mapping is not None:
+            required_patterns = {"reference", "array", "array_value", "vector", "attached_name"}
+            if set(mapping) != required_patterns:
+                raise GeneratorError("layout_patterns must define reference, array, array_value, vector and attached_name")
+            for key, pattern in mapping.items():
+                try:
+                    compiled = re.compile(pattern)
+                except re.error as exc:
+                    raise GeneratorError(f"invalid layout pattern {key}: {exc}") from exc
+                expected = {"type", "dimensions"} if key == "array" else {"type", "size"} if key == "array_value" else set()
+                # (?!) is the explicit disabled matcher used by reference bundles.
+                if pattern != "(?!)" and set(compiled.groupindex) != expected:
+                    raise GeneratorError(f"layout pattern {key} requires named groups {sorted(expected)}")
         template, each = raw.get("template"), raw.get("each")
         if template is None and each is None and mapping is None:
             raise GeneratorError(f"section [{name}] is unreachable: provide template, each, or mapping")
@@ -150,7 +168,7 @@ def load_generator(path: str | Path, *, require_complete: bool = True) -> Genera
         if missing:
             raise GeneratorError("missing required generator sections: " + ", ".join(missing))
     _validate_graph(rules)
-    return GeneratorBundle(root, str(metadata.get("name", root.name)), str(metadata.get("extension", "txt")), rules)
+    return GeneratorBundle(root, str(metadata.get("name", root.name)), str(metadata.get("extension", "txt")), rules, adapter)
 
 
 def bundled_generator(name: str) -> Path:

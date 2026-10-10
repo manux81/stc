@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import shutil
 
-from .loader import GeneratorBundle
+from .loader import GeneratorBundle, bundled_generator, load_generator
 from .schema import GENERATOR_API, generator_help
 
 
@@ -13,18 +14,6 @@ GENERATOR_FILES = (
     "language.gen", "types.gen", "expressions.gen", "statements.gen",
     "pou.gen", "oop.gen", "sfc.gen", "il.gen", "runtime.gen",
 )
-
-FILE_CATEGORIES = {
-    "types.gen": {"types"},
-    "expressions.gen": {"literals", "expressions", "conversions", "calls", "arrays", "references"},
-    "statements.gen": {"assignments", "control flow"},
-    "pou.gen": {"functions", "function blocks", "programs"},
-    "oop.gen": {"properties", "OOP"},
-    "sfc.gen": {"SFC"},
-    "il.gen": {"IL"},
-    "runtime.gen": {"runtime"},
-    "language.gen": {"module"},
-}
 
 
 def validation_report(bundle: GeneratorBundle) -> str:
@@ -43,46 +32,32 @@ def validation_report(bundle: GeneratorBundle) -> str:
         f"Phase 2 generator coverage: {bundle.coverage_for_phase(2):.0f}%",
         f"Phase 3 generator coverage: {bundle.coverage_for_phase(3):.0f}%",
         f"Phase 4 generator coverage: {bundle.coverage_for_phase(4):.0f}%",
+        f"Phase 5 generator coverage: {bundle.coverage_for_phase(5):.0f}%",
         f"Full Generator API coverage: {bundle.full_coverage:.0f}%",
         f"Status: {status}",
     ))
     return "\n".join(lines) + "\n"
 
 
-def create_generator_skeleton(name: str, destination: str | Path | None = None) -> Path:
+def create_generator_skeleton(name: str, destination: str | Path | None = None, *, base: str = "c") -> Path:
+    """Create a runnable backend by copying a validated reference bundle."""
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name):
         raise ValueError("generator name must start with a letter and contain only letters, digits, '_' or '-'")
+    if base not in {"c", "rust"}:
+        raise ValueError("generator base must be c or rust")
+    source = bundled_generator(base)
+    load_generator(source)
     root = Path(destination) if destination is not None else Path("generators") / name
     root = root.expanduser().resolve()
-    root.mkdir(parents=True, exist_ok=False)
-    assignments: dict[str, list] = {filename: [] for filename in GENERATOR_FILES}
-    for spec in GENERATOR_API.values():
-        filename = next(
-            (item for item, categories in FILE_CATEGORIES.items() if spec.category in categories),
-            "expressions.gen",
-        )
-        assignments[filename].append(spec)
-    (root / "language.gen").write_text(
-        f'# Generator metadata. Internal comments are not emitted.\n[generator]\nname = "{name}"\nextension = "txt"\n'
-        + "".join(
-            f'\n# {spec.description}\n# Variables:\n'
-            + "\n".join(f"#   {{{value}}}" for value in spec.values)
-            + f'\n[{spec.name}]\ndescription = {spec.description!r}\n'
-            + ('mapping = {}\n' if spec.mapping else 'template = """\n"""\n')
-            for spec in assignments["language.gen"]
-        ),
-        encoding="utf-8",
-    )
-    for filename in GENERATOR_FILES[1:]:
-        chunks: list[str] = []
-        for spec in assignments[filename]:
-            variables = "\n".join(f"#   {{{value}}}" for value in spec.values)
-            body = "mapping = {}" if spec.mapping else 'template = """\n"""'
-            chunks.append(
-                f"# {spec.description}\n# Variables:\n{variables}\n[{spec.name}]\n"
-                f"description = {spec.description!r}\n{body}\n"
-            )
-        (root / filename).write_text("\n".join(chunks), encoding="utf-8")
+    shutil.copytree(source, root)
+    metadata = root / "language.gen"
+    metadata.write_text(metadata.read_text(encoding="utf-8").replace(
+        f'name = "{base}"', f'name = "{name}"', 1), encoding="utf-8")
+    # Include runtime bodies so the reference copy is self-contained.
+    runtime = Path(__file__).resolve().parents[2] / "runtime"
+    extension = "rs" if base == "rust" else "c"
+    shutil.copy2(runtime / f"primitives.{extension}", root / f"primitives.{extension}")
+    load_generator(root)
     return root
 
 

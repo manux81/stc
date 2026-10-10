@@ -336,6 +336,88 @@ END_PROGRAM
             self.assertIn("[preamble]", language_text)
             self.assertIn("[configuration]", language_text)
 
+    def test_new_generator_is_runnable_for_both_reference_bases(self):
+        source = "FUNCTION identity : INT VAR_INPUT value : INT; END_VAR identity := value; END_FUNCTION"
+        for base in ("c", "rust"):
+            with self.subTest(base=base), tempfile.TemporaryDirectory() as temporary:
+                root = create_generator_skeleton("custom", Path(temporary) / "custom", base=base)
+                bundle = load_generator(root)
+                self.assertEqual(bundle.adapter, base)
+                self.assertTrue(bundle.is_complete)
+                result = compile_source(source, generator_path=root)
+                reference = compile_source(source, base)
+                self.assertTrue(result.success, result.diagnostics)
+                self.assertEqual(result.output, reference.output)
+                self.assertTrue((root / f"primitives.{bundle.extension}").is_file())
+
+    def test_external_named_type_and_scheduler_templates_are_used(self):
+        source = """TYPE Small : INT; Mode : (IDLE, RUN); Point : STRUCT X : INT; END_STRUCT; END_TYPE
+PROGRAM P VAR Value : Small; END_VAR Value := Value + 1; END_PROGRAM
+CONFIGURATION Config
+RESOURCE R ON PLC
+TASK Tick(INTERVAL := T#10ms, PRIORITY := 0);
+PROGRAM Instance WITH Tick : P;
+END_RESOURCE
+END_CONFIGURATION
+"""
+        for base in ("c", "rust"):
+            with self.subTest(base=base), tempfile.TemporaryDirectory() as temporary:
+                root = create_generator_skeleton("custom", Path(temporary) / "custom", base=base)
+                comment = "/* customized */" if base == "c" else "// customized"
+                for filename, section in (("types.gen", "type_alias"), ("types.gen", "enum_type"),
+                                          ("types.gen", "structure_type"), ("language.gen", "scheduler_fire")):
+                    path = root / filename
+                    text = path.read_text(encoding="utf-8")
+                    marker = f"[{section}]\ntemplate = \""
+                    self.assertIn(marker, text)
+                    path.write_text(text.replace(marker, marker + comment + "\\n", 1), encoding="utf-8")
+                result = compile_source(source, generator_path=root)
+                self.assertTrue(result.success, result.diagnostics)
+                self.assertEqual(result.output.count(comment), 4)
+
+    def test_generator_adapter_is_explicit_and_validated(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = create_generator_skeleton("custom", Path(temporary) / "custom", base="rust")
+            path = root / "language.gen"
+            text = path.read_text(encoding="utf-8")
+            path.write_text(text.replace('adapter = "rust"', 'adapter = "unknown"'), encoding="utf-8")
+            with self.assertRaisesRegex(GeneratorError, "adapter"):
+                load_generator(root)
+
+    def test_external_declarator_and_zero_value_are_used(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = create_generator_skeleton("custom", Path(temporary) / "custom")
+            path = root / "types.gen"
+            text = path.read_text(encoding="utf-8")
+            text = text.replace('template = "{type}{separator}{name}"',
+                                'template = "{type}{separator}{name} /* declaration */"')
+            text = text.replace('"bool" = "false"', '"bool" = "true"')
+            path.write_text(text, encoding="utf-8")
+            result = compile_source("FUNCTION f : INT VAR_INPUT x : INT; END_VAR f := x; END_FUNCTION", generator_path=root)
+            self.assertTrue(result.success, result.diagnostics)
+            self.assertIn("x /* declaration */", result.output)
+            self.assertEqual(GeneratorEngine(load_generator(root)).map("zero_value", "bool"), "true")
+
+    def test_invalid_layout_pattern_has_generator_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = create_generator_skeleton("custom", Path(temporary) / "custom")
+            path = root / "types.gen"
+            text = path.read_text(encoding="utf-8")
+            text = text.replace('"vector" = "(?!)"', '"vector" = "["')
+            path.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(GeneratorError, "invalid layout pattern vector"):
+                load_generator(root)
+
+    def test_scaffold_preserves_existing_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "existing"
+            root.mkdir()
+            marker = root / "keep.txt"
+            marker.write_text("keep", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                create_generator_skeleton("custom", root)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
+
 
 if __name__ == "__main__":
     unittest.main()

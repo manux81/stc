@@ -1,6 +1,7 @@
 # Reference C generator metadata. Comments are internal and are not emitted.
 [generator]
 name = "c"
+adapter = "c"
 extension = "c"
 
 [preamble]
@@ -29,12 +30,63 @@ template = """/*
 
 [global_variable]
 description = "Render one mutable configuration global variable."
-template = "{type} {name} = {value};\n"
+template = "{declaration} = {value};\n"
 
 [global_constant]
 description = "Render one constant configuration global variable."
-template = "const {type} {name} = {value};\n"
+template = "const {declaration} = {value};\n"
 
 [configuration]
 description = "Render one IEC configuration scheduler."
 template = "/* IEC configuration {name}. */\n{declarations}\n{body}"
+
+[scheduler_program]
+template = "{type} {config}_{instance};\n"
+
+[scheduler_task]
+template = "static uint64_t {config}_{name}_elapsed_ms;\n/* Task {name}: interval {interval} ms, priority {priority}. */\n"
+
+[scheduler_program_default]
+template = ""
+
+[scheduler_task_default]
+template = ""
+
+[scheduler_reset]
+template = "    {config}_{name}_elapsed_ms = 0;\n"
+
+[scheduler_init]
+template = "    {type}_{method}(&{config}_{instance});\n"
+
+[scheduler_run]
+template = "{indent}{type}_run(&{config}_{instance});\n"
+
+[scheduler_single_decl]
+template = "    bool {config}_{name}_fired = false;\n"
+
+[scheduler_due]
+template = "        {\n            uint64_t until_due_ms = UINT64_C({interval}) - {config}_{name}_elapsed_ms;\n            if (until_due_ms < next_due_ms) next_due_ms = until_due_ms;\n        }\n"
+
+[scheduler_due_single]
+template = "        if (!{config}_{name}_fired) {\n            uint64_t until_due_ms = UINT64_C({interval}) - {config}_{name}_elapsed_ms;\n            if (until_due_ms < next_due_ms) next_due_ms = until_due_ms;\n        }\n"
+
+[scheduler_advance]
+template = "{indent}{config}_{name}_elapsed_ms += {delta};\n"
+
+[scheduler_advance_single]
+template = "{indent}if (!{config}_{name}_fired) {config}_{name}_elapsed_ms += {delta};\n"
+
+[scheduler_fire]
+template = "        if ({config}_{name}_elapsed_ms >= UINT64_C({interval})) {\n            {config}_{name}_elapsed_ms -= UINT64_C({interval});\n{calls}        }\n"
+
+[scheduler_fire_single]
+template = "        if (!{config}_{name}_fired && {config}_{name}_elapsed_ms >= UINT64_C({interval})) {\n            {config}_{name}_elapsed_ms -= UINT64_C({interval});\n{calls}            {config}_{name}_elapsed_ms = 0;\n            {config}_{name}_fired = true;\n        }\n"
+
+[scheduler_loop]
+template = "    uint64_t remaining_ms = elapsed_ms;\n{singles}    while (remaining_ms > 0) {\n        uint64_t next_due_ms = UINT64_MAX;\n{due}        if (next_due_ms > remaining_ms) {\n{remainder}            break;\n        }\n{advance}        remaining_ms -= next_due_ms;\n{fire}    }\n"
+
+[scheduler_body]
+template = "void {name}_cold_start(void)\n{\n{cold}{reset}}\n\nvoid {name}_warm_start(void)\n{\n{warm}{reset}}\n\nuint64_t {name}_base_interval_ms(void)\n{\n    return UINT64_C({base});\n}\n\nvoid {name}_cycle(uint64_t elapsed_ms)\n{\n{free}{loop}}\n\n"
+
+[scheduler_declarations]
+template = "{programs}{tasks}"

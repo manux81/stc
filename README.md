@@ -111,10 +111,15 @@ python3 -m stc --check-generator src/stc/generators/c
 python3 -m stc --new-generator mybackend
 ```
 
-`--new-generator` creates `generators/mybackend/` with documented sections and
-empty rules to fill in; it is a starting point, not a working backend. For an
-immediately usable customization, copy a bundled generator and edit its
-templates. Select a local bundle by name or load an external directory:
+`--new-generator` creates a complete, runnable copy of the C backend, including
+runtime primitives. Use `--generator-base rust` to start from Rust instead:
+
+```sh
+python3 -m stc --new-generator myrust --generator-base rust
+```
+
+Edit the copied templates to customize output. Select a local bundle by name
+or load an external directory:
 
 ```sh
 python3 -m stc examples/inter.st -g mybackend
@@ -124,15 +129,22 @@ python3 -m stc --check-generator /path/to/mybackend
 
 Named generators are searched under `generators/` in the current directory
 before the bundled definitions. External bundles require no Python
-registration. A `rust` target or a bundle declaring `extension = "rs"` uses
-the Rust adapter; other bundles use the C adapter. New languages therefore
-still depend on the lowering and layout supported by those adapters.
+registration. The bundle's `adapter = "c"` or `adapter = "rust"` metadata
+selects its reference adapter independently of its name and output extension.
+Existing bundles without this metadata retain extension-based selection.
 
 Both bundled backends implement all sections of the current Generator API.
-This measures template API coverage, not full IEC language support: some
-declarator details, named-type layouts, and configuration schedulers still
-use Python helpers. See [the generator architecture guide](docs/data-driven-generators.md)
-for the full contract, implementation boundaries, and extension details.
+This measures template API coverage, not full IEC language support. Named-type
+layouts, declarators, local/state declarations, zero-value spellings, globals,
+and configuration schedulers now have dedicated rules. Scheduler decisions,
+SFC scans, common IL operations, and OOP hierarchy queries share lowering code
+in `src/stc/codegen/lowering.py`.
+
+The template language stays declarative. Target adapters still handle ABI
+conventions and some target-specific expressions and initialization glue;
+supporting an entirely different execution model requires compiler work.
+See [the generator architecture guide](docs/data-driven-generators.md) for the
+full contract, implementation boundaries, and extension details.
 
 ## Python compilation API
 

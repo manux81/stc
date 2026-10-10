@@ -1,5 +1,6 @@
 [generator]
 name = "rust"
+adapter = "rust"
 extension = "rs"
 
 [preamble]
@@ -34,3 +35,54 @@ template = "/// IEC global variable `{name}`.\n#[allow(non_upper_case_globals)]\
 [configuration]
 description = "Render one IEC configuration scheduler."
 template = "/// Scheduler state for IEC configuration `{name}`.\n{declarations}\n{body}"
+
+[scheduler_program]
+template = "    pub {instance}: {type},\n"
+
+[scheduler_task]
+template = "    {name}_elapsed_ms: u64,\n"
+
+[scheduler_program_default]
+template = "        {instance}: Default::default(),\n"
+
+[scheduler_task_default]
+template = "        {name}_elapsed_ms: 0,\n"
+
+[scheduler_reset]
+template = "        self.{name}_elapsed_ms = 0;\n"
+
+[scheduler_init]
+template = "        self.{instance}.{method}();\n"
+
+[scheduler_run]
+template = "{indent}self.{instance}.run();\n"
+
+[scheduler_single_decl]
+template = "        let mut {name}_fired = false;\n"
+
+[scheduler_due]
+template = "            next_due_ms = next_due_ms.min({interval} - self.{name}_elapsed_ms);\n"
+
+[scheduler_due_single]
+template = "            if !{name}_fired { next_due_ms = next_due_ms.min({interval} - self.{name}_elapsed_ms); }\n"
+
+[scheduler_advance]
+template = "{indent}self.{name}_elapsed_ms += {delta};\n"
+
+[scheduler_advance_single]
+template = "{indent}if !{name}_fired { self.{name}_elapsed_ms += {delta}; }\n"
+
+[scheduler_fire]
+template = "            // Task {name}: interval {interval} ms, priority {priority}.\n            if self.{name}_elapsed_ms >= {interval} {\n                self.{name}_elapsed_ms -= {interval};\n{calls}            }\n"
+
+[scheduler_fire_single]
+template = "            if !{name}_fired && self.{name}_elapsed_ms >= {interval} {\n                self.{name}_elapsed_ms -= {interval};\n{calls}                self.{name}_elapsed_ms = 0;\n                {name}_fired = true;\n            }\n"
+
+[scheduler_loop]
+template = "        let mut remaining_ms = elapsed_ms;\n{singles}        while remaining_ms > 0 {\n            let mut next_due_ms = u64::MAX;\n{due}            if next_due_ms > remaining_ms {\n{remainder}                break;\n            }\n{advance}            remaining_ms -= next_due_ms;\n{fire}        }\n"
+
+[scheduler_body]
+template = "impl Default for {name} {\n    fn default() -> Self { Self {\n{defaults}    } }\n}\n\nimpl {name} {\n    pub const fn base_interval_ms() -> u64 { {base} }\n    pub fn cold_start(&mut self) { *self = Self::default(); }\n    pub fn warm_start(&mut self) {\n{warm}{reset}    }\n    pub fn cycle(&mut self, elapsed_ms: u64) {\n{free}{loop}    }\n}\n\n"
+
+[scheduler_declarations]
+template = "#[allow(non_snake_case)]\npub struct {name} {\n{programs}{tasks}}\n\n"

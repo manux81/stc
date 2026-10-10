@@ -1,3 +1,72 @@
 [type]
 description = "Map IEC primitive types to Rust types."
 mapping = { SINT = "i8", INT = "i16", DINT = "i32", LINT = "i64", USINT = "u8", UINT = "u16", UDINT = "u32", ULINT = "u64", REAL = "f32", LREAL = "f64", BOOL = "bool", BYTE = "u8", WORD = "u16", DWORD = "u32", LWORD = "u64", CHAR = "u8", WCHAR = "u16", UCHAR = "u32", STRING = "&'static str", WSTRING = "&'static str", USTRING = "&'static str", TIME = "i64", LTIME = "i64", DATE = "i64", LDATE = "i64", TOD = "i64", LTOD = "i64", TIME_OF_DAY = "i64", DT = "i64", LDT = "i64" }
+
+[type_alias]
+template = "/// IEC {kind} type `{name}`.\npub type {name} = {type};\n\n"
+
+[enum_type]
+template = "/// IEC enumeration `{name}`.\n#[allow(non_camel_case_types)]\n#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]\npub enum {name} {\n{values}}\n\n"
+
+[enum_value]
+template = "    {first}{name},\n"
+
+[structure_type]
+template = "/// IEC structure `{name}`.\n#[allow(non_snake_case)]\n#[derive(Default)]\npub struct {name} {\n{fields}}\n\n"
+
+[structure_field]
+template = "{indent}pub {name}: {type},\n"
+
+[string_type]
+template = "/// IEC string type `{name}`.\npub type {name} = String;\n\n"
+
+[reference_inline]
+template = "*mut {type}"
+
+[declarator]
+template = "{name}: {type}"
+
+[pointer_declarator]
+template = "{name}: &mut {type}"
+
+[array_declarator]
+template = "{name}: {type}"
+
+[array_pointer_declarator]
+template = "{name}: &mut {type}"
+
+[zero_default]
+template = "Default::default()"
+
+[zero_array]
+template = "[{value}; {size}]"
+
+[zero_named_array]
+template = "std::array::from_fn(|_| Default::default())"
+
+[zero_enum]
+template = "{type}::{value}"
+
+[zero_value]
+mapping = {"bool" = "false", "f32" = "0.0", "f64" = "0.0", "String" = "\"\"", "&'static str" = "\"\"", "Vec<u16>" = "Vec::new()", "i8" = "0", "i16" = "0", "i32" = "0", "i64" = "0", "u8" = "0", "u16" = "0", "u32" = "0", "u64" = "0"}
+
+[section_header]
+template = "// --- {title} {padding}\n\n"
+
+[local_variable]
+template = "{indent}let mut {name}: {type} = {value};\n"
+
+[state_field]
+template = "{indent}pub {name}: {type},\n"
+
+[enum_default_marker]
+template = "#[default] "
+
+[zero_reference]
+template = "std::ptr::null_mut()"
+
+[zero_vector]
+template = "Vec::new()"
+
+[layout_patterns]
+mapping = {"reference" = "\\*mut .*", "array" = "(?!)", "array_value" = "\\[(?P<type>.*);\\s*(?P<size>.*)\\]", "vector" = "Vec<.*>", "attached_name" = "(?!)"}

@@ -41,8 +41,8 @@ escape hatch; every emitted keyword lives in a template.
 
 `codegen/c.py` and `codegen/rust.py` are now bundle-parameterized visitors:
 given any valid bundle they render that backend's syntax. `compiler.py`
-selects the Rust visitor only for `rust`/`.rs` bundles and otherwise uses the
-C visitor shape with the active bundle, so `generators/<name>/` and
+selects the reference visitor from explicit `adapter = "c"` / `"rust"` metadata
+(with extension-based fallback for older bundles), so `generators/<name>/` and
 `--generator-path` backends need no Python registration.
 `codegen/sfc.py` only extracts the backend-neutral SFC model (steps,
 transitions, actions); `codegen/visitor.py` only dispatches AST node names.
@@ -135,37 +135,43 @@ The executable schema in `schema.py` is authoritative and drives
 Use `stc --gen-help` for the placeholders and `stc --gen-help SECTION` for a
 single contract. This keeps the public API and its documentation synchronized.
 
-## 5. Migration plan and present boundary
+## 5. Extended layout API and shared lowering
 
-Phases 1–4 are implemented for both bundled backends: primitive types,
-literals (including based literals via `based_prefix`), expressions,
-statements, calls, conversions, arrays, references, `FOR`, `CASE`, POU layout,
-properties, OOP dispatch/layout, SFC scans, IL lowering (linear and
-dispatcher forms), runtime primitives and file headers all render through
-the reference `.gen` files. Both bundles report 100% Generator API coverage
-and `COMPLETE` status.
+Phase 5 adds executable rules for `type_alias`, `enum_type`, `enum_value`,
+`enum_default_marker`, `structure_type`, `structure_field`, `string_type`,
+`reference_inline`, scalar/pointer/array declarators, local variables, persistent
+state fields, zero values, and section headers. The schema and `--gen-help`
+remain authoritative for their placeholders.
 
-Deliberately remaining Python-side work (all documented, none structural):
+Configuration generation now uses the shared `SharedLowering` implementation.
+Its `scheduler_*` rules render program instances, task state/defaults, cold and
+warm initialization, due-time calculations, timer advancement, firing, and the
+scheduler loop. Priority ordering and retention decisions remain semantic data.
+Both C and Rust render cyclic and SINGLE task handling through the same model.
+`global_variable` / `global_constant` render configuration globals.
 
-- per-declarator layout (`_format_declarator`, array-bracket splitting,
-  `*` vs `*mut` reference prefixes, `&mut` parameter prefixes in a few slot
-  shapes) and per-type zero literals (`zero_value`): these stay inside each
-  adapter next to the code that consumes them, pending dedicated layout rules
-  and a shared lowering module;
-- configuration scheduler signatures and section headers: `configuration`,
-  `global_variable` and `global_constant` templates exist and are
-  unit-tested, but the C/Rust visitors still assemble schedulers with legacy
-  helpers; they are the next migration slice together with named-type
-  (`typedef`/`enum`/`struct`) layout;
-- extracting the now-parallel C/Rust lowering logic (SFC scan composition,
-  IL threading, OOP model queries) into one shared `lowering.py` so future
-  backends reuse a single generic visitor. The current visitors are already
-  bundle-parameterized, so this is a mechanical extraction with no template
-  changes.
+`codegen/lowering.py` also owns the deterministic SFC scan, common IL operand,
+opcode and label algorithms, AST/declaration traversal helpers, and `OopModel`
+hierarchy queries. OOP interface ancestry is collected recursively.
 
-There is no `@builtin` rule and it is not part of the final backend contract.
-External paths and discovered `generators/NAME` directories require no Python
-installation or target-name registration.
+New generators are runnable copies of a reference bundle, including runtime
+primitives. `stc --new-generator NAME` starts from C;
+`stc --new-generator NAME --generator-base rust` starts from Rust. The command
+preserves existing directories by failing when the destination already exists.
+The copied language metadata records the adapter explicitly, so changing the
+backend name does not change lowering conventions.
+
+This extension changes the complete Generator API: external bundles must add
+the phase-5 sections. Generate a fresh reference copy and port customizations;
+`--check-generator` diagnoses missing sections and reports phase-5 coverage.
+
+The renderer deliberately remains a declarative template engine. There are no
+Python callbacks, AST access or arbitrary executable rules. The current adapters
+still own ABI choices and some expression/initialization glue, while `layout_patterns` in each bundle declares the type shapes used by shared
+declarator/default-value selection. Invalid patterns are rejected during loading. An entirely
+different runtime or ABI still needs a new lowering adapter. API coverage does
+not establish complete IEC language support or prove generated target code valid;
+the generated-code compile and execution tests provide that separate check.
 
 ## 6. External backend example
 
@@ -178,6 +184,6 @@ template = "{indent}{target} = ({value}); /* external-assign */\n"
 ```
 
 Then run `stc source.st --generator-path /absolute/path/to/my-language`.
-`stc --new-generator zig` creates all nine documented files without requiring
-source inspection, and `stc --check-generator <dir>` reports per-category and
+`stc --new-generator zig` creates all nine populated files and a runtime
+primitive source, and `stc --check-generator <dir>` reports per-category and
 per-phase coverage.

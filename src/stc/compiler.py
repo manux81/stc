@@ -307,12 +307,9 @@ def compile_source(
             libraries=libraries,
         )
 
-    # The two visitors are transitional AST-to-IR adapters.  The bundle's
-    # declared output extension selects the matching reference adapter while
-    # Phase 3/4 are still being migrated; rendering itself remains in .gen.
-    rust_adapter = target == "rust" or (
-        generator_bundle is not None and generator_bundle.extension == "rs"
-    )
+    # The lowering adapter is an explicit backend property, independent of
+    # the backend name or output file extension.
+    rust_adapter = (generator_bundle.adapter == "rust") if generator_bundle is not None else target == "rust"
     generator = (
         RustCodeGenerator(
             context=context,

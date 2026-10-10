@@ -5,6 +5,7 @@
 import re
 
 from .visitor import NodeVisitor
+from .lowering import OopModel, SharedLowering
 from .sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
 from .generator.engine import GeneratorEngine
 from .generator.ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop, UnaryExpression, WhileLoop
@@ -259,7 +260,7 @@ class OOPCEmitter:
         nested_inits = []
         for var_type, var_name in locals_ + temps:
             locals_text += (
-                f"    {self.g._format_declarator(var_type, var_name)} = {{0}};\n"
+                self.g.generator_engine.render("local_variable", indent="    ", declaration=self.g._format_declarator(var_type, var_name), name="", type="", value="{0}")
             )
             nested = self._class(var_type)
             if nested is not None:
@@ -466,44 +467,17 @@ class OOPCEmitter:
         return ret, (", " + joined if joined else "")
 
     def _own_fields(self, cls):
-        result = []
-
-        def collect(node):
-            if not isinstance(node, dict):
-                return
-            if node.get("name") in {"method_declaration", "method_prototype"}:
-                return
-            if node.get("name") in {
-                "input_declarations", "output_declarations",
-                "input_output_declarations", "var_declarations",
-                "retentive_var_declarations", "non_retentive_var_decls",
-            }:
-                result.extend(self.g.collect_var_decls(node))
-                return
-            for child in node.get("children", []):
-                collect(child)
-
-        collect(cls["node"])
-        return self.g._unique_declarations(result)
+        return OopModel(self.g).own_fields(cls)
 
     def _field_paths(self, cls):
-        result = {}
-        base = self._class(cls.get("base"))
-        if base is not None:
-            for key, path in self._field_paths(base).items():
-                result[key] = "__base." + path
-        for _, field in self._own_fields(cls):
-            result[field.casefold()] = field
-        return result
+        return OopModel(self.g).field_paths(cls)
 
     def _vptr_path(self, cls):
         base = self._class(cls.get("base")) if cls else None
         return "__vptr" if base is None else "__base." + self._vptr_path(base)
 
     def _class(self, value):
-        if isinstance(value, dict):
-            return value
-        return self.classes.get(_key(value))
+        return OopModel(self.g).class_for(value)
 
     def _all_class_methods(self, cls):
         result = []
@@ -553,20 +527,7 @@ class OOPCEmitter:
         return result
 
     def _implemented_interfaces(self, cls):
-        result = {}
-        base = self._class(cls.get("base"))
-        if base is not None:
-            for iface in self._implemented_interfaces(base):
-                result[iface["key"]] = iface
-        for name in cls.get("interfaces", []):
-            iface = self.interfaces.get(_key(name))
-            if iface is not None:
-                result[iface["key"]] = iface
-                for parent_name in iface.get("extends", []):
-                    parent = self.interfaces.get(_key(parent_name))
-                    if parent is not None:
-                        result[parent["key"]] = parent
-        return list(result.values())
+        return OopModel(self.g).implemented_interfaces(cls)
 
     def _class_order(self):
         result = []
@@ -586,74 +547,8 @@ class OOPCEmitter:
         return result
 
 
-class CCodeGenerator(NodeVisitor):
-    def _il_descendants(self, node, name):
-        if not isinstance(node, dict):
-            return []
-        found = [node] if node.get("name") == name else []
-        for child in node.get("children", []):
-            found.extend(self._il_descendants(child, name))
-        return found
+class CCodeGenerator(SharedLowering, NodeVisitor):
 
-    def _il_token(self, node):
-        tokens = self._il_descendants(node, "token")
-        return next((str(item.get("value", "")).upper() for item in tokens if item.get("value") != "\u2029"), "")
-
-    def _il_operand_node(self, operation):
-        operands = self._il_descendants(operation, "il_operand")
-        if not operands:
-            return None
-        children = [item for item in operands[0].get("children", []) if isinstance(item, dict)]
-        return children[0] if children else None
-
-    def _il_render_operand(self, operation):
-        operand = self._il_operand_node(operation)
-        if operand is None:
-            return None
-        # The grammar cannot distinguish an unqualified enumeration element
-        # from a symbolic variable. Prefer a declared/current-instance name;
-        # qualified enum values remain represented by their dedicated node.
-        if operand.get("name") == "enumerated_value":
-            operand = {"name": "variable_name", "value": operand.get("value", ""), "children": []}
-        return self.render(operand)
-
-    def _il_opcode_key(self, opcode):
-        """Map an IL opcode to a backend-agnostic operator key.
-
-        IL conjunction is bitwise; the backend operator mapping supplies the
-        actual spelling, so no target keyword appears here.
-        """
-        table = {
-            "AND": "BIT_AND", "&": "BIT_AND", "AN": "BIT_AND", "ANDN": "BIT_AND",
-            "OR": "BIT_OR", "ORN": "BIT_OR", "XOR": "XOR", "XORN": "XOR",
-            "ADD": "ADD", "SUB": "SUB", "MUL": "MUL", "DIV": "DIV", "MOD": "MOD",
-            "GT": "GT", "GE": "GE", "EQ": "EQ", "LT": "LT", "LE": "LE",
-            "NE": "NE",
-        }
-        return table.get(opcode, opcode)
-
-    def _il_boolean_not(self, expression):
-        return f"{self.generator_engine.map('operator', 'NOT')}({expression})"
-
-    def _il_true(self):
-        return self.generator_engine.map("boolean_literal", "TRUE")
-
-    def _il_false(self):
-        return self.generator_engine.map("boolean_literal", "FALSE")
-
-    def _il_assignment(self, target, expression):
-        return f"{target} = {expression};"
-
-    def _il_emit_line(self, statement):
-        self.text += f"{self.indent}{statement}\n"
-
-    def _il_has_jumps(self, instructions):
-        jump_opcodes = {"JMP", "JMPC", "JMPCN"}
-        for instruction in instructions:
-            for child in instruction.get("children", []):
-                if isinstance(child, dict) and self._il_token(child) in jump_opcodes:
-                    return True
-        return False
 
     def _il_operation(self, instruction):
         return next(
@@ -661,21 +556,6 @@ class CCodeGenerator(NodeVisitor):
             None,
         )
 
-    def _il_labels(self, instruction):
-        return [
-            item for item in instruction.get("children", [])
-            if isinstance(item, dict) and item.get("name") == "label"
-        ]
-
-    def _il_call_arguments(self, operation, accumulator):
-        arguments = [accumulator] if accumulator is not None else []
-        for item in self._il_descendants(operation, "il_operand"):
-            child = next((c for c in item.get("children", []) if isinstance(c, dict)), None)
-            if child is not None:
-                if child.get("name") == "enumerated_value":
-                    child = {"name": "variable_name", "value": child.get("value", ""), "children": []}
-                arguments.append(self.render(child))
-        return arguments
 
     def visit_instruction_list(self, node):
         instructions = self._il_descendants(node, "il_instruction")
@@ -779,13 +659,6 @@ class CCodeGenerator(NodeVisitor):
                 "il_assign", target=target, value=accumulator, indent=self.indent
             )
 
-    def _il_label_index(self, instructions, destination):
-        wanted = str(destination or "").casefold()
-        for index, instruction in enumerate(instructions):
-            for label in self._il_labels(instruction):
-                if str(label.get("value", "")).casefold() == wanted:
-                    return index
-        return len(instructions)
 
     def _visit_il_dispatch(self, node, instructions):
         engine = self.generator_engine
@@ -984,19 +857,6 @@ class CCodeGenerator(NodeVisitor):
         escaped = self.source_name.replace("\\", "\\\\").replace('"', '\\"')
         return f'#line {span.start_line} "{escaped}"\n'
 
-    def indent_inc(self):
-        self.indent += "    "
-
-    def indent_dec(self):
-        self.indent = self.indent[:-4]
-
-    def render(self, node):
-        previous = self.text
-        self.text = ""
-        self.visit(node)
-        rendered = self.text
-        self.text = previous
-        return rendered
 
     def extract_type(self, node):
         if isinstance(node, dict):
@@ -1012,7 +872,7 @@ class CCodeGenerator(NodeVisitor):
         """Return a target type for an IEC declaration, including strings."""
         reference = self._first_named(node, "reference_specification")
         if reference is not None:
-            return f"{self.extract_type(reference) or fallback} *"
+            return self.generator_engine.render("reference_inline", type=self.extract_type(reference) or fallback)
         if self._first_named(node, "single_byte_string_spec") is not None:
             return "const char *"
         if self._first_named(node, "double_byte_string_spec") is not None:
@@ -1027,15 +887,6 @@ class CCodeGenerator(NodeVisitor):
                 return self.iecType2C(type_name)
         return fallback
 
-    def _raw_values(self, node):
-        if isinstance(node, str):
-            yield node
-        elif isinstance(node, dict):
-            value = node.get("value")
-            if isinstance(value, str):
-                yield value
-            for child in node.get("children", []):
-                yield from self._raw_values(child)
 
     def _string_max_length(self, expression):
         """Return the declared maximum length of an IEC string expression."""
@@ -1059,16 +910,6 @@ class CCodeGenerator(NodeVisitor):
         # IEC default maximum length when no explicit [n] is supplied.
         return 80
 
-    def zero_value(self, c_type):
-        if c_type == "bool":
-            return "false"
-        if c_type == "float":
-            return "0.0f"
-        if c_type == "double":
-            return "0.0"
-        if c_type == "const char *":
-            return "NULL"
-        return "0"
 
     def _array_dimensions(self, specification):
         dimensions = ""
@@ -1085,7 +926,7 @@ class CCodeGenerator(NodeVisitor):
     def _declaration_type(self, node):
         reference = self._first_named(node, "reference_specification")
         if reference is not None:
-            return f"{self.extract_type(reference) or 'int16_t'} *"
+            return self.generator_engine.render("reference_inline", type=self.extract_type(reference) or self.iecType2C("INT"))
         if self._first_named(node, "single_byte_string_spec") is not None:
             return "const char *"
         if self._first_named(node, "double_byte_string_spec") is not None:
@@ -1110,20 +951,9 @@ class CCodeGenerator(NodeVisitor):
                     return leaf
         return self.declaration_type(node)
 
-    @staticmethod
-    def _format_declarator(var_type, name, pointer=False):
-        bracket = var_type.find("[")
-        if bracket >= 0:
-            base, dimensions = var_type[:bracket], var_type[bracket:]
-            return f"{base} (*{name}){dimensions}" if pointer else f"{base} {name}{dimensions}"
-        if pointer:
-            separator = "" if var_type.rstrip().endswith("*") else " "
-            return f"{var_type}{separator}*{name}"
-        separator = "" if var_type.rstrip().endswith("*") else " "
-        return f"{var_type}{separator}{name}"
 
     def _emit_section(self, title):
-        self.text += f"/* --- {title} " + "-" * max(1, 68 - len(title)) + " */\n\n"
+        self.text += self.generator_engine.render("section_header", title=title, padding="-" * max(1, 68 - len(title)))
 
     def collect_var_decls(self, node):
         declarations = []
@@ -1151,26 +981,10 @@ class CCodeGenerator(NodeVisitor):
             declarations.extend(self.collect_var_decls(child))
         return declarations
 
-    def _section_declarations(self, node):
-        declarations = []
-        for section in ("input_declarations", "output_declarations", "input_output_declarations",
-                        "var_declarations", "retentive_var_declarations", "non_retentive_var_decls",
-                        "temp_var_decls", "function_var_decls"):
-            declarations.extend(self.collect_sections(node, section))
-        return declarations
-
-    def _persistent_declarations(self, node):
-        declarations = []
-        for section in ("input_declarations", "output_declarations", "input_output_declarations",
-                        "var_declarations", "retentive_var_declarations", "non_retentive_var_decls"):
-            declarations.extend(self.collect_sections(node, section))
-        return declarations
 
     def _temporary_declarations(self, node):
         return self.collect_sections(node, "temp_var_decls")
 
-    def _retained_declarations(self, node):
-        return self.collect_sections(node, "retentive_var_declarations")
 
     def _declaration_initializers(self, node):
         result = {}
@@ -1203,14 +1017,6 @@ class CCodeGenerator(NodeVisitor):
             self.current_instance, self.current_instance_fields = previous_instance, previous_fields
         return result
 
-    def _iter_named_set(self, node, names):
-        if not isinstance(node, dict):
-            return
-        if node.get("name") in names:
-            yield node
-            return
-        for child in node.get("children", []):
-            yield from self._iter_named_set(child, names)
 
     @staticmethod
     def _unique_declarations(declarations):
@@ -1245,29 +1051,10 @@ class CCodeGenerator(NodeVisitor):
                     self.text += f"    self->{field} = {initializers[field.casefold()]};\n"
         self.text += "}\n\n"
 
-    def _capture_emission(self, callback):
-        previous = self.text
-        self.text = ""
-        try:
-            callback()
-            return self.text
-        finally:
-            self.text = previous
 
     def text_append(self, value):
         self.text += value
 
-    def collect_sections(self, node, section_name):
-        if not isinstance(node, dict):
-            return []
-        if node.get("name") == "property_declaration":
-            return []
-        if node.get("name") == section_name:
-            return self.collect_var_decls(node)
-        declarations = []
-        for child in node.get("children", []):
-            declarations.extend(self.collect_sections(child, section_name))
-        return declarations
 
     def visit_integer_literal(self, node):
         value = node["value"].replace("_", "")
@@ -1283,14 +1070,6 @@ class CCodeGenerator(NodeVisitor):
             "real_literal", Literal(value=value, type_name=c_type, suffix=suffix)
         ) if self.generator_engine is not None else value + suffix
 
-    def visit_integer(self, node):
-        self.text += node["value"].replace("_", "")
-
-    def visit_signed_integer(self, node):
-        if node.get("value") is not None:
-            self.text += str(node["value"]).replace("_", "")
-        else:
-            self.accept(node)
 
     def _visit_based_integer(self, node, base):
         value = self.render(node["children"][0]).replace("_", "")
@@ -1310,14 +1089,6 @@ class CCodeGenerator(NodeVisitor):
         else:
             self.text += prefix + normalized
 
-    def visit_binary_integer(self, node):
-        self._visit_based_integer(node, 2)
-
-    def visit_octal_integer(self, node):
-        self._visit_based_integer(node, 8)
-
-    def visit_hex_integer(self, node):
-        self._visit_based_integer(node, 16)
 
     def visit_boolean_literal(self, node):
         self.text += (
@@ -1325,109 +1096,12 @@ class CCodeGenerator(NodeVisitor):
             if self.generator_engine is not None else node["value"].lower()
         )
 
-    def visit_bit_string_literal(self, node):
-        for child in node["children"]:
-            self.visit(child)
-
-    def _iec_string(self, node):
-        token = self._first_named(node, "token")
-        raw = str(token.get("value", "''")) if token else "''"
-        content = raw[1:-1] if len(raw) >= 2 else raw
-        content = content.replace("$N", "\n").replace("$n", "\n")
-        content = content.replace("$T", "\t").replace("$t", "\t")
-        content = content.replace("$$", "$").replace("$''", "'").replace("$'", "'")
-        content = content.replace("''", "'")
-        content = content.replace("\\", "\\\\").replace('"', '\\"')
-        content = content.replace("\n", "\\n").replace("\t", "\\t")
-        return f'"{content}"'
-
-    @staticmethod
-    def _unicode_content(raw):
-        """Decode the Edition 4 ${HEX} escape into a Unicode scalar value."""
-        sharp = raw.find("#")
-        quoted = raw[sharp + 1:].strip() if sharp >= 0 else raw
-        content = quoted[1:-1] if len(quoted) >= 2 else quoted
-        content = re.sub(
-            r"\$\{([0-9A-Fa-f]{1,6})\}",
-            lambda match: (
-                chr(int(match.group(1), 16))
-                if int(match.group(1), 16) <= 0x10FFFF
-                and not 0xD800 <= int(match.group(1), 16) <= 0xDFFF
-                else "\ufffd"
-            ),
-            content,
-        )
-        return content.replace("$N", "\n").replace("$n", "\n").replace("$$", "$").replace("''", "'")
-
-    def visit_unicode_character_string(self, node):
-        token = self._first_named(node, "token")
-        raw = str(token.get("value", "U#''")) if token else "U#''"
-        content = self._unicode_content(raw)
-        if raw.lstrip().upper().startswith("UCHAR"):
-            self.text += str(ord(content[0]) if content else 0)
-            return
-        escaped = content.replace("\\", "\\\\").replace('"', '\\"')
-        escaped = escaped.replace("\n", "\\n").replace("\t", "\\t")
-        self.text += f'"{escaped}"'
-
-    @staticmethod
-    def _typed_character_content(raw):
-        quoted = raw[raw.find("#") + 1:].strip()
-        content = quoted[1:-1] if len(quoted) >= 2 else quoted
-        content = re.sub(
-            r"\$([0-9A-Fa-f]{2}|[0-9A-Fa-f]{4})",
-            lambda match: chr(int(match.group(1), 16)),
-            content,
-        )
-        return content.replace("$N", "\n").replace("$n", "\n").replace("$T", "\t").replace("$t", "\t").replace("$$", "$").replace("''", "'").replace('""', '"')
-
-    def visit_typed_character_string(self, node):
-        token = self._first_named(node, "token")
-        raw = str(token.get("value", "STRING#''")) if token else "STRING#''"
-        prefix = raw[:raw.find("#")].strip().upper()
-        content = self._typed_character_content(raw)
-        if prefix in {"CHAR", "WCHAR"}:
-            self.text += str(ord(content[0]) if content else 0)
-            return
-        escaped = content.replace("\\", "\\\\").replace('"', '\\"')
-        escaped = escaped.replace("\n", "\\n").replace("\t", "\\t")
-        self.text += f'"{escaped}"'
-
-    def visit_single_byte_character_string(self, node):
-        self.text += self._iec_string(node)
 
     def visit_double_byte_character_string(self, node):
         token = self._first_named(node, "token")
         raw = str(token.get("value", '""')) if token else '""'
         self.text += raw
 
-    def visit_duration(self, node):
-        multipliers = {"d": 86400000, "h": 3600000, "m": 60000, "s": 1000, "ms": 1}
-        total = 0.0
-        for component in self._named_nodes(node, "duration_component"):
-            number = self._first_named(component, "integer") or self._first_named(component, "real_literal")
-            tokens = self._named_nodes(component, "token")
-            unit = str(tokens[-1].get("value", "ms")).casefold() if tokens else "ms"
-            try:
-                total += float(number.get("value", 0)) * multipliers.get(unit, 1)
-            except (AttributeError, ValueError):
-                pass
-        self.text += str(int(total))
-
-    def visit_date(self, node):
-        values = [int(item.get("value", 0)) for item in self._named_nodes(node, "integer")]
-        self.text += str(values[0] * 10000 + values[1] * 100 + values[2] if len(values) >= 3 else 0)
-
-    def visit_time_of_day(self, node):
-        values = [int(float(item.get("value", 0))) for item in self._named_nodes(node, "integer")]
-        self.text += str(((values[0] * 60 + values[1]) * 60 + values[2]) * 1000 if len(values) >= 3 else 0)
-
-    def visit_date_and_time(self, node):
-        values = [int(float(item.get("value", 0))) for item in self._named_nodes(node, "integer")]
-        if len(values) >= 6:
-            self.text += str((((values[0] * 100 + values[1]) * 100 + values[2]) * 1000000) + values[3] * 10000 + values[4] * 100 + values[5])
-        else:
-            self.text += "0"
 
     def visit_signed_integer_type_name(self, node):
         self.text += self.iecType2C(node["value"])
@@ -1463,8 +1137,6 @@ class CCodeGenerator(NodeVisitor):
     def visit_qualified_enumerated_value(self, node):
         self.accept(node)
 
-    def visit_field_selector(self, node):
-        self.text += str(node.get("value", ""))
 
     def visit_structured_variable(self, node):
         info = self.context.resolved_properties.get(id(node)) if self.context is not None else None
@@ -1665,8 +1337,7 @@ class CCodeGenerator(NodeVisitor):
             initializer = self._first_named(global_decl, "constant")
             initial_value = self.render(initializer) if initializer is not None else "0"
             for name in names:
-                qualifier = "const " if is_constant else ""
-                self.text += qualifier + self._format_declarator(var_type, name) + f" = {initial_value};\n"
+                self.text += self.generator_engine.render("global_constant" if is_constant else "global_variable", name=name, type=var_type, value=initial_value, declaration=self._format_declarator(var_type, name), is_constant="1" if is_constant else "")
         if global_declarations:
             self.text += "\n"
         declarations = list(self._function_declarations(node))
@@ -1734,11 +1405,6 @@ class CCodeGenerator(NodeVisitor):
         params += [self._format_declarator(var_type, var_name, pointer=True) for var_type, var_name in output_decls + inout_decls]
         return return_type, emitted_name, params
 
-    def visit_standard_function_name(self, node):
-        self.text += node["value"]
-
-    def visit_derived_function_name(self, node):
-        self.text += node["value"]
 
     def visit_primary_expression(self, node):
         children = node.get("children", [])
@@ -1809,9 +1475,9 @@ class CCodeGenerator(NodeVisitor):
         )
         locals_text = ""
         if return_type != "void":
-            locals_text += f"    {self._format_declarator(return_type, name)} = {{0}};\n"
+            locals_text += self.generator_engine.render("local_variable", indent="    ", declaration=self._format_declarator(return_type, name), name="", type="", value="{0}")
         for var_type, var_name in local_decls:
-            locals_text += f"    {self._format_declarator(var_type, var_name)} = {{0}};\n"
+            locals_text += self.generator_engine.render("local_variable", indent="    ", declaration=self._format_declarator(var_type, var_name), name="", type="", value="{0}")
         if local_decls or return_type != "void":
             locals_text += "\n"
         old_indent = self.indent
@@ -1848,7 +1514,7 @@ class CCodeGenerator(NodeVisitor):
                 if step["initial"]:
                     initializers[sfc_field(step["name"], "active").casefold()] = "true"
 
-        fields = "".join(f"    {self._format_declarator(t, n)};\n" for t, n in declarations) or "    uint8_t _stc_empty;\n"
+        fields = "".join(self.generator_engine.render("state_field", indent="    ", declaration=self._format_declarator(t, n), name="", type="") for t, n in declarations) or "    uint8_t _stc_empty;\n"
         properties = self._capture_emission(lambda: self._emit_function_block_properties(name, node, declarations))
         setup_text = "    memset(self, 0, sizeof(*self));\n"
         for chart in sfc_charts(node):
@@ -1874,7 +1540,7 @@ class CCodeGenerator(NodeVisitor):
         self.indent = "    "
         temporaries_text = "    (void)self;\n"
         for var_type, var_name in temporaries:
-            temporaries_text += f"    {self._format_declarator(var_type, var_name)} = {{0}};\n"
+            temporaries_text += self.generator_engine.render("local_variable", indent="    ", declaration=self._format_declarator(var_type, var_name), name="", type="", value="{0}")
         if temporaries:
             temporaries_text += "\n"
         if native is not None and native.kind == "function_block":
@@ -1913,7 +1579,7 @@ class CCodeGenerator(NodeVisitor):
                 self.collect_sections(method, "function_var_decls")
                 + self.collect_sections(method, "temp_var_decls")
             ):
-                locals_text += f"    {self._format_declarator(var_type, local)} = {{0}};\n"
+                locals_text += self.generator_engine.render("local_variable", indent="    ", declaration=self._format_declarator(var_type, local), name="", type="", value="{0}")
 
             old_instance, old_fields = self.current_instance, self.current_instance_fields
             old_paths, old_pointers = self.current_instance_field_paths, self.current_pointer_params
@@ -1964,7 +1630,7 @@ class CCodeGenerator(NodeVisitor):
             for step in chart["steps"]:
                 if step["initial"]:
                     initializers[sfc_field(step["name"], "active").casefold()] = "true"
-        fields = "".join(f"    {self._format_declarator(var_type, var_name)};\n" for var_type, var_name in declarations)
+        fields = "".join(self.generator_engine.render("state_field", indent="    ", declaration=self._format_declarator(var_type, var_name), name="", type="") for var_type, var_name in declarations)
         if not fields:
             fields = "    uint8_t _stc_empty;\n"
         initializers_text = self._capture_emission(
@@ -1976,7 +1642,7 @@ class CCodeGenerator(NodeVisitor):
         self.indent = "    "
         temporaries_text = "    (void)self;\n"
         for var_type, var_name in temporaries:
-            temporaries_text += f"    {self._format_declarator(var_type, var_name)} = {{0}};\n"
+            temporaries_text += self.generator_engine.render("local_variable", indent="    ", declaration=self._format_declarator(var_type, var_name), name="", type="", value="{0}")
         if temporaries:
             temporaries_text += "\n"
         body_node = self._first_named(node, "function_block_body")
@@ -2001,29 +1667,6 @@ class CCodeGenerator(NodeVisitor):
             "sfc_action_decl", name=name_node["value"], body=body
         )
 
-    def _sfc_flag(self, field):
-        return self.generator_engine.render("sfc_flag", field=field)
-
-    def _sfc_step_condition(self, step, association):
-        engine = self.generator_engine
-        active = self._sfc_flag(sfc_field(step["name"], "active"))
-        previous = self._sfc_flag(sfc_field(step["name"], "previous"))
-        elapsed = self._sfc_flag(sfc_field(step["name"], "elapsed_ms"))
-        and_op = engine.map("operator", "AND")
-        not_op = engine.map("operator", "NOT")
-        qualifier = association["qualifier"]
-        time = self.render(association["time"]) if association["time"] is not None else "0"
-        if qualifier in {"P", "P1"}:
-            return f"({active} {and_op} {not_op}{previous})"
-        if qualifier == "P0":
-            return f"({not_op}{active} {and_op} {previous})"
-        if qualifier == "L":
-            return f"({active} {and_op} {elapsed} {engine.map('operator', 'LT')} ({time}))"
-        if qualifier in {"D", "SD", "DS"}:
-            return f"({active} {and_op} {elapsed} {engine.map('operator', 'GE')} ({time}))"
-        if qualifier == "SL":
-            return f"({active} {and_op} {elapsed} {engine.map('operator', 'LT')} ({time}))"
-        return active
 
     def _sfc_state_types(self):
         """Return backend-spelled (bool, time) types for SFC state fields."""
@@ -2034,236 +1677,6 @@ class CCodeGenerator(NodeVisitor):
             )
         return ("bool", "int64_t")
 
-    def _sfc_variable(self, name):
-        return self.render({"name": "variable_name", "value": name, "children": []})
-
-    def visit_sequential_function_chart(self, node):
-        """Execute one deterministic SFC scan using persistent POU state."""
-        engine = self.generator_engine
-        and_op = engine.map("operator", "AND")
-        or_op = engine.map("operator", "OR")
-        not_op = engine.map("operator", "NOT")
-        false_value = engine.map("boolean_literal", "FALSE")
-        true_value = engine.map("boolean_literal", "TRUE")
-        for chart_index, chart in enumerate(sfc_charts(node)):
-            ordered = sorted(enumerate(chart["transitions"]), key=lambda item: (item[1]["priority"], item[0]))
-            earlier_sources = []
-            fire_names = {}
-            decls = {}
-            for ordinal, transition in ordered:
-                fire = f"__sfc_{chart_index}_fire_{ordinal}"
-                fire_names[ordinal] = fire
-                sources = f" {and_op} ".join(
-                    self._sfc_flag(sfc_field(name, "active")) for name in transition["sources"]
-                ) or false_value
-                condition = self.render(transition["condition"]) if transition["condition"] is not None else false_value
-                current_sources = {item.casefold() for item in transition["sources"]}
-                blocked = [
-                    name for name, used in earlier_sources
-                    if {item.casefold() for item in used} & current_sources
-                ]
-                gate = "" if not blocked else f" {and_op} " + f" {and_op} ".join(f"{not_op}{name}" for name in blocked)
-                decls[ordinal] = engine.render(
-                    "sfc_fire",
-                    fire=fire,
-                    sources=sources,
-                    condition=condition,
-                    gate=gate,
-                    indent=self.indent,
-                )
-                earlier_sources.append((fire, transition["sources"]))
-
-            chunks = []
-            for ordinal, transition in enumerate(chart["transitions"]):
-                fire = fire_names.get(ordinal)
-                if fire is None:
-                    continue
-                self.indent_inc()
-                body = ""
-                for name in transition["sources"]:
-                    body += engine.render(
-                        "sfc_step_assign",
-                        step=sfc_field(name, "active"),
-                        value=false_value,
-                        indent=self.indent,
-                    )
-                for name in transition["targets"]:
-                    body += engine.render(
-                        "sfc_step_assign",
-                        step=sfc_field(name, "active"),
-                        value=true_value,
-                        indent=self.indent,
-                    )
-                self.indent_dec()
-                chunks.append(
-                    engine.render(
-                        "sfc_transition",
-                        fire=fire,
-                        sources="",
-                        targets="",
-                        condition=(
-                            self.render(transition["condition"])
-                            if transition["condition"] is not None
-                            else false_value
-                        ),
-                        priority=transition["priority"],
-                        decl=decls[ordinal],
-                        body=body,
-                        indent=self.indent,
-                    )
-                )
-
-            for step in chart["steps"]:
-                chunks.append(
-                    engine.render(
-                        "sfc_elapsed",
-                        step=step["name"],
-                        active=sfc_field(step["name"], "active"),
-                        previous=sfc_field(step["name"], "previous"),
-                        elapsed=sfc_field(step["name"], "elapsed_ms"),
-                        indent=self.indent,
-                    )
-                )
-
-            variable_conditions = {}
-            indicator_conditions = {}
-            variable_sets = {}
-            variable_resets = {}
-            action_sets = {}
-            action_resets = {}
-            stored_actions = set()
-            for step in chart["steps"]:
-                for association in step["associations"]:
-                    condition = self._sfc_step_condition(step, association)
-                    qualifier = association["qualifier"]
-                    key = association["name"].casefold()
-                    action = chart["actions"].get(key)
-                    if action is not None:
-                        if qualifier == "R":
-                            action_resets.setdefault(key, []).append(condition)
-                        elif qualifier in {"S", "SD", "DS"}:
-                            action_sets.setdefault(key, []).append(condition)
-                            stored_actions.add(key)
-                        else:
-                            self.indent_inc()
-                            action_body = self._capture_emission(
-                                lambda: self.accept(action, lambda child_name: child_name == "function_block_body")
-                            )
-                            self.indent_dec()
-                            chunks.append(
-                                engine.render(
-                                    "sfc_action",
-                                    condition=condition,
-                                    body=action_body,
-                                    indent=self.indent,
-                                )
-                            )
-                    elif qualifier == "R":
-                        variable_resets.setdefault(association["name"], []).append(condition)
-                    elif qualifier in {"S", "SD", "DS"}:
-                        variable_sets.setdefault(association["name"], []).append(condition)
-                    else:
-                        variable_conditions.setdefault(association["name"], []).append(condition)
-                    for indicator in association["indicators"]:
-                        indicator_name = self._first_named(indicator, "variable_name")
-                        if indicator_name is not None:
-                            indicator_conditions.setdefault(indicator_name["value"], []).append(condition)
-
-            combined_conditions = dict(variable_conditions)
-            for name, conditions in indicator_conditions.items():
-                combined_conditions.setdefault(name, []).extend(conditions)
-            for name, conditions in combined_conditions.items():
-                enabled = conditions[0] if len(conditions) == 1 else f" {or_op} ".join(f"({item})" for item in conditions)
-                if name in variable_sets or name in variable_resets:
-                    chunks.append(
-                        engine.render(
-                            "sfc_set",
-                            target=self._sfc_variable(name),
-                            condition=enabled,
-                            value=true_value,
-                            indent=self.indent,
-                        )
-                    )
-                else:
-                    chunks.append(
-                        engine.render(
-                            "sfc_assign",
-                            target=self._sfc_variable(name),
-                            condition=enabled,
-                            indent=self.indent,
-                        )
-                    )
-            for name, conditions in variable_sets.items():
-                enabled = f" {or_op} ".join(f"({item})" for item in conditions)
-                chunks.append(
-                    engine.render(
-                        "sfc_set",
-                        target=self._sfc_variable(name),
-                        condition=enabled,
-                        value=true_value,
-                        indent=self.indent,
-                    )
-                )
-            for name, conditions in variable_resets.items():
-                enabled = f" {or_op} ".join(f"({item})" for item in conditions)
-                chunks.append(
-                    engine.render(
-                        "sfc_set",
-                        target=self._sfc_variable(name),
-                        condition=enabled,
-                        value=false_value,
-                        indent=self.indent,
-                    )
-                )
-            for key, conditions in action_sets.items():
-                enabled = f" {or_op} ".join(f"({item})" for item in conditions)
-                chunks.append(
-                    engine.render(
-                        "sfc_stored",
-                        action=sfc_field("action_" + key, "stored"),
-                        condition=enabled,
-                        value=true_value,
-                        indent=self.indent,
-                    )
-                )
-            for key, conditions in action_resets.items():
-                enabled = f" {or_op} ".join(f"({item})" for item in conditions)
-                chunks.append(
-                    engine.render(
-                        "sfc_stored",
-                        action=sfc_field("action_" + key, "stored"),
-                        condition=enabled,
-                        value=false_value,
-                        indent=self.indent,
-                    )
-                )
-            for key in sorted(stored_actions):
-                action = chart["actions"][key]
-                state = self._sfc_flag(sfc_field("action_" + key, "stored"))
-                self.indent_inc()
-                stored_body = self._capture_emission(
-                    lambda: self.accept(action, lambda child_name: child_name == "function_block_body")
-                )
-                self.indent_dec()
-                chunks.append(
-                    engine.render(
-                        "sfc_action", condition=state, body=stored_body, indent=self.indent
-                    )
-                )
-            for step in chart["steps"]:
-                chunks.append(
-                    engine.render(
-                        "sfc_previous",
-                        step=step["name"],
-                        active=sfc_field(step["name"], "active"),
-                        previous=sfc_field(step["name"], "previous"),
-                        indent=self.indent,
-                    )
-                )
-            self.text += engine.render(
-                "sfc_chart", body="".join(chunks), indent=self.indent,
-                steps="", transitions="", actions="",
-            )
 
     def visit_simple_type_declaration(self, node):
         name = self._first_named(node, "simple_type_name")
@@ -2278,7 +1691,7 @@ class CCodeGenerator(NodeVisitor):
                 (self.iecType2C(item.get("value")) for item in self._named_nodes(node, "signed_integer_type_name") + self._named_nodes(node, "unsigned_integer_type_name") + self._named_nodes(node, "real_type_name") + self._named_nodes(node, "bit_string_type_name") if item.get("value")),
                 "int16_t",
             )
-            self.text += f"typedef {underlying} {name['value']};\n"
+            self.text += self.generator_engine.render("type_alias", type=underlying, name=name["value"], kind="derived")
 
     def visit_data_type_declaration(self, node):
         if self._types_pre_emitted:
@@ -2312,17 +1725,8 @@ class CCodeGenerator(NodeVisitor):
                 (self.iecType2C(item.get("value")) for item in self._named_nodes(node, "signed_integer_type_name") + self._named_nodes(node, "unsigned_integer_type_name") if item.get("value")),
                 "int16_t",
             )
-            self.text += f"typedef {underlying} {name['value']};\n"
+            self.text += self.generator_engine.render("type_alias", type=underlying, name=name["value"], kind="derived")
 
-    def visit_enumerated_type_declaration(self, node):
-        name = self._first_named(node, "enumerated_type_name")
-        values = [item["value"] for item in self._named_nodes(node, "enumerated_value") if item.get("value")]
-        if name and values:
-            self.text += f"typedef enum {name['value']} {{\n"
-            for index, value in enumerate(values):
-                comma = "," if index < len(values) - 1 else ""
-                self.text += f"    {value}{comma}\n"
-            self.text += f"}} {name['value']};\n"
 
     def visit_array_type_declaration(self, node):
         name = self._first_named(node, "array_type_name")
@@ -2335,11 +1739,6 @@ class CCodeGenerator(NodeVisitor):
         element = self.declaration_type(spec)
         self.text += self.generator_engine.render("array_type", name=name, element_type=element, dimensions=sizes)
 
-    def visit_string_type_declaration(self, node):
-        name = self._first_named(node, "string_type_name")
-        size = next((self.render(item) for item in self._named_nodes(node, "integer")), "80")
-        if name:
-            self.text += f"typedef char {name['value']}[{size} + 1];\n"
 
     def visit_structure_type_declaration(self, node):
         name = self._first_named(node, "structure_type_name")
@@ -2348,14 +1747,18 @@ class CCodeGenerator(NodeVisitor):
         self._emit_structure_type(name["value"], node)
 
     def _emit_structure_type(self, name, node):
-        self.text += f"typedef struct {name} {{\n"
+        fields = []
         self.indent_inc()
         for element in self._named_nodes(node, "structure_element_declaration"):
             field = self._first_named(element, "structure_element_name")
             if field:
-                self.text += f"{self.indent}{self._format_declarator(self._declaration_type(element), field['value'])};\n"
+                var_type = self._declaration_type(element)
+                fields.append(self.generator_engine.render(
+                    "structure_field", indent=self.indent, type=var_type,
+                    name=field["value"], declaration=self._format_declarator(var_type, field["value"]),
+                ))
         self.indent_dec()
-        self.text += f"}} {name};\n"
+        self.text += self.generator_engine.render("structure_type", name=name, fields="".join(fields))
 
     def _named_nodes(self, node, name):
         result = []
@@ -2367,20 +1770,6 @@ class CCodeGenerator(NodeVisitor):
             result.extend(self._named_nodes(child, name))
         return result
 
-    def _emit_native_code(self, source):
-        for line in source.splitlines():
-            self.text += f"{self.indent}{line.rstrip()}\n" if line.strip() else "\n"
-
-    def _first_named(self, node, name):
-        if not isinstance(node, dict):
-            return None
-        if node.get("name") == name:
-            return node
-        for child in node.get("children", []):
-            found = self._first_named(child, name)
-            if found is not None:
-                return found
-        return None
 
     def visit_var1_init_decl(self, node):
         var_type = self.extract_type(node) or "int16_t"
@@ -2516,26 +1905,6 @@ class CCodeGenerator(NodeVisitor):
         lowered = Assignment(self.render(variable), self.render(expression), self.indent)
         self.text += self.generator_engine.render("assignment", lowered) if self.generator_engine is not None else f"{lowered.indent}{lowered.target} = {lowered.value};\n"
 
-    def visit_reference_constructor(self, node):
-        variable = self._first_named(node, "variable")
-        self.text += self.generator_engine.render("reference", value=self.render(variable))
-
-    def visit_reference_value(self, node):
-        if node.get("value") == "NULL":
-            self.text += self.generator_engine.render("null_reference")
-        else:
-            self.accept(node)
-
-    def visit_dereferenced_variable(self, node):
-        referenced = next(
-            (child for child in node.get("children", []) if isinstance(child, dict)),
-            None,
-        )
-        self.text += self.generator_engine.render("dereference", value=self.render(referenced))
-
-    def visit_assert_statement(self, node):
-        expression = next(child for child in node.get("children", []) if isinstance(child, dict))
-        self.text += f"{self.indent}ASSERT({self.render(expression)});\n"
 
     def visit_exit_statement(self, node):
         self.text += self.generator_engine.render("exit", indent=self.indent) if self.generator_engine is not None else f"{self.indent}break;\n"
@@ -2548,12 +1917,6 @@ class CCodeGenerator(NodeVisitor):
         value = " " + self.render(expression) if expression is not None else ""
         self.text += self.generator_engine.render("return", indent=self.indent, value=value, has_value=bool(value)) if self.generator_engine is not None else f"{self.indent}return{value};\n"
 
-    def _render_nested_body(self, node):
-        self.indent_inc()
-        try:
-            return self.render(node)
-        finally:
-            self.indent_dec()
 
     def visit_if_statement(self, node):
         lowered = IfBranch(self.render(node["children"][0]), self._render_nested_body(node["children"][1]), self.indent)
@@ -2585,8 +1948,6 @@ class CCodeGenerator(NodeVisitor):
         lowered = RepeatLoop(self.render(node["children"][1]), self._render_nested_body(node["children"][0]), self.indent)
         self.text += self.generator_engine.render("repeat", lowered) if self.generator_engine is not None else f"{self.indent}do {{\n{lowered.body}{self.indent}}} while (!({lowered.condition}));\n"
 
-    def visit_token(self, node):
-        self.text += str(node.get("value", ""))
 
     def visit_control_variable(self, node):
         value = next((child.get("value") for child in node.get("children", []) if isinstance(child, dict)), "")
@@ -2691,176 +2052,6 @@ class CCodeGenerator(NodeVisitor):
         # Edition 3 interfaces are emitted by OOPCEmitter in visit_library().
         return
 
-    def visit_method_declaration(self, node):
-        # Methods are emitted as part of their owning class.
-        return
-
-    def visit_method_prototype(self, node):
-        # Interface method prototypes are emitted in the interface vtable.
-        return
-
-    def visit_configuration_declaration(self, node):
-        name_node = self._first_named(node, "configuration_name")
-        if name_node is None:
-            return
-        name = name_node["value"]
-        tasks = {}
-        for task in self._named_nodes(node, "task_configuration"):
-            task_name_node = self._first_named(task, "task_name")
-            if task_name_node is None:
-                continue
-            initialization = self._first_named(task, "task_initialization")
-            values = [str(value).upper() for value in self._raw_values(initialization)] if initialization else []
-            duration = self._first_named(initialization, "duration") if initialization else None
-            interval = int(self.render(duration)) if duration is not None else 1
-            integers = self._named_nodes(initialization, "integer") if initialization else []
-            priority = int(str(integers[-1].get("value", "0")).replace("_", "")) if integers else 0
-            tasks[task_name_node["value"].casefold()] = {
-                "name": task_name_node["value"], "interval": max(interval, 1), "priority": priority,
-                "single": "SINGLE" in values,
-            }
-
-        programs = []
-        for program in self._named_nodes(node, "program_configuration"):
-            instance_node = self._first_named(program, "program_name")
-            type_node = self._first_named(program, "program_type_name")
-            if instance_node is None or type_node is None:
-                continue
-            task_node = self._first_named(program, "task_name")
-            tokens = {value.upper() for value in self._raw_values(program)}
-            programs.append({
-                "instance": instance_node["value"], "type": type_node["value"],
-                "task": task_node["value"].casefold() if task_node else None,
-                "retain": "RETAIN" in tokens, "non_retain": "NON_RETAIN" in tokens,
-            })
-
-        self.text += f"/* IEC configuration {name}. */\n"
-        self.text += "/* Persistent program instances. Each instance owns independent scan state. */\n"
-        for program in programs:
-            self.text += f"{program['type']} {name}_{program['instance']};\n"
-        if tasks:
-            self.text += "\n/* Elapsed-time accumulators used by cyclic tasks. */\n"
-        for task in tasks.values():
-            self.text += f"static uint64_t {name}_{task['name']}_elapsed_ms;\n"
-            self.text += f"/* Task {task['name']}: interval {task['interval']} ms, priority {task['priority']}. */\n"
-        self.text += "\n"
-
-        self.text += "/* Initialize every program instance and scheduler for a cold start. */\n"
-        self.text += f"void {name}_cold_start(void)\n{{\n"
-        for program in programs:
-            self.text += f"    {program['type']}_cold_init(&{name}_{program['instance']});\n"
-        for task in tasks.values():
-            self.text += f"    {name}_{task['name']}_elapsed_ms = 0;\n"
-        self.text += "}\n\n"
-
-        self.text += "/* Restart execution while preserving retentive program state. */\n"
-        self.text += f"void {name}_warm_start(void)\n{{\n"
-        for program in programs:
-            target = f"{name}_{program['instance']}"
-            if program["retain"]:
-                continue
-            if program["non_retain"]:
-                self.text += f"    {program['type']}_cold_init(&{target});\n"
-            else:
-                self.text += f"    {program['type']}_warm_init(&{target});\n"
-        for task in tasks.values():
-            self.text += f"    {name}_{task['name']}_elapsed_ms = 0;\n"
-        self.text += "}\n\n"
-
-        self.text += "/* Return the shortest configured cyclic-task interval. */\n"
-        self.text += f"uint64_t {name}_base_interval_ms(void)\n{{\n"
-        base_interval = min((task["interval"] for task in tasks.values()), default=1)
-        self.text += f"    return UINT64_C({base_interval});\n}}\n\n"
-
-        self.text += "/* Advance the scheduler while preserving chronological task order. */\n"
-        self.text += f"void {name}_cycle(uint64_t elapsed_ms)\n{{\n"
-        for program in programs:
-            if program["task"] is None:
-                self.text += f"    {program['type']}_run(&{name}_{program['instance']});\n"
-
-        scheduled_tasks = sorted(
-            tasks.values(),
-            key=lambda item: (item["priority"], item["name"].casefold()),
-        )
-
-        if scheduled_tasks:
-            self.text += "    uint64_t remaining_ms = elapsed_ms;\n"
-
-            for task in scheduled_tasks:
-                if task["single"]:
-                    self.text += f"    bool {name}_{task['name']}_fired = false;\n"
-
-            self.text += "    while (remaining_ms > 0) {\n"
-            self.text += "        uint64_t next_due_ms = UINT64_MAX;\n"
-
-            for task in tasks.values():
-                elapsed_name = f"{name}_{task['name']}_elapsed_ms"
-                interval = task["interval"]
-                if task["single"]:
-                    self.text += f"        if (!{name}_{task['name']}_fired) {{\n"
-                    indent = "            "
-                else:
-                    indent = "        "
-                self.text += (
-                    f"{indent}uint64_t until_due_ms = "
-                    f"UINT64_C({interval}) - {elapsed_name};\n"
-                )
-                self.text += (
-                    f"{indent}if (until_due_ms < next_due_ms) "
-                    "next_due_ms = until_due_ms;\n"
-                )
-                if task["single"]:
-                    self.text += "        }\n"
-
-            self.text += "        if (next_due_ms > remaining_ms) {\n"
-            for task in tasks.values():
-                elapsed_name = f"{name}_{task['name']}_elapsed_ms"
-                if task["single"]:
-                    self.text += (
-                        f"            if (!{name}_{task['name']}_fired) "
-                        f"{elapsed_name} += remaining_ms;\n"
-                    )
-                else:
-                    self.text += f"            {elapsed_name} += remaining_ms;\n"
-            self.text += "            break;\n"
-            self.text += "        }\n"
-
-            for task in tasks.values():
-                elapsed_name = f"{name}_{task['name']}_elapsed_ms"
-                if task["single"]:
-                    self.text += (
-                        f"        if (!{name}_{task['name']}_fired) "
-                        f"{elapsed_name} += next_due_ms;\n"
-                    )
-                else:
-                    self.text += f"        {elapsed_name} += next_due_ms;\n"
-            self.text += "        remaining_ms -= next_due_ms;\n"
-
-            for task in scheduled_tasks:
-                assigned = [
-                    program for program in programs
-                    if program["task"] == task["name"].casefold()
-                ]
-                elapsed_name = f"{name}_{task['name']}_elapsed_ms"
-                interval = task["interval"]
-                condition = f"{elapsed_name} >= UINT64_C({interval})"
-                if task["single"]:
-                    condition = f"!{name}_{task['name']}_fired && ({condition})"
-                self.text += f"        if ({condition}) {{\n"
-                self.text += f"            {elapsed_name} -= UINT64_C({interval});\n"
-                for program in assigned:
-                    self.text += (
-                        f"            {program['type']}_run("
-                        f"&{name}_{program['instance']});\n"
-                    )
-                if task["single"]:
-                    self.text += f"            {elapsed_name} = 0;\n"
-                    self.text += f"            {name}_{task['name']}_fired = true;\n"
-                self.text += "        }\n"
-
-            self.text += "    }\n"
-
-        self.text += "}\n\n"
 
     def _join_children(self, node, separator, parenthesize_operands=False):
         children = node["children"]
@@ -2874,9 +2065,6 @@ class CCodeGenerator(NodeVisitor):
             if wrap:
                 self.text += ")"
 
-    def _visit_infix(self, node):
-        for child in node["children"]:
-            self.visit(child)
 
     def _visit_infix_from_child_value(self, node):
         children = node["children"]

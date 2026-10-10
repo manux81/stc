@@ -92,8 +92,10 @@ def build_arg_parser():
     parser.add_argument(
         "--new-generator",
         metavar="NAME",
-        help="Create a generators/NAME backend skeleton.",
+        help="Create a runnable generators/NAME backend from a reference bundle.",
     )
+    parser.add_argument("--generator-base", choices=("c", "rust"), default="c",
+                        help="Reference backend copied by --new-generator (default: c).")
     parser.add_argument(
         "-o",
         "--output",
@@ -264,7 +266,7 @@ def main(argv=None):
 
     if args.new_generator:
         try:
-            destination = create_generator_skeleton(args.new_generator)
+            destination = create_generator_skeleton(args.new_generator, base=args.generator_base)
         except (OSError, ValueError) as exc:
             print(f"stc: cannot create generator: {exc}", file=sys.stderr)
             return 2
