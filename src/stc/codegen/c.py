@@ -109,7 +109,7 @@ class OOPCEmitter:
 
         fields_text = engine.render(
             "class_fields",
-            items=[{"type": var_type, "name": field} for var_type, field in own_fields],
+            items=[self._field_item(var_type, field) for var_type, field in own_fields],
         )
         base_field = engine.render(
             "class_base_field", base=base["name"] if base else "", has_base=has_base
@@ -470,6 +470,15 @@ class OOPCEmitter:
 
     def _own_fields(self, cls):
         return OopModel(self.g).own_fields(cls)
+
+    def _field_item(self, var_type, field):
+        """Split array dimensions off the type so C keeps them on the name."""
+        engine = self.g.generator_engine
+        patterns = engine.bundle.rules["layout_patterns"].mapping
+        match = re.fullmatch(patterns["array"], var_type)
+        if match:
+            return {"type": match.group("type"), "name": field + match.group("dimensions")}
+        return {"type": var_type, "name": field}
 
     def _field_paths(self, cls):
         return OopModel(self.g).field_paths(cls)
@@ -2071,7 +2080,69 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
         self.indent_dec()
 
     def visit_fb_invocation(self, node):
-        self.text += f"{self.indent}(void)0;\n"
+        if not self._emit_fb_invocation(node):
+            self.text += f"{self.indent}(void)0;\n"
+
+    def _emit_fb_invocation(self, node):
+        """Lower an FB invocation to input assignments plus the step call."""
+        if self.context is None:
+            return False
+        target = self._first_named(node, "fb_name") or self._first_named(node, "array_variable")
+        if target is None:
+            return False
+        scope = self.context.symbols.scope_for(node)
+        type_name = None
+        instance = None
+        if target.get("name") == "fb_name":
+            key = str(target.get("value", "")).casefold()
+            symbol = scope.lookup(key) if scope is not None else None
+            if symbol is None or symbol.type_ref is None or not symbol.type_ref.name:
+                return False
+            type_name = symbol.type_ref.name
+            if self.current_instance is not None and key in self.current_instance_fields:
+                path = self.current_instance_field_paths.get(key, target.get("value", ""))
+                instance = f"{self.current_instance}->{path}"
+            else:
+                instance = target.get("value", "")
+        else:
+            instance = self.render(target)
+            type_name = self.c_type_for_node(target)
+            if type_name is None:
+                return False
+        native = self.native_implementations.get(type_name.casefold())
+        entry = "loop" if native is not None and native.kind == "function_block" else "step"
+        formals = []
+        positionals = []
+        for child in node.get("children", []):
+            if not isinstance(child, dict) or child.get("name") != "param_assignment":
+                continue
+            raw = child.get("children", [])
+            if len(raw) > 1 and isinstance(raw[1], dict) and raw[1].get("value") in {":=", "=>"}:
+                formals.append((raw[0].get("value", ""), raw[1].get("value", ""), child))
+            else:
+                expression = self._first_named(child, "expression")
+                positionals.append(expression if expression is not None else child)
+        if positionals:
+            fb_symbol = self.context.symbols.lookup(type_name)
+            declaration = fb_symbol.declaration if fb_symbol is not None else None
+            ordered = [name for _, name in self.collect_sections(declaration, "input_declarations")] if declaration is not None else []
+            if len(ordered) < len(positionals):
+                return False
+            for name, expression in zip(ordered, positionals):
+                formals.append((name, ":=", expression))
+        rendered = []
+        for name, operator, source in formals:
+            expression = self._first_named(source, "expression") if isinstance(source, dict) and source.get("name") == "param_assignment" else source
+            if expression is None:
+                return False
+            rendered.append((name, operator, self.render(expression)))
+        for name, operator, value in rendered:
+            if operator == "=>":
+                self.text += f"{self.indent}{value} = {instance}.{name};\n"
+            else:
+                self.text += f"{self.indent}{instance}.{name} = {value};\n"
+        self.text += f"{self.indent}{type_name}_{entry}(&({instance}));\n"
+        return True
 
     def visit_method_invocation(self, node):
         self.text += self.oop.render_invocation(node)

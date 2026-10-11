@@ -206,3 +206,38 @@ fn ASSERT(condition: bool) {
     }
 }
 // STC_PRIMITIVE_END ASSERT
+
+// STC_PRIMITIVE_BEGIN USINT_TO_CHAR
+#[allow(non_snake_case)]
+fn USINT_TO_CHAR(value: u8) -> u8 {
+    value
+}
+// STC_PRIMITIVE_END USINT_TO_CHAR
+
+// STC_PRIMITIVE_BEGIN UINT_TO_WCHAR
+#[allow(non_snake_case)]
+fn UINT_TO_WCHAR(value: u16) -> u16 {
+    value
+}
+// STC_PRIMITIVE_END UINT_TO_WCHAR
+
+// STC_PRIMITIVE_BEGIN UDINT_TO_UCHAR
+#[allow(non_snake_case)]
+fn UDINT_TO_UCHAR(value: u32) -> u32 {
+    value
+}
+// STC_PRIMITIVE_END UDINT_TO_UCHAR
+
+// STC_PRIMITIVE_BEGIN WCHAR_TO_UINT
+#[allow(non_snake_case)]
+fn WCHAR_TO_UINT(value: u16) -> u16 {
+    value
+}
+// STC_PRIMITIVE_END WCHAR_TO_UINT
+
+// STC_PRIMITIVE_BEGIN MOVE
+#[allow(non_snake_case)]
+fn MOVE<T>(value: T) -> T {
+    value
+}
+// STC_PRIMITIVE_END MOVE

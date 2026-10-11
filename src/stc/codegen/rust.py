@@ -333,13 +333,29 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
             "i64": (4, True), "u64": (4, False),
             "f32": (5, True), "f64": (6, True),
         }
+        primitives = {
+            ("signed_int", 8): "i8", ("signed_int", 16): "i16",
+            ("signed_int", 32): "i32", ("signed_int", 64): "i64",
+            ("unsigned_int", 8): "u8", ("unsigned_int", 16): "u16",
+            ("unsigned_int", 32): "u32", ("unsigned_int", 64): "u64",
+            ("real", 32): "f32", ("real", 64): "f64",
+        }
         types = [self.rust_type_for_node(node) for node in nodes]
-        types = [item for item in types if item in ranks]
-        if not types:
+        resolved = []
+        for item in types:
+            if item in ranks:
+                resolved.append(item)
+            elif item is not None and self.context is not None:
+                datatype = self.context.declared_types.get(item.casefold())
+                if datatype is not None:
+                    key = (datatype.category.value if hasattr(datatype.category, "value") else str(datatype.category), datatype.bits)
+                    if key in primitives:
+                        resolved.append(primitives[key])
+        if not resolved:
             return None
         # IEC arithmetic promotes to the widest operand. At equal widths a
         # signed type is used, matching the frontend's assignment semantics.
-        return max(types, key=lambda item: ranks[item])
+        return max(resolved, key=lambda item: ranks[item])
 
     def render_as(self, node, target_type):
         rendered = self.render(node)
@@ -963,6 +979,16 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
                 **{"class": name, "interface": iface["name"]},
                 methods="".join(entries),
             )
+        if base is not None:
+            adapters += (
+                f"impl core::ops::Deref for {name} {{\n"
+                f"    type Target = {base['name']};\n"
+                f"    fn deref(&self) -> &Self::Target {{ &self.__base }}\n"
+                f"}}\n"
+                f"impl core::ops::DerefMut for {name} {{\n"
+                f"    fn deref_mut(&mut self) -> &mut {base['name']} {{ &mut self.__base }}\n"
+                f"}}\n"
+            )
         self.text += engine.render(
             "class",
             name=name,
@@ -1028,6 +1054,68 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
         invocation = self._first_named(node, "method_invocation")
         self.text += f"{self.indent}{self.render(invocation)};\n"
 
+    def visit_fb_invocation(self, node):
+        self._emit_fb_invocation(node)
+
+    def _emit_fb_invocation(self, node):
+        """Lower an FB invocation to input assignments plus the step call."""
+        if self.context is None:
+            return
+        target = self._first_named(node, "fb_name") or self._first_named(node, "array_variable")
+        if target is None:
+            return
+        scope = self.context.symbols.scope_for(node)
+        type_name = None
+        instance = None
+        if target.get("name") == "fb_name":
+            key = str(target.get("value", "")).casefold()
+            symbol = scope.lookup(key) if scope is not None else None
+            if symbol is None or symbol.type_ref is None or not symbol.type_ref.name:
+                return
+            type_name = symbol.type_ref.name
+            if self.current_instance and key in self.current_instance_fields:
+                instance = f"self.{self.current_instance_field_paths.get(key, target.get('value', ''))}"
+            elif key in self.current_reference_params:
+                instance = f"(*{target.get('value', '')})"
+            else:
+                instance = target.get("value", "")
+        else:
+            instance = self.render(target)
+            type_name = self.rust_type_for_node(target)
+            if type_name is None:
+                return
+        formals = []
+        positionals = []
+        for child in node.get("children", []):
+            if not isinstance(child, dict) or child.get("name") != "param_assignment":
+                continue
+            raw = child.get("children", [])
+            if len(raw) > 1 and isinstance(raw[1], dict) and raw[1].get("value") in {":=", "=>"}:
+                formals.append((raw[0].get("value", ""), raw[1].get("value", ""), child))
+            else:
+                expression = self._first_named(child, "expression")
+                positionals.append(expression if expression is not None else child)
+        if positionals:
+            fb_symbol = self.context.symbols.lookup(type_name)
+            declaration = fb_symbol.declaration if fb_symbol is not None else None
+            ordered = [name for _, name in self.collect_sections(declaration, "input_declarations")] if declaration is not None else []
+            if len(ordered) < len(positionals):
+                return
+            for name, expression in zip(ordered, positionals):
+                formals.append((name, ":=", expression))
+        rendered = []
+        for name, operator, source in formals:
+            expression = self._first_named(source, "expression") if isinstance(source, dict) and source.get("name") == "param_assignment" else source
+            if expression is None:
+                return
+            rendered.append((name, operator, self.render(expression)))
+        for name, operator, value in rendered:
+            if operator == "=>":
+                self.text += f"{self.indent}{value} = {instance}.{name};\n"
+            else:
+                self.text += f"{self.indent}{instance}.{name} = {value};\n"
+        self.text += f"{self.indent}{instance}.step();\n"
+
     def visit_simple_type_declaration(self, node):
         name = self._first_named(node, "simple_type_name")
         array, structure = self._first_named(node, "array_specification"), self._first_named(node, "structure_declaration")
@@ -1036,7 +1124,11 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
         elif name and structure:
             self._emit_structure_type(name["value"], structure)
         elif name:
-            self.text += self.generator_engine.render("type_alias", name=name["value"], type=self.declaration_type(node), kind="derived")
+            underlying = next(
+                (self.iecType2Rust(item.get("value")) for item in self._named_nodes(node, "signed_integer_type_name") + self._named_nodes(node, "unsigned_integer_type_name") + self._named_nodes(node, "real_type_name") + self._named_nodes(node, "bit_string_type_name") if item.get("value")),
+                "i16",
+            )
+            self.text += self.generator_engine.render("type_alias", name=name["value"], type=underlying, kind="derived")
 
     def visit_data_type_declaration(self, node):
         for declaration in self._named_nodes(node, "simple_type_declaration"):
@@ -1062,10 +1154,25 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
             self.text += f"/// IEC reference type `{name['value']}`.\n"
             self.text += self.generator_engine.render("reference_type", name=name["value"], referenced_type=target)
 
+    def visit_enumerated_type_declaration(self, node):
+        name = self._first_named(node, "enumerated_type_name")
+        values = [item["value"] for item in self._named_nodes(node, "enumerated_value") if item.get("value")]
+        if name and values:
+            rendered = "".join(self.generator_engine.render(
+                "enum_value", name=value, first=self.generator_engine.render("enum_default_marker") if index == 0 else "",
+                comma="," if index < len(values) - 1 else "",
+            ) for index, value in enumerate(values))
+            self.text += self.generator_engine.render("enum_type", name=name["value"], values=rendered)
+            self.text += f"pub use {name['value']}::*;\n\n"
+
     def visit_subrange_type_declaration(self, node):
         name = self._first_named(node, "subrange_type_name")
         if name:
-            self.text += self.generator_engine.render("type_alias", name=name["value"], type=self.declaration_type(node), kind="subrange")
+            underlying = next(
+                (self.iecType2Rust(item.get("value")) for item in self._named_nodes(node, "signed_integer_type_name") + self._named_nodes(node, "unsigned_integer_type_name") if item.get("value")),
+                "i16",
+            )
+            self.text += self.generator_engine.render("type_alias", name=name["value"], type=underlying, kind="subrange")
 
 
     def visit_array_type_declaration(self, node):

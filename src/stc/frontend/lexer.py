@@ -496,6 +496,17 @@ class IECLexer(Lexer):
 
     S = before("IDENTIFIER", r'S(?![a-zA-Z0-9_])')
     R = before("IDENTIFIER", r'R(?![a-zA-Z0-9_])')
+    S1 = before("SEC", r'S1(?![a-zA-Z0-9_])')
+
+    def S1(self, t):
+        if self.language != 'IL':
+            prefix = self.text[:t.index].rstrip()
+            t.type = (
+                'PARAMETER_IDENTIFIER'
+                if re.match(r'\s*:=', self.text[self.index:]) and prefix.endswith(('(', ','))
+                else 'IDENTIFIER'
+            )
+        return t
 
     def S(self, t):
         if self.language != 'IL':
@@ -522,7 +533,6 @@ class IECLexer(Lexer):
     IDENTIFIER['ST'] = ST
     IDENTIFIER['STN'] = STN
     IDENTIFIER['NOT'] = NOT
-    IDENTIFIER['S1'] = S1
     IDENTIFIER['R1'] = R1
     IDENTIFIER['CLK'] = CLK
     IDENTIFIER['CU'] = CU
@@ -534,6 +544,7 @@ class IECLexer(Lexer):
     IDENTIFIER['OR'] = OR
     IDENTIFIER['XOR'] = XOR
     IDENTIFIER['ANDN'] = ANDN
+    IDENTIFIER['AN'] = AN
     IDENTIFIER['&N'] = AN
     IDENTIFIER['ORN'] = ORN
     IDENTIFIER['XORN'] = XORN

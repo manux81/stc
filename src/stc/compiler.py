@@ -111,7 +111,6 @@ def _implicit_standard_imports(ast, libraries):
     available = {
         "FIND",
         "BYTE_TO_BOOL", "WORD_TO_BOOL", "DWORD_TO_BOOL", "LWORD_TO_BOOL",
-        "USINT_TO_CHAR", "UINT_TO_WCHAR", "UDINT_TO_UCHAR", "WCHAR_TO_UINT",
     }
     required = sorted(
         name for name in referenced & available
