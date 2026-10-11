@@ -99,6 +99,7 @@ def _method_info(node):
         "final": modifier == "FINAL" or "FINAL" in tokens,
         "abstract": modifier == "ABSTRACT" or "ABSTRACT" in tokens,
         "override": "OVERRIDE" in tokens,
+        "access": str(_direct_value(node, "access_spec") or "PROTECTED").upper(),
     }
 
 
@@ -161,6 +162,7 @@ def _interface_info(node):
     for item in _all(node, "method_prototype"):
         info = _method_info(item)
         info["abstract"] = True
+        info["access"] = "PUBLIC"
         methods.append(info)
     for property_info in _property_infos(node).values():
         for accessor in (property_info.get("get"), property_info.get("set")):
@@ -224,6 +226,13 @@ class Edition3ObjectOrientedCheck(SemanticCheck):
             "interfaces": interfaces,
             "function_blocks": function_blocks,
         }
+        for owner in [*classes.values(), *interfaces.values(), *function_blocks.values()]:
+            for method in owner.get("methods", []):
+                method["owner"] = owner["name"]
+            for prop in owner.get("properties", {}).values():
+                for method in (prop.get("get"), prop.get("set")):
+                    if method is not None:
+                        method["owner"] = owner["name"]
 
         self._bind_inherited_fields(classes)
         self._validate_properties(classes, interfaces, function_blocks)
@@ -303,6 +312,8 @@ class Edition3ObjectOrientedCheck(SemanticCheck):
                     structured,
                 )
                 continue
+            if not self._check_member_access(method, structured, classes):
+                continue
             self.context.resolved_properties[id(structured)] = {
                 "owner": owner["name"],
                 "owner_kind": owner["kind"],
@@ -316,6 +327,46 @@ class Edition3ObjectOrientedCheck(SemanticCheck):
                 normalize_identifier(prop.get("type") or ""), UNKNOWN_TYPE
             )
             self.context.candidate_types[id(structured)] = {datatype}
+
+    def _check_member_access(self, method, node, classes):
+        """Check access against the defining POU, including inherited members."""
+        access = method["access"]
+        if access == "PUBLIC":
+            return True
+        defining_scope = self.context.symbols.scope_for(method["node"])
+        while defining_scope is not None and defining_scope.kind == ScopeKind.METHOD:
+            defining_scope = defining_scope.parent
+        caller = self.context.symbols.scope_for(node)
+        while caller is not None and caller.kind not in {
+            ScopeKind.CLASS, ScopeKind.FUNCTION_BLOCK, ScopeKind.INTERFACE,
+            ScopeKind.LIBRARY,
+        }:
+            caller = caller.parent
+        allowed = caller is defining_scope
+        if access == "PROTECTED" and caller is not None and caller.kind == ScopeKind.CLASS:
+            current = classes.get(normalize_identifier(caller.name))
+            seen = set()
+            while current is not None and current["key"] not in seen:
+                seen.add(current["key"])
+                if normalize_identifier(current["name"]) == normalize_identifier(method["owner"]):
+                    allowed = True
+                    break
+                current = self._class(classes, current.get("base"))
+        elif access == "INTERNAL":
+            # Namespace scopes are not implemented; compare the compilation-library scope.
+            caller_root, defining_root = caller, defining_scope
+            while caller_root is not None and caller_root.parent is not None:
+                caller_root = caller_root.parent
+            while defining_root is not None and defining_root.parent is not None:
+                defining_root = defining_root.parent
+            allowed = caller_root is not None and caller_root is defining_root
+        if not allowed:
+            self.error(
+                "inaccessible-member",
+                f"Cannot access {access} member '{method['owner']}.{method['name']}' from this scope.",
+                node,
+            )
+        return allowed
 
     def _interface_property(self, interfaces, iface, key):
         own = iface.get("properties", {}).get(key)
@@ -417,6 +468,12 @@ class Edition3ObjectOrientedCheck(SemanticCheck):
                             "the inherited signature.",
                             method["node"],
                         )
+                    elif inherited["access"] == "PUBLIC" and method["access"] != "PUBLIC":
+                        self.error(
+                            "override-access-mismatch",
+                            f"Override '{cls['name']}.{method['name']}' must preserve PUBLIC access.",
+                            method["node"],
+                        )
                 elif inherited is not None:
                     self.error(
                         "missing-override",
@@ -444,6 +501,12 @@ class Edition3ObjectOrientedCheck(SemanticCheck):
                                 f"Class '{cls['name']}' does not implement "
                                 f"'{iface['name']}.{method['name']}' with a compatible signature.",
                                 cls["node"],
+                            )
+                        elif candidate["access"] != "PUBLIC":
+                            self.error(
+                                "interface-member-not-public",
+                                f"Implementation '{cls['name']}.{candidate['name']}' must be PUBLIC.",
+                                candidate["node"],
                             )
 
         # Detect inheritance cycles independently of declaration order.
@@ -522,6 +585,11 @@ class Edition3ObjectOrientedCheck(SemanticCheck):
                     f"type '{receiver_type or '<unknown>'}'.",
                     invocation,
                 )
+                continue
+
+            if not self._check_member_access(
+                resolution["method"], invocation, classes
+            ):
                 continue
 
             self.context.resolved_methods[id(invocation)] = resolution

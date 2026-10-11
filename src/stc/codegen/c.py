@@ -12,6 +12,7 @@ from .generator.engine import GeneratorEngine
 from .generator.ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop, UnaryExpression, WhileLoop
 from .generator.loader import GeneratorBundle, bundled_generator, load_generator
 from ..runtime.loader import render_primitives
+from .string_literals import c_string_literal
 
 
 def _key(value):
@@ -549,6 +550,8 @@ class OOPCEmitter:
 
 
 class CCodeGenerator(SharedLowering, NodeVisitor):
+    string_literal = staticmethod(c_string_literal)
+
 
 
     def _il_operation(self, instruction):
@@ -1105,7 +1108,7 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
     def visit_double_byte_character_string(self, node):
         token = self._first_named(node, "token")
         raw = str(token.get("value", '""')) if token else '""'
-        self.text += raw
+        self.text += self._iec_string(node)
 
 
     def visit_signed_integer_type_name(self, node):
@@ -1330,6 +1333,8 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
         }
         if self._named_nodes(node, "assert_statement"):
             requested.add("ASSERT")
+        if self._needs_string_checks(node):
+            requested.add("STC_STRING_CHECK")
         if "LEN_CODE_UNIT" in requested:
             requested.add("WSTRING_LEN_CODE_UNIT")
         bundle = self.generator_engine.bundle if self.generator_engine is not None else None
@@ -1933,7 +1938,7 @@ class CCodeGenerator(SharedLowering, NodeVisitor):
             return
         variable = next(child for child in node["children"] if child.get("name") == "variable")
         expression = next(child for child in node["children"] if child.get("name") == "expression")
-        lowered = Assignment(self.render(variable), self.render(expression), self.indent)
+        lowered = Assignment(self.render(variable), self._bounded_string_value(variable, self.render(expression)), self.indent)
         self.text += self.generator_engine.render("assignment", lowered) if self.generator_engine is not None else f"{lowered.indent}{lowered.target} = {lowered.value};\n"
 
 

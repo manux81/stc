@@ -54,6 +54,15 @@ fn stc_leak(text: String) -> &'static str {
 }
 // STC_PRIMITIVE_END STRING_SUPPORT
 
+// STC_PRIMITIVE_BEGIN STC_STRING_CHECK
+#[allow(non_snake_case, dead_code)]
+fn STC_STRING_CHECK(text: &'static str, capacity: usize, wide: bool) -> &'static str {
+    let length = if wide { text.encode_utf16().count() } else { text.chars().count() };
+    assert!(length <= capacity, "stc: string capacity exceeded");
+    text
+}
+// STC_PRIMITIVE_END STC_STRING_CHECK
+
 // STC_PRIMITIVE_BEGIN LEN
 #[allow(non_snake_case)]
 fn LEN(text: &'static str) -> i16 {

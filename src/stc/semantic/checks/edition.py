@@ -3,6 +3,7 @@
 """Validate source constructs whose status changed between IEC editions."""
 
 import re
+from ...frontend.strings import decode_character_literal
 
 from .base import SemanticCheck, SemanticPhase, register_check
 
@@ -64,7 +65,7 @@ class EditionCompatibilityCheck(SemanticCheck):
                 "Octal integer literals were removed in IEC 61131-3 Edition 4.",
                 node,
             )
-        else:
+        elif self.context.standard_edition == 3:
             self.warning(
                 "edition3-deprecated-octal-literal",
                 "Octal integer literals are deprecated in IEC 61131-3 Edition 3.",
@@ -115,14 +116,10 @@ class EditionCompatibilityCheck(SemanticCheck):
         raw = str(token.get("value", "")) if token else ""
         prefix = raw[:raw.find("#")].strip().upper()
         if prefix in {"CHAR", "WCHAR"}:
-            quoted = raw[raw.find("#") + 1:].strip()
-            content = quoted[1:-1]
-            content = re.sub(
-                r"\$([0-9A-Fa-f]{2}|[0-9A-Fa-f]{4})",
-                lambda match: chr(int(match.group(1), 16)),
-                content,
-            )
-            content = content.replace("$$", "$").replace("''", "'").replace('""', '"')
+            try:
+                content = decode_character_literal(raw)
+            except ValueError:
+                content = ""
             if len(content) != 1:
                 self.error(
                     "invalid-character-literal",
@@ -189,7 +186,7 @@ class EditionCompatibilityCheck(SemanticCheck):
                     f"{name} requires IEC 61131-3 Edition 4.",
                     node,
                 )
-            elif name == "TRUNC":
+            elif name == "TRUNC" and self.context.standard_edition == 3:
                 self.warning(
                     "edition3-deprecated-trunc",
                     "TRUNC is deprecated in Edition 3; use a typed form such as TRUNC_DINT.",
@@ -208,3 +205,17 @@ class EditionCompatibilityCheck(SemanticCheck):
                 f"{name} is deprecated in IEC 61131-3 Edition 4.",
                 node,
             )
+
+    def _require_oop_support(self, node):
+        if self.context.standard_edition < 3 and self._belongs_to_compilation_unit(node):
+            self.error(
+                "edition3-oop",
+                "Object-oriented declarations require IEC 61131-3 Edition 3 or later.",
+                node,
+            )
+        self.generic_visit(node)
+
+    visit_class_declaration = _require_oop_support
+    visit_interface_declaration = _require_oop_support
+    visit_method_declaration = _require_oop_support
+    visit_method_prototype = _require_oop_support

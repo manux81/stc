@@ -183,6 +183,25 @@ static STC_MAYBE_UNUSED inline const char *stc_string_compose(
 }
 // STC_PRIMITIVE_END STRING_SUPPORT
 
+// STC_PRIMITIVE_BEGIN STC_STRING_CHECK STRING_SUPPORT
+static STC_MAYBE_UNUSED inline const char *STC_STRING_CHECK(
+    const char *text, size_t capacity, bool wide)
+{
+    size_t length = stc_utf8_length(text);
+    if (wide && text != NULL) {
+        for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; ++p) {
+            /* An astral scalar occupies two UTF-16 code units. */
+            if ((*p & 0xF8u) == 0xF0u) ++length;
+        }
+    }
+    if (length > capacity) {
+        fputs("stc: string capacity exceeded\n", stderr);
+        abort();
+    }
+    return text;
+}
+// STC_PRIMITIVE_END STC_STRING_CHECK
+
 // STC_PRIMITIVE_BEGIN INT_TO_STRING STRING_SUPPORT
 static STC_MAYBE_UNUSED inline const char *INT_TO_STRING(int16_t value)
 {

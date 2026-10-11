@@ -30,14 +30,34 @@ The Edition 4 profile rejects IL before code generation.
 | IEC feature | Status | STC implementation notes |
 | --- | --- | --- |
 | Table 5 - Numeric literals | Supported | Binary, octal, decimal, hexadecimal, real, Boolean, and typed numeric literals. Octal literals produce the Edition 3 deprecation warning. |
-| Table 6 - Character string literals | Supported | Untyped and typed `STRING`, `WSTRING`, `CHAR`, and `WCHAR` forms, including hexadecimal character escapes. |
+| Table 6 - Character string literals | Partial | Untyped and typed `STRING`, `WSTRING`, `CHAR`, and `WCHAR` forms, including hexadecimal character escapes. `CHAR`/`STRING` consume two hexadecimal digits and `WCHAR`/`WSTRING` consume four; validation and both backends share the decoder. The borrowed string ABI still limits full representation conformance. |
 | Table 10 - Elementary data types | Partial | Integer, real, bit-string, character, string, time, long-time, and date families are accepted. Long date/time literal coverage remains incomplete. |
 | Table 12 - Reference operations | Supported | `REF_TO` declarations and named reference types, `REF(variable)`, `NULL`, reference assignment, and explicit `^` dereferencing are checked and lowered by the C and Rust backends. References are rejected by the Edition 2 profile and accepted by Edition 3 and Edition 4. References to function-local/temporary variables and `VAR_IN_OUT` reference declarations are diagnosed. |
 | Table 22 - Data type conversion functions | Partial | Typed `_TO_` conversions and typed truncation spellings are recognized. Executable target support is currently limited to the conversions emitted by the primitive runtime or the ST standard library. Old `TRUNC` produces the Edition 3 deprecation warning. |
 | Tables 23-27 - Conversion matrices | Partial | Core numeric conversions, BCD helpers, bit-string-to-Boolean conversions, and selected character conversions are implemented. The complete matrix is not yet claimed. |
 | Tables 28-33 - Numerical, arithmetic, bit, selection, comparison | Partial | Common arithmetic, comparison, selection, and mathematical operations are generated. Extensible arity and every generic overload are not yet claimed. |
-| Table 34 - Character string functions | Partial | C primitives implement `LEN`, `LEN_CODE_UNIT`, `LEFT`, `RIGHT`, `MID`, two-input `CONCAT`, `INSERT`, `DELETE`, and `REPLACE`; `FIND` is implemented in portable ST. Rust implements the same set on the borrowed `&'static str` ABI (`CONCAT`/`INSERT`/`DELETE`/`REPLACE` via leaked owned buffers); the owned-`String` ABI remains future work. |
-| Table 48 - Object-oriented programming | Partial | Edition 3/4 profiles parse, check, and lower `CLASS`, `INTERFACE`, `METHOD`, `EXTENDS`, `IMPLEMENTS`, `ABSTRACT`, `FINAL`, `OVERRIDE`, access modifiers, `THIS`, and `SUPER`. Edition 4 adds typed `PROPERTY_GET` and `PROPERTY_SET` accessors to function blocks, classes, and interfaces, including read-only/write-only diagnostics and interface dispatch. C uses embedded base objects, vtables, and interface fat pointers; Rust uses embedded base objects and generated interface adapters. Inheritance, interface/property dispatch, abstract/interface completeness, accessor type agreement, and invalid final overrides are covered by target-compilation tests. Complete access-control enforcement is not yet implemented. |
+| Table 34 - Character string functions | Partial | C primitives implement `LEN`, `LEFT`, `RIGHT`, `MID`, two-input `CONCAT`, `INSERT`, `DELETE`, and `REPLACE`; `FIND` is implemented in portable ST. Rust implements the same set on the borrowed `&'static str` ABI (`CONCAT`/`INSERT`/`DELETE`/`REPLACE` via leaked owned buffers); the owned-`String` ABI remains future work. Edition 4 additionally provides `LEN_CODE_UNIT`. |
+| Table 48 - Class | Partial | Edition 3/4 profiles parse, check, and lower `CLASS`, `INTERFACE`, `METHOD`, `EXTENDS`, `IMPLEMENTS`, `ABSTRACT`, `FINAL`, `OVERRIDE`, access modifiers, `THIS`, and `SUPER`. Edition 2 rejects OOP declarations. Edition 4 adds typed `PROPERTY_GET` and `PROPERTY_SET` accessors to function blocks, classes, and interfaces, including read-only/write-only diagnostics and interface dispatch. C uses embedded base objects, vtables, and interface fat pointers; Rust uses embedded base objects and generated interface adapters. Method and property access enforces `PRIVATE` and `PROTECTED` (the default) against the defining POU and its derivations; `PUBLIC` interface implementations cannot be replaced by private members or overrides. `INTERNAL` is checked within the compilation-library scope; separate namespace enforcement and complete variable access-control checks are not yet implemented. Inheritance, interface/property dispatch, abstract/interface completeness, accessor type agreement, and invalid final overrides are covered by target-compilation tests. |
+
+## String capacity and error behavior
+
+For directly declared `STRING[n]`, `WSTRING[n]`, and `USTRING[n]` variables,
+oversized literal initializers and ST assignments produce
+`string-capacity-exceeded` before generation. Ordinary ST assignments also
+check dynamic values: C calls `abort()` with a capacity-error message and Rust
+panics, including release builds. These checks do not allocate or truncate.
+The current implementation counts decoded characters for `STRING`/`USTRING`
+and UTF-16 code units for `WSTRING`; omitted capacity defaults to 80.
+
+The backends still store borrowed UTF-8 text. Complete bounded-string layouts,
+derived string aliases and aggregate fields, parameter/output transfer checks,
+IL stores, and writes from native code or a host runtime are not covered by
+this assignment contract. `LEN_MAX` exposes the declared capacity, not the
+size of the borrowed buffer. Full string conformance is not claimed.
+
+The Edition 2 profile accepts octal literals and untyped `TRUNC` without
+Edition 3 deprecation warnings. Edition 3 emits those warnings and Edition 4
+rejects both constructs.
 
 ## Sequential Function Charts
 

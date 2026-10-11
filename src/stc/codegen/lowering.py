@@ -1,6 +1,8 @@
 """Backend-neutral IEC lowering algorithms shared by reference adapters."""
 
 import re
+from ..frontend.strings import decode_character_literal
+from ..semantic.strings import target_string_spec
 
 from ..semantic.types import ArrayType, EnumType
 
@@ -9,6 +11,18 @@ from .generator.ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop,
 
 
 class SharedLowering:
+    def _bounded_string_value(self, target, value):
+        spec = target_string_spec(self.context, target)
+        if spec is None:
+            return value
+        kind, capacity = spec
+        wide = self.generator_engine.map("boolean_literal", "TRUE" if kind == "WSTRING" else "FALSE")
+        return f"STC_STRING_CHECK({value}, {capacity}, {wide})"
+
+    def _needs_string_checks(self, ast):
+        return any(target_string_spec(self.context, n.get("children", [{}])[0]) is not None
+                   for n in self._named_nodes(ast, "assignment_statement"))
+
     def _il_descendants(self, node, name):
         if not isinstance(node, dict):
             return []
@@ -288,43 +302,11 @@ class SharedLowering:
     def _iec_string(self, node):
         token = self._first_named(node, "token")
         raw = str(token.get("value", "''")) if token else "''"
-        content = raw[1:-1] if len(raw) >= 2 else raw
-        content = re.sub(
-            r"\$\{([0-9A-Fa-f]{1,6})\}",
-            lambda match: (
-                chr(int(match.group(1), 16))
-                if int(match.group(1), 16) <= 0x10FFFF
-                and not 0xD800 <= int(match.group(1), 16) <= 0xDFFF
-                else "\ufffd"
-            ),
-            content,
-        )
-        content = content.replace("$N", "\n").replace("$n", "\n")
-        content = content.replace("$T", "\t").replace("$t", "\t")
-        content = content.replace("$$", "$").replace("$''", "'").replace("$'", "'")
-        content = content.replace("''", "'")
-        content = content.replace("\\", "\\\\").replace('"', '\\"')
-        content = content.replace("\n", "\\n").replace("\t", "\\t")
-        return f'"{content}"'
-
+        return self.string_literal(decode_character_literal(raw))
 
     @staticmethod
     def _unicode_content(raw):
-        """Decode the Edition 4 ${HEX} escape into a Unicode scalar value."""
-        sharp = raw.find("#")
-        quoted = raw[sharp + 1:].strip() if sharp >= 0 else raw
-        content = quoted[1:-1] if len(quoted) >= 2 else quoted
-        content = re.sub(
-            r"\$\{([0-9A-Fa-f]{1,6})\}",
-            lambda match: (
-                chr(int(match.group(1), 16))
-                if int(match.group(1), 16) <= 0x10FFFF
-                and not 0xD800 <= int(match.group(1), 16) <= 0xDFFF
-                else "\ufffd"
-            ),
-            content,
-        )
-        return content.replace("$N", "\n").replace("$n", "\n").replace("$$", "$").replace("''", "'")
+        return decode_character_literal(raw)
 
 
     def visit_unicode_character_string(self, node):
@@ -335,31 +317,11 @@ class SharedLowering:
         if prefix == "UCHAR" or (prefix == "U" and len(content) == 1):
             self.text += str(ord(content[0]) if content else 0)
             return
-        escaped = content.replace("\\", "\\\\").replace('"', '\\"')
-        escaped = escaped.replace("\n", "\\n").replace("\t", "\\t")
-        self.text += f'"{escaped}"'
-
+        self.text += self.string_literal(content)
 
     @staticmethod
     def _typed_character_content(raw):
-        quoted = raw[raw.find("#") + 1:].strip()
-        content = quoted[1:-1] if len(quoted) >= 2 else quoted
-        content = re.sub(
-            r"\$\{([0-9A-Fa-f]{1,6})\}",
-            lambda match: (
-                chr(int(match.group(1), 16))
-                if int(match.group(1), 16) <= 0x10FFFF
-                and not 0xD800 <= int(match.group(1), 16) <= 0xDFFF
-                else "\ufffd"
-            ),
-            content,
-        )
-        content = re.sub(
-            r"\$([0-9A-Fa-f]{2}|[0-9A-Fa-f]{4})",
-            lambda match: chr(int(match.group(1), 16)),
-            content,
-        )
-        return content.replace("$N", "\n").replace("$n", "\n").replace("$T", "\t").replace("$t", "\t").replace("$$", "$").replace("''", "'").replace('""', '"')
+        return decode_character_literal(raw)
 
 
     def visit_typed_character_string(self, node):
@@ -370,9 +332,7 @@ class SharedLowering:
         if prefix in {"CHAR", "WCHAR"}:
             self.text += str(ord(content[0]) if content else 0)
             return
-        escaped = content.replace("\\", "\\\\").replace('"', '\\"')
-        escaped = escaped.replace("\n", "\\n").replace("\t", "\\t")
-        self.text += f'"{escaped}"'
+        self.text += self.string_literal(content)
 
 
     def visit_single_byte_character_string(self, node):

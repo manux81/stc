@@ -14,10 +14,13 @@ from .generator.ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop,
 from .generator.loader import GeneratorBundle, bundled_generator, load_generator
 from .sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
 from ..runtime.loader import render_primitives
+from .string_literals import rust_string_literal
 from ..semantic.types import ArrayType, EnumType, ReferenceType
 
 
 class RustCodeGenerator(SharedLowering, NodeVisitor):
+    string_literal = staticmethod(rust_string_literal)
+
 
 
     def _il_operation(self, instruction):
@@ -640,6 +643,8 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
         }
         if self._named_nodes(node, "assert_statement"):
             requested.add("ASSERT")
+        if self._needs_string_checks(node):
+            requested.add("STC_STRING_CHECK")
         if "LEN_CODE_UNIT" in requested:
             requested.add("WSTRING_LEN_CODE_UNIT")
         self._emit_section("IEC 61131-3 runtime support")
@@ -1436,6 +1441,7 @@ class RustCodeGenerator(SharedLowering, NodeVisitor):
             rendered = self.generator_engine.render(
                 "cast", Cast("", target_type, rendered)
             )
+        rendered = self._bounded_string_value(variable, rendered)
         variable_name = self._first_named(variable, "variable_name")
         symbol = (
             self.context.symbols.symbol_for_reference(variable_name)

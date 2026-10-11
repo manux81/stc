@@ -26,6 +26,7 @@ from .dependencies import DependencyAnalysis, topological_declaration_order
 from .edition import EditionCompatibilityCheck
 from .oop import Edition3ObjectOrientedCheck
 from .sfc import SequentialFunctionChartCheck
+from .strings import StringCapacityCheck
 from .pipeline import SemanticPipeline
 
 __all__ = [
@@ -57,4 +58,5 @@ __all__ = [
     "EditionCompatibilityCheck",
     "Edition3ObjectOrientedCheck",
     "SequentialFunctionChartCheck",
+    "StringCapacityCheck",
 ]
