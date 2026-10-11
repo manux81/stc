@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PARSER = ROOT / "src" / "stc" / "frontend" / "parser.py"
+PARSER = ROOT / "src" / "stc" / "parsing" / "parser.py"
 
 
 def parser_methods(source_path):

@@ -18,7 +18,7 @@ __version__ = "0.0.1"
 #    * for 0 or more  sly equivalent { ... }
 #    + for 1 or more  sly equivalent  element { element }
 
-from ..vendor.yacc import Parser
+from .third_party.sly.yacc import Parser
 from .lexer import IECLexer
 import os
 import sys

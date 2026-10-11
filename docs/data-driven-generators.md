@@ -12,11 +12,11 @@ escape hatch; every emitted keyword lives in a template.
 
 | Existing responsibility | Classification | Destination |
 |---|---|---|
-| parsing and IEC grammar | SEMANTIC | frontend/core |
-| symbol, overload and property resolution | SEMANTIC | semantic/core |
-| type compatibility and Edition checks | SEMANTIC | semantic/core |
-| inheritance, override/final/abstract validation | SEMANTIC | semantic/core |
-| SFC step/transition semantics and priority | SEMANTIC | semantic/core |
+| parsing and IEC grammar | SEMANTIC | parsing/ |
+| symbol, overload and property resolution | SEMANTIC | analysis/ |
+| type compatibility and Edition checks | SEMANTIC | analysis/ |
+| inheritance, override/final/abstract validation | SEMANTIC | analysis/ |
+| SFC step/transition semantics and priority | SEMANTIC | analysis/ |
 | IL opcode semantics and label resolution | SEMANTIC / LOWERING | IL index resolution in the adapters |
 | C/Rust primitive type spelling | TARGET RENDERING | `type` mapping in `types.gen` |
 | literal/operator spelling (incl. based prefixes) | TARGET RENDERING | mappings in `expressions.gen` |
@@ -27,7 +27,7 @@ escape hatch; every emitted keyword lives in a template.
 | FOR direction and bound/step evaluation | LOWERING | Lowered IR `ForLoop` |
 | call target and argument ordering | LOWERING | resolved `Call` + `parameter` joining |
 | FUNCTION/FB/PROGRAM state selection | LOWERING | POU rules in `pou.gen` |
-| method/property/interface resolution | SEMANTIC | semantic/core (`resolved_methods`, `resolved_properties`, `oop_assignments`) |
+| method/property/interface resolution | SEMANTIC | analysis/ (`resolved_methods`, `resolved_properties`, `oop_assignments`) |
 | virtual-dispatch variant selection (this/super/interface/variable) | LOWERING | variant rule selection in the adapters |
 | C vtables/fat pointers, Rust structs/`From` impls | TARGET RENDERING | `class`, `interface`, `adapter_entry`, `dispatch_entry` rules in `oop.gen` |
 | method parameter joining | TARGET RENDERING | `method_parameters` (`", "` lives in `.gen`) |

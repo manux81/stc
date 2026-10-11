@@ -7,7 +7,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from stc.frontend.ast_builder import AstBuilder
+from stc.parsing.ast_builder import AstBuilder
 from stc.compiler import CompilationResult, compile_source, parse_tree
 
 

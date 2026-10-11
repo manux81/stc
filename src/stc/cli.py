@@ -9,7 +9,7 @@ from time import perf_counter
 
 from .compiler import compile_source
 from .diagnostics import DiagnosticRenderer, DiagnosticStyle, should_use_color
-from .frontend.parser import ParsingError
+from .parsing.parser import ParsingError
 from .libraries import LibraryError
 from .native import NativePragmaError
 from .codegen.common.templates.loader import GeneratorError, load_generator

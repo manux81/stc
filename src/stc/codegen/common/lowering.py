@@ -1,10 +1,10 @@
 """Backend-neutral IEC lowering algorithms shared by reference adapters."""
 
 import re
-from ...frontend.strings import decode_character_literal
-from ...semantic.strings import target_string_spec
+from ...parsing.strings import decode_character_literal
+from ...analysis.strings import target_string_spec
 
-from ...semantic.types import ArrayType, EnumType
+from ...analysis.types import ArrayType, EnumType
 
 from .sfc import charts as sfc_charts, field as sfc_field
 from .ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop, UnaryExpression, WhileLoop

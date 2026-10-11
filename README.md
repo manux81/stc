@@ -13,6 +13,17 @@ Python. The current milestone turns the original grammar prototype into a
 usable command-line tool that can parse ST files and emit an AST, C, or Rust for
 the supported subset.
 
+## Project structure
+
+The compiler has three stages: **`parsing/` reads IEC source**, **`analysis/`
+checks names, types and IEC rules**, and **`codegen/` emits C or Rust**.
+`compiler.py` connects them. `templates/` defines target syntax; `library/`
+provides portable ST functions and native runtime support. The bundled SLY
+parser engine is contained in `parsing/third_party/sly/`.
+
+For the complete source map and concrete integration points, start with
+[the architecture and extension guide](docs/ARCHITECTURE.md).
+
 ## Current capabilities
 
 - IEC 61131-3 POU parsing for functions, function blocks, and programs.
@@ -83,6 +94,9 @@ The source layout separates compiler logic, syntax templates, and library code:
 
 ```text
 src/stc/
+├── compiler.py          # pipeline and public API
+├── parsing/             # source → AST
+├── analysis/            # names, types and IEC checks
 ├── codegen/
 │   ├── c/generator.py
 │   ├── rust/generator.py
@@ -250,7 +264,7 @@ runtime support that ST cannot provide.
 To add a primitive:
 
 1. If the function name is not already recognized as an IEC standard function,
-   add it to `standard_functions` in `src/stc/frontend/lexer.py`.
+   add it to `standard_functions` in `src/stc/parsing/lexer.py`.
 2. Add an implementation to each supported target file,
    `src/stc/library/c/primitives.c` and `src/stc/library/rust/primitives.rs`. Enclose
    each implementation in matching marker comments (primitive names are
@@ -393,7 +407,7 @@ source.
 
 ## Extending semantic analysis
 
-Semantic checks are organized under `src/stc/semantic/checks/`. Each check is a
+Semantic checks are organized under `src/stc/analysis/checks/`. Each check is a
 small registered class with explicit phase and dependencies. See
 [`docs/ADDING_SEMANTIC_CHECKS.md`](docs/ADDING_SEMANTIC_CHECKS.md) for a complete
 example.

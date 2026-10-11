@@ -8,18 +8,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .frontend.ast_builder import AstBuilder, ParseNode
-from .semantic.enum_conversions import inject_enum_conversion_functions
+from .parsing.ast_builder import AstBuilder, ParseNode
+from .analysis.enum_conversions import inject_enum_conversion_functions
 from .codegen.c import CCodeGenerator
 from .codegen.rust import RustCodeGenerator
 from .codegen.common.templates.loader import bundled_generator, load_generator
-from .frontend.lexer import IECLexer
-from .frontend.languages import normalize_source_language, prepare_textual_source
-from .frontend.parser import IECParser, ParsingError
+from .parsing.lexer import IECLexer
+from .parsing.languages import normalize_source_language, prepare_textual_source
+from .parsing.parser import IECParser, ParsingError
 from .libraries import LibraryError, LibraryResolver, ResolvedLibraries
 from .native import extract_native_pragmas
-from .semantic.analyzer import SemanticAnalyzer, SemanticError
-from .semantic.context import Diagnostic, SemanticContext
+from .analysis.analyzer import SemanticAnalyzer, SemanticError
+from .analysis.context import Diagnostic, SemanticContext
 from .source_map import SourceMap, build_source_map
 
 

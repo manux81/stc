@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Provide compatibility imports for the modular semantic checks.
 
-New code should import from ``semantic_checks``.  This module remains so older
+New code should import from ``stc.analysis.checks``.  This module remains so older
 imports and tests continue to work.
 """
 from .checks import *  # noqa: F401,F403

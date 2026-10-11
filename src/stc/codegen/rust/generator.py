@@ -15,7 +15,7 @@ from ..common.templates.loader import GeneratorBundle, bundled_generator, load_g
 from ..common.sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
 from ...library.loader import render_primitives
 from ..common.string_literals import rust_string_literal
-from ...semantic.types import ArrayType, EnumType, ReferenceType
+from ...analysis.types import ArrayType, EnumType, ReferenceType
 
 
 class RustCodeGenerator(SharedLowering, NodeVisitor):

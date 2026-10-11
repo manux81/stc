@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from stc.compiler import compile_source
-from stc.semantic.types import EnumType
+from stc.analysis.types import EnumType
 
 
 ENUM_SOURCE = """\

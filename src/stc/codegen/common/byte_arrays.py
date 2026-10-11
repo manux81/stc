@@ -1,7 +1,7 @@
 # Copyright (C) 2021-2026 Manuele Conti
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Render checked string/byte-array intrinsics through backend templates."""
-from ...semantic.checks.byte_arrays import conversion_call, STRING_TO_BYTES, BYTES_TO_STRING, resolved_byte_array
+from ...analysis.checks.byte_arrays import conversion_call, STRING_TO_BYTES, BYTES_TO_STRING, resolved_byte_array
 
 
 def array_size(generator, expression):

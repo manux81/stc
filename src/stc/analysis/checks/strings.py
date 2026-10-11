@@ -1,7 +1,7 @@
 # Copyright (C) 2021-2026 Manuele Conti
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Diagnose string-capacity errors that are known at compilation time."""
-from ...frontend.strings import decode_character_literal
+from ...parsing.strings import decode_character_literal
 from ..strings import string_spec, target_string_spec
 from .base import SemanticCheck, SemanticPhase, direct_children, register_check, walk
 

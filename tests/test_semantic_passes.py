@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT/'src'))
 from stc.compiler import parse_source
-from stc.semantic.analyzer import SemanticAnalyzer, SemanticError
-from stc.semantic.context import SemanticContext
-from stc.semantic.passes import ConstantFolder, CaseElementsCheck, topological_declaration_order
-from stc.semantic.symbol_table import SymbolTableBuilder
+from stc.analysis.analyzer import SemanticAnalyzer, SemanticError
+from stc.analysis.context import SemanticContext
+from stc.analysis.passes import ConstantFolder, CaseElementsCheck, topological_declaration_order
+from stc.analysis.symbol_table import SymbolTableBuilder
 
 def test_constant_folding_and_duplicate_case_label():
     ast=parse_source('''FUNCTION f : INT\nVAR_INPUT x : INT; END_VAR\nCASE x OF 1: f:=1; 1: f:=2; END_CASE;\nEND_FUNCTION\n''')

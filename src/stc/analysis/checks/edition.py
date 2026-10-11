@@ -3,7 +3,7 @@
 """Validate source constructs whose status changed between IEC editions."""
 
 import re
-from ...frontend.strings import decode_character_literal
+from ...parsing.strings import decode_character_literal
 
 from .base import SemanticCheck, SemanticPhase, register_check
 
