@@ -15,7 +15,7 @@ Status values used below:
 ## Edition 2 Instruction List
 
 Instruction List bodies are parsed as line-oriented IEC text and lowered by
-both single-file backends (`codegen/c.py` and `codegen/rust.py`). The supported
+both backends (`codegen/c/generator.py` and `codegen/rust/generator.py`). The supported
 subset covers load/store, Boolean and arithmetic operations, comparisons,
 set/reset, functions, returns, labels, and conditional/unconditional jumps.
 Rust lowers jumps through a program-counter dispatcher because Rust has no
@@ -89,12 +89,12 @@ Mutexes and semaphores are not yet claimed as implemented.
 
 ## Target primitive boundary
 
-Portable algorithms are defined in `src/stc/stdlib/standard-functions.st`. Operations
+Portable algorithms are defined in `src/stc/library/common/standard-functions.st`. Operations
 that depend on target string or machine representation are declared as compiler
 intrinsics and implemented in:
 
-- `src/stc/runtime/primitives.c`
-- `src/stc/runtime/primitives.rs`
+- `src/stc/library/c/primitives.c`
+- `src/stc/library/rust/primitives.rs`
 
 Generated files embed only referenced primitives and their declared
 dependencies. The Python generators contain lowering logic, not runtime

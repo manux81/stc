@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-STDLIB = ROOT / "src" / "stc" / "stdlib"
+STDLIB = ROOT / "src" / "stc" / "library" / "common"
 SAMPLE = ROOT / "examples" / "inter.st"
 FIXTURES = ROOT / "tests" / "fixtures"
 AST_COVERAGE = ROOT / "tools" / "ast_coverage.py"

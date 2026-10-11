@@ -12,9 +12,9 @@ from .diagnostics import DiagnosticRenderer, DiagnosticStyle, should_use_color
 from .frontend.parser import ParsingError
 from .libraries import LibraryError
 from .native import NativePragmaError
-from .codegen.generator.loader import GeneratorError, load_generator
-from .codegen.generator.schema import GENERATOR_API, generator_help
-from .codegen.generator.tools import create_generator_skeleton, validation_report
+from .codegen.common.templates.loader import GeneratorError, load_generator
+from .codegen.common.templates.schema import GENERATOR_API, generator_help
+from .codegen.common.templates.tools import create_generator_skeleton, validation_report
 
 
 VERSION = "0.2.0"
@@ -70,7 +70,7 @@ def build_arg_parser():
         "--generator",
         "--target",
         default="c",
-        help="Output generator name (bundled or discovered under generators/).",
+        help="Output generator name (bundled or discovered under templates/).",
     )
     parser.add_argument(
         "--generator-path",
@@ -92,7 +92,7 @@ def build_arg_parser():
     parser.add_argument(
         "--new-generator",
         metavar="NAME",
-        help="Create a runnable generators/NAME backend from a reference bundle.",
+        help="Create a runnable templates/NAME backend from a reference bundle.",
     )
     parser.add_argument("--generator-base", choices=("c", "rust"), default="c",
                         help="Reference backend copied by --new-generator (default: c).")

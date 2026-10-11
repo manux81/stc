@@ -375,7 +375,7 @@ END_CONFIGURATION
         result = compile_source(
             self.FIND_SOURCE,
             "c",
-            library_paths=[str(ROOT / "src" / "stc" / "stdlib")],
+            library_paths=[str(ROOT / "src" / "stc" / "library" / "common")],
             imports=["standard:FIND"],
         )
 
@@ -413,7 +413,7 @@ END_CONFIGURATION
         result = compile_source(
             self.FIND_SOURCE,
             "rust",
-            library_paths=[str(ROOT / "src" / "stc" / "stdlib")],
+            library_paths=[str(ROOT / "src" / "stc" / "library" / "common")],
             imports=["standard:FIND"],
         )
 

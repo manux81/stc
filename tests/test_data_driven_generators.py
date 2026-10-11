@@ -6,11 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stc.codegen.generator.engine import GeneratorEngine
-from stc.codegen.generator.ir import Assignment
-from stc.codegen.generator.loader import GeneratorError, bundled_generator, load_generator
-from stc.codegen.generator.schema import generator_help
-from stc.codegen.generator.tools import create_generator_skeleton
+from stc.codegen.common.templates.engine import GeneratorEngine
+from stc.codegen.common.ir import Assignment
+from stc.codegen.common.templates.loader import GeneratorError, bundled_generator, load_generator
+from stc.codegen.common.templates.schema import generator_help
+from stc.codegen.common.templates.tools import create_generator_skeleton
 from stc.compiler import compile_source
 
 

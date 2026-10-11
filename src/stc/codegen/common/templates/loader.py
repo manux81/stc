@@ -172,4 +172,4 @@ def load_generator(path: str | Path, *, require_complete: bool = True) -> Genera
 
 
 def bundled_generator(name: str) -> Path:
-    return Path(__file__).resolve().parents[2] / "generators" / name
+    return Path(__file__).resolve().parents[3] / "templates" / name

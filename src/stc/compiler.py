@@ -12,7 +12,7 @@ from .frontend.ast_builder import AstBuilder, ParseNode
 from .semantic.enum_conversions import inject_enum_conversion_functions
 from .codegen.c import CCodeGenerator
 from .codegen.rust import RustCodeGenerator
-from .codegen.generator.loader import bundled_generator, load_generator
+from .codegen.common.templates.loader import bundled_generator, load_generator
 from .frontend.lexer import IECLexer
 from .frontend.languages import normalize_source_language, prepare_textual_source
 from .frontend.parser import IECParser, ParsingError
@@ -25,7 +25,7 @@ from .source_map import SourceMap, build_source_map
 
 AstNode = dict[str, Any]
 CompilationTarget = str
-BUNDLED_LIBRARY_DIRECTORY = Path(__file__).resolve().parent / "stdlib"
+BUNDLED_LIBRARY_DIRECTORY = Path(__file__).resolve().parent / "library" / "common"
 
 
 def normalize_standard_edition(standard: str | int) -> int:
@@ -186,11 +186,11 @@ def compile_source(
     if generator_path is not None:
         generator_bundle = load_generator(generator_path)
     elif target not in {"c", "rust", "ast", "tree"}:
-        candidates = (Path.cwd() / "generators" / target, bundled_generator(target))
+        candidates = (Path.cwd() / "templates" / target, bundled_generator(target))
         generator_directory = next((candidate for candidate in candidates if candidate.is_dir()), None)
         if generator_directory is None:
             raise ValueError(
-                f"Unknown target {target!r}; create generators/{target}/ or use --generator-path"
+                f"Unknown target {target!r}; create templates/{target}/ or use --generator-path"
             )
         generator_bundle = load_generator(generator_directory)
     standard_edition = normalize_standard_edition(standard)

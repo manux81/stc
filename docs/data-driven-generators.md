@@ -36,20 +36,20 @@ escape hatch; every emitted keyword lives in a template.
 | C `goto` vs Rust program-counter dispatcher | TARGET RENDERING | `il_jump` + `il_dispatch` + `il_instruction` + `il_next` in `il.gen` |
 | IL linear vs dispatch form selection | LOWERING | semantic presence of jumps (`_il_has_jumps`) |
 | file header, reference trap, section layout | TARGET RENDERING | `preamble` in `language.gen` |
-| primitive dependency closure | RUNTIME (generic) | `runtime/loader.py` over backend-owned `primitives.<ext>` |
+| primitive dependency closure | RUNTIME (generic) | `library/loader.py` over backend-owned `primitives.<ext>` |
 | primitive bodies and emission | RUNTIME (target) | backend `primitives.<ext>` + `runtime_primitive` template |
 
-`codegen/c.py` and `codegen/rust.py` are now bundle-parameterized visitors:
+`codegen/c/generator.py` and `codegen/rust/generator.py` are now bundle-parameterized visitors:
 given any valid bundle they render that backend's syntax. `compiler.py`
 selects the reference visitor from explicit `adapter = "c"` / `"rust"` metadata
-(with extension-based fallback for older bundles), so `generators/<name>/` and
+(with extension-based fallback for older bundles), so `templates/<name>/` and
 `--generator-path` backends need no Python registration.
-`codegen/sfc.py` only extracts the backend-neutral SFC model (steps,
-transitions, actions); `codegen/visitor.py` only dispatches AST node names.
+`codegen/common/sfc.py` only extracts the backend-neutral SFC model (steps,
+transitions, actions); `codegen/common/visitor.py` only dispatches AST node names.
 
 ## 2. Lowered IR contract
 
-Lowering produces immutable typed records in `codegen/generator/ir.py`.
+Lowering produces immutable typed records in `codegen/common/ir.py`.
 Phase 1 introduced `Literal`, `UnaryExpression`, `BinaryExpression`,
 `Assignment`, `IfBranch`, `WhileLoop`, `RepeatLoop`. Phase 2 added `Cast`,
 resolved `Call`, `ArrayAccess`, `Reference`, direction-normalized `ForLoop`,
@@ -150,7 +150,7 @@ scheduler loop. Priority ordering and retention decisions remain semantic data.
 Both C and Rust render cyclic and SINGLE task handling through the same model.
 `global_variable` / `global_constant` render configuration globals.
 
-`codegen/lowering.py` also owns the deterministic SFC scan, common IL operand,
+`codegen/common/lowering.py` also owns the deterministic SFC scan, common IL operand,
 opcode and label algorithms, AST/declaration traversal helpers, and `OopModel`
 hierarchy queries. OOP interface ancestry is collected recursively.
 
@@ -175,7 +175,7 @@ the generated-code compile and execution tests provide that separate check.
 
 ## 6. External backend example
 
-Copy `src/stc/generators/c` outside the repository, change templates such as:
+Copy `src/stc/templates/c` outside the repository, change templates such as:
 
 ```toml
 [assignment]

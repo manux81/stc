@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Structural and profile-independent validation for textual SFC."""
 
-from ...codegen.sfc import ACTION_QUALIFIERS, TIMED_QUALIFIERS, charts
+from ...codegen.common.sfc import ACTION_QUALIFIERS, TIMED_QUALIFIERS, charts
 from ..symbol_table import normalize_identifier
 from .base import SemanticCheck, SemanticPhase, register_check
 

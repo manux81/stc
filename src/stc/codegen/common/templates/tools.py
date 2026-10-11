@@ -47,14 +47,14 @@ def create_generator_skeleton(name: str, destination: str | Path | None = None, 
         raise ValueError("generator base must be c or rust")
     source = bundled_generator(base)
     load_generator(source)
-    root = Path(destination) if destination is not None else Path("generators") / name
+    root = Path(destination) if destination is not None else Path("templates") / name
     root = root.expanduser().resolve()
     shutil.copytree(source, root)
     metadata = root / "language.gen"
     metadata.write_text(metadata.read_text(encoding="utf-8").replace(
         f'name = "{base}"', f'name = "{name}"', 1), encoding="utf-8")
     # Include runtime bodies so the reference copy is self-contained.
-    runtime = Path(__file__).resolve().parents[2] / "runtime"
+    runtime = Path(__file__).resolve().parents[3] / "library" / base
     extension = "rs" if base == "rust" else "c"
     shutil.copy2(runtime / f"primitives.{extension}", root / f"primitives.{extension}")
     shutil.copy2(runtime / f"byte_arrays.{extension}", root / f"byte_arrays.{extension}")

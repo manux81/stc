@@ -5,8 +5,8 @@
 Dependency resolution is generic: the certificates (names and dependencies)
 are parsed from ``STC_PRIMITIVE_BEGIN`` markers in whatever
 ``primitives.<extension>`` file the active generator bundle owns.  The bundle
-directory wins; the historical ``stc.runtime`` directory remains as a
-fallback for the bundled C and Rust backends.  Rendering goes through the
+directory wins; ``stc.library.c`` and ``stc.library.rust`` supply the bundled
+C and Rust implementations.  Rendering goes through the
 backend's ``[runtime_primitive]`` template, so no target branch lives here.
 """
 
@@ -62,7 +62,7 @@ def _primitive_source(extension: str, bundle_path: str | Path | None) -> str:
     if bundle_path is not None:
         candidates.append(Path(bundle_path) / f"primitives.{extension}")
     try:
-        candidates.append(Path(str(files("stc.runtime").joinpath(f"primitives.{extension}"))))
+        candidates.append(Path(str(files("stc.library").joinpath({"c": "c", "rs": "rust"}.get(extension, extension), f"primitives.{extension}"))))
     except (OSError, ValueError, TypeError):
         pass
     for candidate in candidates:
@@ -77,7 +77,7 @@ def _load_primitives(target: str, bundle_path: str = "") -> tuple[Primitive, ...
     source = _primitive_source(extension, bundle_path or None)
     byte_arrays = Path(bundle_path) / f"byte_arrays.{extension}" if bundle_path else None
     if byte_arrays is None or not byte_arrays.is_file():
-        byte_arrays = Path(__file__).with_name(f"byte_arrays.{extension}")
+        byte_arrays = Path(__file__).parent / {"c": "c", "rs": "rust"}.get(extension, extension) / f"byte_arrays.{extension}"
     if byte_arrays.is_file():
         source += "\n" + byte_arrays.read_text(encoding="utf-8")
     return _parse_primitives(source, extension)

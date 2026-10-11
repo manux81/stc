@@ -79,8 +79,26 @@ always emitted as one self-contained source file.
 ## Data-driven code generation
 
 The `gen-codedriven` work moves target rendering into editable `.gen` bundles.
-The bundled C and Rust definitions live in `src/stc/generators/c/` and
-`src/stc/generators/rust/`. Each bundle separates language metadata and the
+The source layout separates compiler logic, syntax templates, and library code:
+
+```text
+src/stc/
+├── codegen/
+│   ├── c/generator.py
+│   ├── rust/generator.py
+│   └── common/          # shared lowering, IR, and template engine
+├── templates/
+│   ├── c/
+│   └── rust/
+└── library/
+    ├── loader.py
+    ├── common/          # Structured Text functions and library manifest
+    ├── c/               # C runtime support
+    └── rust/            # Rust runtime support
+```
+
+The bundled C and Rust definitions live in `src/stc/templates/c/` and
+`src/stc/templates/rust/`. Each bundle separates language metadata and the
 file preamble, types, expressions, statements, POUs, OOP, SFC, IL, and runtime
 rendering into nine files.
 
@@ -107,7 +125,7 @@ Inspect the contract, validate a bundle, or create a new skeleton:
 ```sh
 python3 -m stc --gen-help
 python3 -m stc --gen-help assignment
-python3 -m stc --check-generator src/stc/generators/c
+python3 -m stc --check-generator src/stc/templates/c
 python3 -m stc --new-generator mybackend
 ```
 
@@ -127,7 +145,7 @@ python3 -m stc examples/inter.st --generator-path /path/to/mybackend
 python3 -m stc --check-generator /path/to/mybackend
 ```
 
-Named generators are searched under `generators/` in the current directory
+Named generators are searched under `templates/` in the current directory
 before the bundled definitions. External bundles require no Python
 registration. The bundle's `adapter = "c"` or `adapter = "rust"` metadata
 selects its reference adapter independently of its name and output extension.
@@ -138,7 +156,7 @@ This measures template API coverage, not full IEC language support. Named-type
 layouts, declarators, local/state declarations, zero-value spellings, globals,
 and configuration schedulers now have dedicated rules. Scheduler decisions,
 SFC scans, common IL operations, and OOP hierarchy queries share lowering code
-in `src/stc/codegen/lowering.py`.
+in `src/stc/codegen/common/lowering.py`.
 
 The template language stays declarative. Target adapters still handle ABI
 conventions and some target-specific expressions and initialization glue;
@@ -225,7 +243,7 @@ fallback for targets without a matching native pragma.
 
 Primitive functions are target-specific operations that the code generator
 embeds only when they are referenced by the input program. Prefer a portable
-Structured Text implementation in `src/stc/stdlib/standard-functions.st` when
+Structured Text implementation in `src/stc/library/common/standard-functions.st` when
 the operation can be expressed in ST; use a primitive for target intrinsics or
 runtime support that ST cannot provide.
 
@@ -234,7 +252,7 @@ To add a primitive:
 1. If the function name is not already recognized as an IEC standard function,
    add it to `standard_functions` in `src/stc/frontend/lexer.py`.
 2. Add an implementation to each supported target file,
-   `src/stc/runtime/primitives.c` and `src/stc/runtime/primitives.rs`. Enclose
+   `src/stc/library/c/primitives.c` and `src/stc/library/rust/primitives.rs`. Enclose
    each implementation in matching marker comments (primitive names are
    normalized to uppercase):
 

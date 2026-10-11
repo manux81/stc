@@ -6,16 +6,16 @@ import re
 import shutil
 import subprocess
 
-from .byte_arrays import emit_store as emit_byte_array_store, emit_call as emit_byte_array_call
-from .visitor import NodeVisitor
-from .lowering import OopModel, SharedLowering
-from .generator.engine import GeneratorEngine
-from .generator.ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop, UnaryExpression, WhileLoop
-from .generator.loader import GeneratorBundle, bundled_generator, load_generator
-from .sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
-from ..runtime.loader import render_primitives
-from .string_literals import rust_string_literal
-from ..semantic.types import ArrayType, EnumType, ReferenceType
+from ..common.byte_arrays import emit_store as emit_byte_array_store, emit_call as emit_byte_array_call
+from ..common.visitor import NodeVisitor
+from ..common.lowering import OopModel, SharedLowering
+from ..common.templates.engine import GeneratorEngine
+from ..common.ir import Assignment, Call, Cast, IfBranch, Literal, RepeatLoop, UnaryExpression, WhileLoop
+from ..common.templates.loader import GeneratorBundle, bundled_generator, load_generator
+from ..common.sfc import charts as sfc_charts, field as sfc_field, state_declarations as sfc_state_declarations
+from ...library.loader import render_primitives
+from ..common.string_literals import rust_string_literal
+from ...semantic.types import ArrayType, EnumType, ReferenceType
 
 
 class RustCodeGenerator(SharedLowering, NodeVisitor):
